@@ -13,6 +13,12 @@ PKG_FLAGS:=nonshared
 
 include $(INCLUDE_DIR)/package.mk
 
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	# Inject local board-2.bin overrides when present
+	[ -d $(CURDIR)/src ] && cp -f $(CURDIR)/src/board-* $(PKG_BUILD_DIR)/ || true
+endef
+
 define Build/Compile
 endef
 
@@ -78,6 +84,7 @@ ALLWIFIBOARDS:= \
 	prpl_haze \
 	qihoo_360v6 \
 	qnap_301w \
+	redmi_ax3000 \
 	redmi_ax6 \
 	skspruce_wia3300-20 \
 	spectrum_sax1v1k \
@@ -98,6 +105,7 @@ ALLWIFIBOARDS:= \
 	xiaomi_aiot-ac2350 \
 	xiaomi_ax3600 \
 	xiaomi_ax6000 \
+	xiaomi_cr881x \
 	xiaomi_ax9000 \
 	yyets_le1 \
 	yuncore_ax830 \
@@ -266,6 +274,7 @@ $(eval $(call generate-ipq-wifi-package,netgear_wax630,Netgear WAX630))
 $(eval $(call generate-ipq-wifi-package,qihoo_360v6,Qihoo 360V6))
 $(eval $(call generate-ipq-wifi-package,qnap_301w,QNAP 301w))
 $(eval $(call generate-ipq-wifi-package,prpl_haze,prpl Haze))
+$(eval $(call generate-ipq-wifi-package,redmi_ax3000,Redmi AX3000))
 $(eval $(call generate-ipq-wifi-package,redmi_ax6,Redmi AX6))
 $(eval $(call generate-ipq-wifi-package,skspruce_wia3300-20,SKSpruce WIA3300-20))
 $(eval $(call generate-ipq-wifi-package,spectrum_sax1v1k,Spectrum SAX1V1K))
@@ -286,6 +295,7 @@ $(eval $(call generate-ipq-wifi-package,wallys_dr40x9,Wallys DR40X9))
 $(eval $(call generate-ipq-wifi-package,xiaomi_aiot-ac2350,Xiaomi AIoT AC2350))
 $(eval $(call generate-ipq-wifi-package,xiaomi_ax3600,Xiaomi AX3600))
 $(eval $(call generate-ipq-wifi-package,xiaomi_ax6000,Xiaomi AX6000))
+$(eval $(call generate-ipq-wifi-package,xiaomi_cr881x,Xiaomi CR881x))
 $(eval $(call generate-ipq-wifi-package,xiaomi_ax9000,Xiaomi AX9000))
 $(eval $(call generate-ipq-wifi-package,yyets_le1,YYeTs LE1))
 $(eval $(call generate-ipq-wifi-package,yuncore_ax830,Yuncore AX830))

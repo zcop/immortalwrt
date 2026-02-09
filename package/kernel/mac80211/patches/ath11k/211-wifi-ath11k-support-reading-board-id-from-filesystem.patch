@@ -1,0 +1,45 @@
+--- a/drivers/net/wireless/ath/ath11k/qmi.c	2026-02-09 12:11:15.685880888 +0000
++++ b/drivers/net/wireless/ath/ath11k/qmi.c	2026-02-09 12:11:15.685880888 +0000
+@@ -2197,6 +2197,30 @@
+ 	return ret;
+ }
+ 
++static int ath11k_qmi_fetch_board_id_from_fs(struct ath11k_base *ab, u32 *board_id)
++{
++	const struct firmware *fw;
++	char buf[64];
++	int len;
++	int ret;
++
++	snprintf(buf, sizeof(buf), "board_id-%s-%s",
++		 ath11k_bus_str(ab->hif.bus), dev_name(ab->dev));
++
++	fw = ath11k_core_firmware_request(ab, buf);
++	if (IS_ERR(fw))
++		return PTR_ERR(fw);
++
++	len = min_t(int, fw->size, sizeof(buf) - 1);
++	memcpy(buf, fw->data, len);
++	buf[len] = '\0';
++
++	ret = kstrtouint(buf, 0, board_id);
++
++	release_firmware(fw);
++	return ret;
++}
++
+ static int ath11k_qmi_request_target_cap(struct ath11k_base *ab)
+ {
+ 	struct qmi_wlanfw_cap_req_msg_v01 req;
+@@ -2247,7 +2271,10 @@
+ 		ab->qmi.target.chip_family = resp.chip_info.chip_family;
+ 	}
+ 
+-	if (!of_property_read_u32(ab->dev->of_node, "qcom,board_id", &board_id) &&
++	if (!ath11k_qmi_fetch_board_id_from_fs(ab, &board_id) &&
++	    board_id != 0xFF)
++		ab->qmi.target.board_id = board_id;
++	else if (!of_property_read_u32(ab->dev->of_node, "qcom,board_id", &board_id) &&
+ 	    board_id != 0xFF)
+ 		ab->qmi.target.board_id = board_id;
+ 	else if (resp.board_info_valid)

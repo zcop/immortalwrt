@@ -4,6 +4,18 @@
 
 . /lib/functions/uci-defaults.sh
 
+bits() {
+	local val
+	val=0
+
+	while [ -n "$1" ]; do
+		val=$(( val | (1 << $1) ))
+		shift 1
+	done
+
+	printf "0x%x" "$val"
+}
+
 board_config_update
 
 board=$(board_name)
@@ -13,6 +25,9 @@ cmcc,pz-l8|\
 elecom,wrc-x3000gs2|\
 iodata,wn-dax3000gr)
 	ucidef_set_led_netdev "wan" "WAN" "green:wan" "wan" "tx rx link_10 link_100 link_1000"
+	;;
+redmi,ax3000)
+	ucidef_set_led_switch "wan" "WAN" "blue:internet" "switch1" "$( bits 4 )"
 	;;
 linksys,mr5500)
 	ucidef_set_led_netdev "lan1-port-link" "LAN1-PORT-LINK" "qca8k-0.0:00:green:lan" "lan1" "link_10 link_100 link_1000"
@@ -33,6 +48,9 @@ xiaomi,ax6000)
 	ucidef_set_led_netdev "wan-port-link" "WAN-PORT-LINK" "90000.mdio-1:08:green:wan" "wan" "tx rx link_10 link_100 link_1000 link_2500"
 	ucidef_set_led_netdev "wan-port-link-top-blue" "WAN-PORT-LINK-TOP-BLUE" "blue:wan" "wan" "link_1000 link_2500"
 	ucidef_set_led_netdev "wan-port-link-top-yellow" "WAN-PORT-LINK-TOP-YELLOW" "yellow:wan" "wan" "link_10 link_100"
+	;;
+xiaomi,cr881x)
+	ucidef_set_led_switch "wan" "WAN" "blue:internet" "switch0" "$( bits 3 )"
 	;;
 esac
 
