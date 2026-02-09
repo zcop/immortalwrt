@@ -30,7 +30,6 @@
                 "https://raw.githubusercontent.com"
         ],
 	"@GNU": [
-		"https://mirrors.tencent.com/gnu",
 		"https://mirrors.aliyun.com/gnu",
 		"https://mirrors.tuna.tsinghua.edu.cn/gnu",
 		"https://mirrors.ustc.edu.cn/gnu",

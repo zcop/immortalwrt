@@ -1,4 +1,5 @@
 . /lib/functions/bootconfig.sh
+. /lib/upgrade/mi_dualboot.sh
 
 PART_NAME=firmware
 REQUIRE_IMAGE_METADATA=1
@@ -166,6 +167,13 @@ linksys_mx_pre_upgrade() {
 }
 
 platform_check_image() {
+	case "$(board_name)" in
+	redmi,ax3000|\
+	xiaomi,cr881x)
+		mi_dualboot_check_image "$1"
+		return $?
+		;;
+	esac
 	return 0;
 }
 
@@ -179,6 +187,10 @@ platform_pre_upgrade() {
 
 platform_do_upgrade() {
 	case "$(board_name)" in
+	redmi,ax3000|\
+	xiaomi,cr881x)
+		mi_dualboot_do_upgrade "$1"
+		;;
 	cmcc,pz-l8|\
 	elecom,wrc-x3000gs2|\
 	iodata,wn-dax3000gr)
