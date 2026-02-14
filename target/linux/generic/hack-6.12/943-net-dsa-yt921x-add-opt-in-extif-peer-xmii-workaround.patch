@@ -1,0 +1,85 @@
+From 7ddf2c1c8f8f5ed0deef9cf8d3a3cc0d74d03e8d Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Fri, 13 Feb 2026 18:35:00 +0000
+Subject: [PATCH] net: dsa: yt921x: add opt-in extif peer XMII workaround
+
+Some older YT9215 bring-up code programs the external-interface selector so
+that when one extif is used as SerDes, the sibling extif is explicitly forced
+into XMII mode.
+
+Add an opt-in DT boolean `motorcomm,force-extif-peer-xmii` for experiments.
+When present on an external SerDes CPU port, the driver keeps that port on
+SerDes and forces its sibling extif (8 <-> 9) to XMII via `YT921X_XMII_CTRL`.
+
+This is intentionally disabled by default to avoid changing behavior on boards
+that use both extifs.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+--- a/drivers/net/dsa/yt921x.c
++++ b/drivers/net/dsa/yt921x.c
+@@ -188,6 +188,16 @@
+ #define to_yt921x_priv(_ds) container_of_const(_ds, struct yt921x_priv, ds)
+ #define to_device(priv) ((priv)->ds.dev)
+ 
++static int yt921x_extif_peer_port(int port)
++{
++	if (port == 8)
++		return 9;
++	if (port == 9)
++		return 8;
++
++	return -EINVAL;
++}
++
+ static int yt921x_reg_read(struct yt921x_priv *priv, u32 reg, u32 *valp);
+ 
+ static const char *yt921x_serdes_mode_name(int mode)
+@@ -2398,6 +2408,17 @@
+ 	if (res)
+ 		return res;
+ 
++	if (pp->force_extif_peer_xmii) {
++		int peer = yt921x_extif_peer_port(port);
++
++		if (peer >= 0) {
++			mask = YT921X_XMII_CTRL_PORTn(peer);
++			res = yt921x_reg_set_bits(priv, YT921X_XMII_CTRL, mask);
++			if (res)
++				return res;
++		}
++	}
++
+ 	mask = YT921X_SERDES_MODE_M;
+ 	if (pp->serdes_mode != YT921X_SERDES_MODE_AUTO) {
+ 		ctrl = pp->serdes_mode;
+@@ -2596,6 +2617,9 @@
+ 
+ 	pp->debug_port_regs = dn &&
+ 			      of_property_read_bool(dn, "motorcomm,debug-port-regs");
++	pp->force_extif_peer_xmii =
++		dn && of_property_read_bool(dn,
++					    "motorcomm,force-extif-peer-xmii");
+ 	res = yt921x_serdes_mode_parse(dev, port, dn, &serdes_mode);
+ 	if (res)
+ 		return res;
+@@ -2608,6 +2632,9 @@
+ 	if (pp->debug_port_regs)
+ 		dev_info(dev, "port %d: motorcomm,debug-port-regs enabled\n",
+ 			 port);
++	if (pp->force_extif_peer_xmii)
++		dev_info(dev, "port %d: motorcomm,force-extif-peer-xmii enabled\n",
++			 port);
+ 
+ 	mutex_lock(&priv->reg_lock);
+ 	res = yt921x_port_setup(priv, port);
+--- a/drivers/net/dsa/yt921x.h
++++ b/drivers/net/dsa/yt921x.h
+@@ -470,6 +470,7 @@
+ 	bool hairpin;
+ 	bool isolated;
+ 	bool debug_port_regs;
++	bool force_extif_peer_xmii;
+ 
+ 	struct delayed_work mib_read;
+ 	struct yt921x_mib mib;

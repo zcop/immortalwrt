@@ -1,0 +1,49 @@
+--- a/src/adpt/mp/adpt_mp_portctrl.c
++++ b/src/adpt/mp/adpt_mp_portctrl.c
+@@ -540,6 +540,7 @@
+ 	sw_error_t rv = SW_OK;
+ 	a_uint32_t gmac_id = 0;
+ 	union mac_configuration_u configuration;
++	a_bool_t force_port;
+ 
+ 	ADPT_DEV_ID_CHECK(dev_id);
+ 	MP_PORT_ID_CHECK(port_id);
+@@ -549,15 +550,12 @@
+ 	gmac_id = MP_PORT_TO_GMAC_ID(port_id);
+ 
+ 	rv = mp_mac_configuration_get(dev_id, gmac_id, &configuration);
++	force_port = hsl_port_feature_get(dev_id, port_id, PHY_F_FORCE);
+ 	SW_RTN_ON_ERROR(rv);
+ 
+ 	if (configuration.bf.port_select == GMAC_SPEED_1000M) {
+ 		port_mac_status->speed = FAL_SPEED_1000;
+-		/*
+-		 * MP MAC configuration does not expose a dedicated 2.5G speed bit.
+-		 * Preserve the configured force speed for force-port reporting.
+-		 */
+-		if (hsl_port_feature_get(dev_id, port_id, PHY_F_FORCE) == A_TRUE &&
++		if (force_port == A_TRUE &&
+ 			hsl_port_force_speed_get(dev_id, port_id) == FAL_SPEED_2500) {
+ 			port_mac_status->speed = FAL_SPEED_2500;
+ 		}
+@@ -575,6 +573,20 @@
+ 		port_mac_status->duplex = FAL_HALF_DUPLEX;
+ 	}
+ 
++	/*
++	 * Force ports used for switch-connected CPU links do not have a PHY to
++	 * report link state. Keep them logically up so MP netdev-change notify
++	 * can execute the link-up programming path (clock/reset/TXMAC/RXMAC).
++	 */
++	if (force_port == A_TRUE) {
++		port_mac_status->link_status = PORT_LINK_UP;
++		port_mac_status->tx_flowctrl = A_FALSE;
++		port_mac_status->rx_flowctrl = A_FALSE;
++	} else {
++		port_mac_status->link_status = configuration.bf.link_status ?
++			PORT_LINK_UP : PORT_LINK_DOWN;
++	}
++
+ 	return rv;
+ 
+ }

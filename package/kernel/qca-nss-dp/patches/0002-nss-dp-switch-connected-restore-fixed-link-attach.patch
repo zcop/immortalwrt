@@ -1,0 +1,60 @@
+From 9be95b87111aa52b7376445954e3489c4e9f8a2f Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai>
+Date: Fri, 13 Feb 2026 12:30:00 +0000
+Subject: [PATCH] nss-dp: switch-connected: restore fixed-link PHY attach path
+
+The previous switch-connected no-PHY experiment made ethtool reporting cleaner
+but can leave dataplane link programming dependent on out-of-band SSDK notify
+paths only. For 2.5G CPU links this appears fragile.
+
+Restore the normal fixed-link PHY attach/open path while keeping the
+qcom,is_switch_connected flag available to higher layers.
+---
+--- a/nss_dp_ethtools.c
++++ b/nss_dp_ethtools.c
+@@ -435,7 +435,7 @@
+ 
+         __ETHTOOL_DECLARE_LINK_MODE_MASK(supported) = { 0, };
+ 
+-	if (dp_priv->phydev && !dp_priv->is_switch_connected) {
++	if (dp_priv->phydev) {
+ 		return phy_ethtool_get_link_ksettings(dev, cmd);
+ 	}
+ 
+--- a/nss_dp_main.c
++++ b/nss_dp_main.c
+@@ -679,17 +679,12 @@
+ 
+ 	dp_priv->phy_node = of_parse_phandle(np, "phy-handle", 0);
+ 	if (!dp_priv->phy_node && of_phy_is_fixed_link(np)) {
+-		if (switch_connected) {
+-			pr_info("%s: switch-connected, skip fixed-link PHY attach\n",
+-				np->name);
+-		} else {
+-			int ret = of_phy_register_fixed_link(np);
+-			if (ret < 0) {
+-				pr_err("%s: fail to register fixed-link: %d\n", np->name, ret);
+-				return ret;
+-			}
+-			dp_priv->phy_node = of_node_get(np);
++		int ret = of_phy_register_fixed_link(np);
++		if (ret < 0) {
++			pr_err("%s: fail to register fixed-link: %d\n", np->name, ret);
++			return ret;
+ 		}
++		dp_priv->phy_node = of_node_get(np);
+ 	}
+ 
+ 	if (!dp_priv->phy_node)
+@@ -950,7 +945,7 @@
+ 
+ 	dp_priv->drv_flags |= NSS_DP_PRIV_FLAG(INIT_DONE);
+ 
+-	if (dp_priv->phy_node && !dp_priv->is_switch_connected) {
++	if (dp_priv->phy_node) {
+ 
+ 		dp_priv->phydev = of_phy_connect(netdev, dp_priv->phy_node,
+ 		        &nss_dp_adjust_link, 0,
+-- 
+2.49.0
+

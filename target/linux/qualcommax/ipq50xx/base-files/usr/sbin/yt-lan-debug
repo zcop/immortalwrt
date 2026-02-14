@@ -1,0 +1,118 @@
+#!/bin/sh
+
+set -eu
+
+DUR="${1:-25}"
+TARGET_IP="${2:-}"
+OUT_DIR="${3:-/tmp/yt-lan-debug-$(date +%Y%m%d-%H%M%S)}"
+
+mkdir -p "$OUT_DIR"
+
+log() {
+	printf '[%s] %s\n' "$(date '+%F %T')" "$*"
+}
+
+run() {
+	local cmd="$*"
+	log "+ $cmd"
+	sh -c "$cmd" >>"$OUT_DIR/run.log" 2>&1 || log "WARN: command failed: $cmd"
+}
+
+stat_sample() {
+	local ifname="$1"
+	local stats_base="/sys/class/net/$ifname/statistics"
+
+	[ -d "$stats_base" ] || return 0
+
+	printf '%s %s rx_packets=%s tx_packets=%s rx_bytes=%s tx_bytes=%s rx_errors=%s tx_errors=%s rx_dropped=%s tx_dropped=%s\n' \
+		"$(date '+%F %T')" "$ifname" \
+		"$(cat "$stats_base/rx_packets" 2>/dev/null || echo 0)" \
+		"$(cat "$stats_base/tx_packets" 2>/dev/null || echo 0)" \
+		"$(cat "$stats_base/rx_bytes" 2>/dev/null || echo 0)" \
+		"$(cat "$stats_base/tx_bytes" 2>/dev/null || echo 0)" \
+		"$(cat "$stats_base/rx_errors" 2>/dev/null || echo 0)" \
+		"$(cat "$stats_base/tx_errors" 2>/dev/null || echo 0)" \
+		"$(cat "$stats_base/rx_dropped" 2>/dev/null || echo 0)" \
+		"$(cat "$stats_base/tx_dropped" 2>/dev/null || echo 0)" \
+		>>"$OUT_DIR/link-stats.log"
+}
+
+log "collecting into $OUT_DIR (duration=${DUR}s target_ip=${TARGET_IP:-none})"
+
+run "uname -a"
+run "uptime"
+run "date"
+run "ip -d link show"
+run "ip -s link show"
+run "ip -4 addr show"
+run "ip -4 route show table main"
+run "bridge link"
+run "bridge vlan show"
+run "brctl show"
+run "ethtool eth1"
+run "ethtool -i eth1"
+run "ethtool -S eth1"
+run "ethtool lan1"
+run "ethtool -S lan1"
+run "dmesg | tail -n 300"
+run "cat /sys/class/net/br-lan/bridge/vlan_filtering"
+run "ls -l /sys/class/net/br-lan/brif"
+run "cat /sys/class/net/lan1/brport/state"
+run "cat /sys/class/net/lan2/brport/state"
+run "cat /sys/class/net/lan3/brport/state"
+
+tcpdump -ni eth1 -vv -xx -l >"$OUT_DIR/eth1-raw.txt" 2>&1 &
+P_ETH1_TXT=$!
+
+tcpdump -ni br-lan -e -vv -l 'arp or (udp port 67 or 68)' >"$OUT_DIR/br-lan-l2.txt" 2>&1 &
+P_BRLAN_TXT=$!
+
+tcpdump -ni lan1 -e -vv -l 'arp or (udp port 67 or 68)' >"$OUT_DIR/lan1-l2.txt" 2>&1 &
+P_LAN1_TXT=$!
+
+tcpdump -ni eth1 -s0 -U -w "$OUT_DIR/eth1.pcap" >/dev/null 2>&1 &
+P_ETH1_PCAP=$!
+
+tcpdump -ni br-lan -s0 -U -w "$OUT_DIR/br-lan.pcap" 'arp or (udp port 67 or 68)' >/dev/null 2>&1 &
+P_BRLAN_PCAP=$!
+
+tcpdump -ni lan1 -s0 -U -w "$OUT_DIR/lan1.pcap" 'arp or (udp port 67 or 68)' >/dev/null 2>&1 &
+P_LAN1_PCAP=$!
+
+if [ -n "$TARGET_IP" ]; then
+	(
+		i=0
+		while [ "$i" -lt "$DUR" ]; do
+			ping -c 1 -W 1 -I br-lan "$TARGET_IP" >>"$OUT_DIR/ping.log" 2>&1 || true
+			i=$((i + 1))
+		done
+	) &
+	P_PING=$!
+else
+	P_PING=""
+fi
+
+i=0
+while [ "$i" -lt "$DUR" ]; do
+	stat_sample eth1
+	stat_sample lan1
+	stat_sample br-lan
+	sleep 1
+	i=$((i + 1))
+done
+
+for p in "$P_ETH1_TXT" "$P_BRLAN_TXT" "$P_LAN1_TXT" "$P_ETH1_PCAP" "$P_BRLAN_PCAP" "$P_LAN1_PCAP" ${P_PING:-}; do
+	[ -n "${p:-}" ] || continue
+	kill "$p" 2>/dev/null || true
+done
+
+sleep 1
+
+run "ip -s link show"
+run "ethtool -S eth1"
+run "ethtool -S lan1"
+run "dmesg | tail -n 300"
+
+log "done. files:"
+ls -1 "$OUT_DIR"
+

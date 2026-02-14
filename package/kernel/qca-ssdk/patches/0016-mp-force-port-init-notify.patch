@@ -1,0 +1,30 @@
+--- a/src/init/ssdk_mp.c
++++ b/src/init/ssdk_mp.c
+@@ -75,6 +75,7 @@
+ {
+ 	sw_error_t rv = SW_OK;
+ 	adpt_api_t *p_api;
++	struct qca_phy_priv *priv = ssdk_phy_priv_data_get(dev_id);
+ 	a_uint32_t i = 0, mode = 0;
+ 	a_bool_t force_port;
+ 	fal_port_speed_t force_speed = FAL_SPEED_BUTT;
+@@ -110,6 +111,19 @@
+ 		SW_RTN_ON_ERROR(rv);
+ 		rv = p_api->adpt_port_mac_duplex_set(dev_id, i, force_duplex);
+ 		SW_RTN_ON_ERROR(rv);
++
++		/*
++		 * In switch-connected/no-PHY setups, force-port notify during init can
++		 * run before PHY status is available. Keep init alive on those early
++		 * return codes and rely on later NETDEV_CHANGE notify for full setup.
++		 */
++		if (force_port == A_TRUE &&
++			priv && p_api->adpt_port_netdev_notify_set) {
++			rv = p_api->adpt_port_netdev_notify_set(priv, i);
++			if (rv == SW_NOT_INITIALIZED || rv == SW_NOT_SUPPORTED)
++				rv = SW_OK;
++			SW_RTN_ON_ERROR(rv);
++		}
+ 	}
+ 
+ 	return rv;

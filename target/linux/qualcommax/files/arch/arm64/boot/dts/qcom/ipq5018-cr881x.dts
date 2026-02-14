@@ -371,7 +371,7 @@
 	status = "okay";
 
 	// TODO: YT9215 supports 2500base-x
-	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
+	switch_mac_mode = <MAC_MODE_SGMII_PLUS>;
 	switch_mac_mode1 = <MAC_MODE_DISABLED>;
 	switch_mac_mode2 = <MAC_MODE_DISABLED>;
 
@@ -393,7 +393,7 @@
 		// MAC1 -> Uniphy --- SGMII --- YT9215 Phy8
 		port@1 {
 			port_id = <2>;
-			forced-speed = <1000>;
+			forced-speed = <2500>;
 			forced-duplex = <1>;
 		};
 	};
@@ -411,13 +411,8 @@
 
 	nvmem-cells = <&mac_addr_dp2 0>;
 	nvmem-cell-names = "mac-address";
-
-	fixed-link {
-		speed = <1000>;
-		full-duplex;
-		pause;
-		asym-pause;
-	};
+	phy-mode = "2500base-x";
+	qcom,is_switch_connected;
 };
 
 
@@ -513,16 +508,17 @@
 				phy-handle = <&sw_phy4>;
 			};
 
-			// MAC8 ---SGMII---> IPQ5018 MAC1 (CPU: eth1)
+			// MAC8 ---REVSGMII(2.5G)--> IPQ5018 MAC1 (CPU: eth1)
 			port@8 {
 				reg = <8>;
-				phy-mode = "sgmii";
+				phy-mode = "2500base-x";
+				motorcomm,serdes-mode = "2500base-x";
+				motorcomm,force-extif-peer-xmii;
+				motorcomm,debug-port-regs;
 				ethernet = <&dp2>;
 				fixed-link {
-					speed = <1000>;
+					speed = <2500>;
 					full-duplex;
-					pause;
-					asym-pause;
 				};
 			};
 		};

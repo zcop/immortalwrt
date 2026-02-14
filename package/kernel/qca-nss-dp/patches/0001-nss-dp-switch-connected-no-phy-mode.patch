@@ -1,0 +1,86 @@
+From d7d480ca12f9bc4ddf3c96ecfd57ba3bf02a4de7 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai>
+Date: Thu, 12 Feb 2026 18:00:00 +0000
+Subject: [PATCH] nss-dp: keep switch-connected ports in no-PHY mode
+
+When a port is marked with qcom,is_switch_connected, avoid attaching a
+fixed-link PHY node in NSS DP. This keeps dataplane operation in no-PHY mode,
+allowing switch-managed links to use SSDK link/speed reporting.
+
+Also make ethtool link reporting prefer the SSDK path for these ports even if a
+PHY object is present.
+---
+--- a/nss_dp_ethtools.c
++++ b/nss_dp_ethtools.c
+@@ -435,7 +435,7 @@
+ 
+         __ETHTOOL_DECLARE_LINK_MODE_MASK(supported) = { 0, };
+ 
+-	if (dp_priv->phydev) {
++	if (dp_priv->phydev && !dp_priv->is_switch_connected) {
+ 		return phy_ethtool_get_link_ksettings(dev, cmd);
+ 	}
+ 
+--- a/nss_dp_main.c
++++ b/nss_dp_main.c
+@@ -658,6 +658,7 @@
+ 	uint8_t *maddr;
+ 	struct nss_dp_dev *dp_priv;
+ 	struct resource memres_devtree = {0};
++	bool switch_connected;
+ #if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 1, 0))
+ 	uint8_t mac_addr[ETH_ALEN];
+ #endif
+@@ -674,20 +675,25 @@
+ 		return -EFAULT;
+ 	}
+ 
++	switch_connected = of_property_read_bool(np, "qcom,is_switch_connected");
++
+ 	dp_priv->phy_node = of_parse_phandle(np, "phy-handle", 0);
+-	if(!dp_priv->phy_node) {
+-		if(of_phy_is_fixed_link(np)) {
++	if (!dp_priv->phy_node && of_phy_is_fixed_link(np)) {
++		if (switch_connected) {
++			pr_info("%s: switch-connected, skip fixed-link PHY attach\n",
++				np->name);
++		} else {
+ 			int ret = of_phy_register_fixed_link(np);
+-			if(ret < 0) {
++			if (ret < 0) {
+ 				pr_err("%s: fail to register fixed-link: %d\n", np->name, ret);
+-				return -EFAULT;
++				return ret;
+ 			}
++			dp_priv->phy_node = of_node_get(np);
+ 		}
+-		dp_priv->phy_node = of_node_get(np);
+ 	}
+ 
+-	if(!dp_priv->phy_node)
+-		pr_err("%s: no phy-handle or fixed-link found\n", np->name);
++	if (!dp_priv->phy_node)
++		pr_info("%s: no phy-handle/fixed-link, continue in no-PHY mode\n", np->name);
+ 
+ 	if (of_property_read_u32(np, "qcom,mactype", &hal_pdata->mactype)) {
+ 		pr_err("%s: error reading mactype\n", np->name);
+@@ -784,7 +790,7 @@
+ 	pr_debug("%s: ppe offload disabled: %d for macid %d\n", np->name,
+ 				dp_priv->ppe_offload_disabled, dp_priv->macid);
+ 
+-	dp_priv->is_switch_connected = of_property_read_bool(np, "qcom,is_switch_connected");
++	dp_priv->is_switch_connected = switch_connected;
+ 	pr_debug("%s: Switch attached to macid %d status: %d\n", np->name, dp_priv->macid, dp_priv->is_switch_connected);
+ 
+ 	/*
+@@ -944,7 +950,7 @@
+ 
+ 	dp_priv->drv_flags |= NSS_DP_PRIV_FLAG(INIT_DONE);
+ 
+-	if (dp_priv->phy_node) {
++	if (dp_priv->phy_node && !dp_priv->is_switch_connected) {
+ 
+ 		dp_priv->phydev = of_phy_connect(netdev, dp_priv->phy_node,
+ 		        &nss_dp_adjust_link, 0,
+-- 
+2.49.0

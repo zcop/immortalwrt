@@ -1,0 +1,103 @@
+From 2d9d734f20f2f281f9d8beeb2c8f1178ff1c1ad2 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Fri, 13 Feb 2026 20:22:00 +0000
+Subject: [PATCH] net: dsa: tag_yt921x: tx map in word2, keep rx bitmask fallback
+
+Put TX destination map in tag word2 and clear tag word3. Captured frames on
+this platform consistently use word2 for port-map semantics.
+
+Also add RX fallback decoding for bitmask-style source-port tags (valid +
+one-hot low 11-bit mask) while preserving the original cmd/port-field decode
+for known command values.
+
+Keep explicit skb padding for short frames.
+---
+--- a/net/dsa/tag_yt921x.c
++++ b/net/dsa/tag_yt921x.c
+@@ -41,6 +41,36 @@
+ #define YT921X_TAG_TX_PORTS_M		GENMASK(10, 0)
+ #define YT921X_TAG_TX_PORTn(port)	BIT(port)
+ 
++static int yt921x_tag_decode_rx(u16 rx, unsigned int *portp, u16 *cmdp)
++{
++	u16 cmd_field;
++	u16 mask_field;
++
++	if (!(rx & YT921X_TAG_PORT_EN))
++		return -EINVAL;
++
++	cmd_field = FIELD_GET(YT921X_TAG_RX_CMD_M, rx);
++	switch (cmd_field) {
++	case YT921X_TAG_RX_CMD_FORWARDED:
++	case YT921X_TAG_RX_CMD_UNK_UCAST:
++	case YT921X_TAG_RX_CMD_UNK_MCAST:
++		*portp = FIELD_GET(YT921X_TAG_RX_PORT_M, rx);
++		*cmdp = cmd_field;
++		return 0;
++	default:
++		break;
++	}
++
++	/* Fallback: some firmwares encode source port in low 11-bit one-hot. */
++	mask_field = rx & YT921X_TAG_TX_PORTS_M;
++	if (!mask_field || (mask_field & (mask_field - 1)))
++		return -EINVAL;
++
++	*portp = __ffs(mask_field);
++	*cmdp = 0xffff;
++	return 0;
++}
++
+ static struct sk_buff *
+ yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
+ {
+@@ -57,9 +87,13 @@
+ 	tag[0] = htons(ETH_P_YT921X);
+ 	/* VLAN tag unrelated when TX */
+ 	tag[1] = 0;
+-	tag[2] = 0;
++
+ 	tx = YT921X_TAG_PORT_EN | YT921X_TAG_TX_PORTn(port);
+-	tag[3] = htons(tx);
++	tag[2] = htons(tx);
++	tag[3] = 0;
++
++	if (unlikely(eth_skb_pad(skb)))
++		return NULL;
+ 
+ 	return skb;
+ }
+@@ -86,13 +120,12 @@
+ 
+ 	/* Locate which port this is coming from */
+ 	rx = ntohs(tag[2]);
+-	if (unlikely((rx & YT921X_TAG_PORT_EN) == 0)) {
++	if (unlikely(yt921x_tag_decode_rx(rx, &port, &cmd))) {
+ 		dev_warn_ratelimited(&netdev->dev,
+ 				     "Unexpected rx tag 0x%04x\n", rx);
+ 		return NULL;
+ 	}
+ 
+-	port = FIELD_GET(YT921X_TAG_RX_PORT_M, rx);
+ 	skb->dev = dsa_conduit_find_user(netdev, 0, port);
+ 	if (unlikely(!skb->dev)) {
+ 		dev_warn_ratelimited(&netdev->dev,
+@@ -100,12 +133,14 @@
+ 		return NULL;
+ 	}
+ 
+-	cmd = FIELD_GET(YT921X_TAG_RX_CMD_M, rx);
+ 	switch (cmd) {
+ 	case YT921X_TAG_RX_CMD_FORWARDED:
+ 		/* Already forwarded by hardware */
+ 		dsa_default_offload_fwd_mark(skb);
+ 		break;
++	case 0xffff:
++		/* bitmask-style fallback decode: no command field */
++		break;
+ 	case YT921X_TAG_RX_CMD_UNK_UCAST:
+ 	case YT921X_TAG_RX_CMD_UNK_MCAST:
+ 		/* NOTE: hardware doesn't distinguish between TRAP (copy to CPU
+-- 
+2.49.0
+

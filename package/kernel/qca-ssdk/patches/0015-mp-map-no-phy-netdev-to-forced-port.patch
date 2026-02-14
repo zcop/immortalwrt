@@ -1,0 +1,68 @@
+--- a/src/init/ssdk_init.c
++++ b/src/init/ssdk_init.c
+@@ -215,6 +215,38 @@
+ 	return qca_ssdk_phydev_to_port(dev_id, eth_dev->phydev);
+ }
+ 
++#ifdef MP
++static a_uint32_t
++ssdk_mp_netdev_to_port(a_uint32_t dev_id, struct net_device *dev)
++{
++	a_uint32_t port_id = 0;
++
++	if (!dev)
++		return 0;
++
++	if (dev->phydev != NULL) {
++		port_id = qca_ssdk_phydev_to_port(dev_id, dev->phydev);
++		if (port_id >= SSDK_PHYSICAL_PORT1 &&
++			port_id <= SSDK_PHYSICAL_PORT2)
++			return port_id;
++	}
++
++	/*
++	 * In switch-connected/no-PHY setups (e.g. nss-dp + fixed switch CPU link),
++	 * eth* can change state without an attached PHY object.
++	 * Fallback to the forced MP port from DT (normally physical port2).
++	 */
++	if (strncmp(dev->name, "eth", 3))
++		return 0;
++
++	for (port_id = SSDK_PHYSICAL_PORT1; port_id <= SSDK_PHYSICAL_PORT2; port_id++) {
++		if (hsl_port_feature_get(dev_id, port_id, PHY_F_FORCE))
++			return port_id;
++	}
++	return 0;
++}
++#endif
++
+ char *
+ ssdk_port_to_ifname(a_uint32_t dev_id, a_uint32_t port_id)
+ {
+@@ -2305,18 +2337,14 @@
+ 					SSDK_ERROR("Failed to get pointer\n");
+ 					return NOTIFY_DONE;
+ 				}
+-				if (dev->phydev != NULL) {
+-					port_id = qca_ssdk_phydev_to_port(priv->device_id,
+-						dev->phydev);
+-					if (port_id < SSDK_PHYSICAL_PORT1 ||
+-						port_id > SSDK_PHYSICAL_PORT2) {
+-						return NOTIFY_DONE;
+-					}
+-					rv = p_api->adpt_port_netdev_notify_set(priv, port_id);
+-					if (rv) {
+-						SSDK_ERROR("netdev change notify failed\n");
+-						return NOTIFY_DONE;
+-					}
++				port_id = ssdk_mp_netdev_to_port(priv->device_id, dev);
++				if (port_id < SSDK_PHYSICAL_PORT1 ||
++					port_id > SSDK_PHYSICAL_PORT2)
++					return NOTIFY_DONE;
++				rv = p_api->adpt_port_netdev_notify_set(priv, port_id);
++				if (rv) {
++					SSDK_ERROR("netdev change notify failed\n");
++					return NOTIFY_DONE;
+ 				}
+ 			}
+ 			break;

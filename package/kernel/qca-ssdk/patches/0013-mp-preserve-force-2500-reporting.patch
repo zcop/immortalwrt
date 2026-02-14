@@ -1,0 +1,43 @@
+--- a/src/adpt/mp/adpt_mp_portctrl.c
++++ b/src/adpt/mp/adpt_mp_portctrl.c
+@@ -551,9 +551,17 @@ adpt_mp_port_mac_status_get(a_uint32_t dev_id, a_uint32_t port_id,
+ 	rv = mp_mac_configuration_get(dev_id, gmac_id, &configuration);
+ 	SW_RTN_ON_ERROR(rv);
+ 
+ 	if (configuration.bf.port_select == GMAC_SPEED_1000M) {
+ 		port_mac_status->speed = FAL_SPEED_1000;
++		/*
++		 * MP MAC configuration does not expose a dedicated 2.5G speed bit.
++		 * Preserve the configured force speed for force-port reporting.
++		 */
++		if (hsl_port_feature_get(dev_id, port_id, PHY_F_FORCE) == A_TRUE &&
++			hsl_port_force_speed_get(dev_id, port_id) == FAL_SPEED_2500) {
++			port_mac_status->speed = FAL_SPEED_2500;
++		}
+ 	} else {
+ 		if (configuration.bf.mii_speed == GMAC_SPEED_100M) {
+ 			port_mac_status->speed = FAL_SPEED_100;
+ 		} else {
+@@ -589,14 +598,20 @@ adpt_mp_port_mac_speed_set(a_uint32_t dev_id, a_uint32_t port_id,
+ 	rv = mp_mac_configuration_get(dev_id, gmac_id, &configuration);
+ 	SW_RTN_ON_ERROR(rv);
+ 
+ 	if ((FAL_SPEED_1000 == speed) || (FAL_SPEED_2500 == speed)) {
+-		 configuration.bf.port_select = GMAC_SPEED_1000M;
++		/*
++		 * MP MAC uses the same select bit for 1G and 2.5G; 2.5G is driven by
++		 * the clock path configured in _adpt_mp_port_gcc_speed_clock_set().
++		 */
++		configuration.bf.port_select = GMAC_SPEED_1000M;
+ 	} else if (FAL_SPEED_100 == speed) {
+ 		configuration.bf.port_select = (~GMAC_SPEED_1000M) & 0x1;
+ 		configuration.bf.mii_speed = GMAC_SPEED_100M;
+-	} else if (FAL_SPEED_10== speed) {
++	} else if (FAL_SPEED_10 == speed) {
+ 		configuration.bf.port_select = (~GMAC_SPEED_1000M) & 0x1;
+ 		configuration.bf.mii_speed = GMAC_SPEED_10M;
++	} else {
++		return SW_NOT_SUPPORTED;
+ 	}
+ 
+ 	rv = mp_mac_configuration_set(dev_id, gmac_id, &configuration);

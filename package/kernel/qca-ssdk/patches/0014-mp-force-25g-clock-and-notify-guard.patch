@@ -1,0 +1,54 @@
+--- a/src/adpt/mp/adpt_mp_uniphy.c
++++ b/src/adpt/mp/adpt_mp_uniphy.c
+@@ -190,6 +190,8 @@ adpt_mp_uniphy_mode_ctrl_set(a_uint32_t dev_id,
+ 	sw_error_t rv = SW_OK;
+ 	union uniphy_mode_ctrl_u uniphy_mode_ctrl;
+ 	union uniphy_channel0_input_output_4_u uniphy_force_ctrl;
++	a_bool_t force_port = A_FALSE;
++	fal_port_speed_t force_speed = FAL_SPEED_BUTT;
+ 
+ 	memset(&uniphy_mode_ctrl, 0, sizeof(uniphy_mode_ctrl));
+ 	memset(&uniphy_force_ctrl, 0, sizeof(uniphy_force_ctrl));
+@@ -198,7 +200,9 @@ adpt_mp_uniphy_mode_ctrl_set(a_uint32_t dev_id,
+ 	rv = hppe_uniphy_channel0_input_output_4_get(dev_id, uniphy_index,
+ 		&uniphy_force_ctrl);
+ 	SW_RTN_ON_ERROR (rv);
+-	if (hsl_port_feature_get(dev_id, SSDK_PHYSICAL_PORT2, PHY_F_FORCE))
++	force_port = hsl_port_feature_get(dev_id, SSDK_PHYSICAL_PORT2, PHY_F_FORCE);
++	force_speed = hsl_port_force_speed_get(dev_id, SSDK_PHYSICAL_PORT2);
++	if (force_port && force_speed == FAL_SPEED_1000)
+ 	{
+ 		uniphy_force_ctrl.bf.newaddedfromhere_ch0_force_speed_25m =
+ 			UNIPHY_FORCE_SPEED_ENABLE;
+@@ -293,10 +297,17 @@ _adpt_mp_uniphy_clk_output_set(a_uint32_t dev_id, a_uint32_t index)
+ 	force_port = hsl_port_feature_get(dev_id, SSDK_PHYSICAL_PORT2, PHY_F_FORCE);
+ 	force_speed = hsl_port_force_speed_get(dev_id, SSDK_PHYSICAL_PORT2);
+ 
+-	if ((force_port) && (force_speed == FAL_SPEED_1000))
++	if (force_port && (force_speed == FAL_SPEED_1000))
+ 	{
+ 		_adpt_mp_uniphy_clk_output_ctrl_set(dev_id, index, UNIPHY_CLK_RATE_25M);
+ 	}
++	else if (force_port && (force_speed == FAL_SPEED_2500))
++	{
++		/*
++		 * SGMII+ 2.5G links require a 50MHz reference output.
++		 */
++		_adpt_mp_uniphy_clk_output_ctrl_set(dev_id, index, UNIPHY_CLK_RATE_50M);
++	}
+ 	phy_id = hsl_port_phyid_get(dev_id, SSDK_PHYSICAL_PORT2);
+ 	if (phy_id == QCA8030_PHY || phy_id == QCA8033_PHY || phy_id == QCA8035_PHY)
+ 	{
+--- a/src/init/ssdk_init.c
++++ b/src/init/ssdk_init.c
+@@ -2308,6 +2308,10 @@ ssdk_dev_event(struct notifier_block *this, unsigned long event, void *ptr)
+ 				if (dev->phydev != NULL) {
+ 					port_id = qca_ssdk_phydev_to_port(priv->device_id,
+ 						dev->phydev);
++					if (port_id < SSDK_PHYSICAL_PORT1 ||
++						port_id > SSDK_PHYSICAL_PORT2) {
++						return NOTIFY_DONE;
++					}
+ 					rv = p_api->adpt_port_netdev_notify_set(priv, port_id);
+ 					if (rv) {
+ 						SSDK_ERROR("netdev change notify failed\n");
