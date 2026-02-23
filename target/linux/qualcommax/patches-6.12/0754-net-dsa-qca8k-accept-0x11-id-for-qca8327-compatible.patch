@@ -1,0 +1,39 @@
+From 2cf8bc81f8f670a9165cc03be3f1de33cff9a26f Mon Sep 17 00:00:00 2001
+From: builder <builder@localhost>
+Date: Wed, 18 Feb 2026 16:56:00 +0000
+Subject: [PATCH] net: dsa: qca8k: treat 0x11/0x01 IDs as qca8337-compatible
+
+Some QCA83xx variants report switch device ID 0x11 or 0x01 on MDIO.
+Allow probing to continue when DT uses qca8337 compatible and
+force qca8337 code paths in the driver.
+
+---
+ drivers/net/dsa/qca/qca8k-common.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -1285,10 +1285,19 @@
+ 
+ 	id = QCA8K_MASK_CTRL_DEVICE_ID(val);
+ 	if (id != priv->info->id) {
+-		dev_err(priv->dev,
+-			"Switch id detected %x but expected %x",
+-			id, priv->info->id);
+-		return -ENODEV;
++		if (!(priv->info->id == QCA8K_ID_QCA8337 && (id == 0x11 || id == 0x01 || id == 0x03))) {
++			dev_err(priv->dev,
++				"Switch id detected %x but expected %x",
++				id, priv->info->id);
++			return -ENODEV;
++		}
++
++		dev_warn(priv->dev,
++			 "Switch id detected %x, continuing as qca8337 compatible",
++			 id);
++
++		/* Use the qca8337 behavior for later code paths. */
++		id = priv->info->id;
+ 	}
+ 
+ 	priv->switch_id = id;

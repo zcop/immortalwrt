@@ -8,6 +8,12 @@ touch /etc/config/ubootenv
 board=$(board_name)
 
 case "$board" in
+redmi,ax3000)
+	idx="$(find_mtd_index 0:APPSBLENV)"
+	[ -z "$idx" ] && idx="$(find_mtd_index 0:appsblenv)"
+	[ -n "$idx" ] && \
+		ubootenv_add_uci_config "/dev/mtd$idx" "0x0" "0x10000" "0x20000"
+	;;
 cmcc,pz-l8|\
 elecom,wrc-x3000gs2|\
 iodata,wn-dax3000gr|\

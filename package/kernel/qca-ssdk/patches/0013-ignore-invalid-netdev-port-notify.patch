@@ -1,0 +1,16 @@
+--- a/src/init/ssdk_init.c
++++ b/src/init/ssdk_init.c
+@@ -2331,6 +2331,13 @@ static int ssdk_dev_event(struct notifier_block *this, unsigned long event, voi
+ 				if (dev->phydev != NULL) {
+ 					port_id = qca_ssdk_phydev_to_port(priv->device_id,
+ 						dev->phydev);
++					/*
++					 * Some netdev change events map to non-switch devices
++					 * and return port 0. Ignore them instead of emitting
++					 * noisy "incorrect port 0" errors.
++					 */
++					if ((port_id < SSDK_PHYSICAL_PORT1) || (port_id >= SW_MAX_NR_PORT))
++						break;
+ 					rv = p_api->adpt_port_netdev_notify_set(priv, port_id);
+ 					if (rv) {
+ 						SSDK_ERROR("netdev change notify failed\n");

@@ -31,20 +31,15 @@
 		stdout-path = "serial0:115200n8";
 	};
 
-	reserved-memory {
-		// Not sure why but without this, WiFi will crash
-		tz_apps@4a400000 {
-			no-map;
-			// The size is incorrent, but it works
-			reg = <0x0 0x4a400000 0x0 0x700000>;
-		};
+};
 
-		q6_mem_regions: q6_mem_regions@4b000000 {
-			no-map;
-			// reg = <0x0 0x4b000000 0x0 0x3b00000>;
-			reg = <0x0 0x4b000000 0x0 0x3000000>;
-		};
-	};
+&sleep_clk {
+	clock-frequency = <32000>;
+};
+
+&xo_board_clk {
+	clock-div = <4>;
+	clock-mult = <1>;
 };
 
 &tlmm {
@@ -154,9 +149,23 @@
 };
 
 &qpic_nand {
+	compatible = "qcom,ipq5018-snand", "qcom,ipq9574-snand", "qcom,ebi2-nandc-bam-v2.1.1";
 	pinctrl-0 = <&qspi_nand_pins>;
 	pinctrl-names = "default";
 	status = "okay";
+
+	nand@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		nand-ecc-engine = <&qpic_nand>;
+
+		partitions {
+			compatible = "qcom,smem-part";
+		};
+	};
 };
 
 &soc {
@@ -215,9 +224,15 @@
 
 	// mdio-bus = <&mdio0>;
 
-	// switch_cpu_bmp = <ESS_PORT0>;
-	// switch_lan_bmp = <(ESS_PORT1 | ESS_PORT2)>;
 	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
+	switch_mac_mode1 = <MAC_MODE_DISABLED>;
+	switch_mac_mode2 = <MAC_MODE_DISABLED>;
+
+	// ESS port bitmaps (match MAC0/MAC1 usage in qcom,port_phyinfo)
+	switch_cpu_bmp = <ESS_PORT0>;
+	switch_wan_bmp = <ESS_PORT1>;
+	switch_lan_bmp = <ESS_PORT2>;
+	switch_inner_bmp = <ESS_PORT7>;
 
 	qcom,port_phyinfo {
 		// MAC0 -> GE Phy -> QCA8337 Phy4
@@ -226,7 +241,6 @@
 			mdiobus = <&mdio0>;
 			phy_address = <7>;
 			phy_dac = <0x10 0x10>;
-			// status = "disabled";
 		};
 
 		// MAC1 ---SGMII---> QCA8337 SerDes
@@ -238,7 +252,7 @@
 	};
 };
 
-// MAC0 -> GE Phy
+// MAC0 -> GE PHY
 &dp1 {
 	/*
 	 * ===============================================================
@@ -287,6 +301,8 @@
 	status = "okay";
 
 	reset-gpios = <&tlmm 26 GPIO_ACTIVE_LOW>;
+	reset-delay-us = <10000>;
+	reset-post-delay-us = <50000>;
 
 	// QCA8337 Phy0 -> LAN1
 	qca8337_0: ethernet-phy@0 {
@@ -370,11 +386,11 @@
 };
 
 &q6v5_wcss {
-	memory-region = <&q6_mem_regions>;
+	memory-region = <&q6_region>;
 
-	firmware-name = "IPQ5018/q6_fw.mdt",
-			"IPQ5018/m3_fw.mdt",
-			"qcn6122/m3_fw.mdt";
+	firmware-name = "ath11k/IPQ5018/hw1.0/q6_fw.mdt",
+			"ath11k/IPQ5018/hw1.0/m3_fw.mdt",
+			"ath11k/QCN6122/hw1.0/m3_fw.mdt";
 
 	qcom,bootargs_smem = <507>;
 	boot-args = </*       type: */ 0x2 /* PCIE1 */
@@ -430,8 +446,8 @@
 			"stop",
 			"spawn";
 
-		firmware-name = "IPQ5018/q6_fw.mdt";
-		// m3_firmware = "IPQ5018/m3_fw.mdt";
+		firmware-name = "ath11k/IPQ5018/hw1.0/q6_fw.mdt";
+		// m3_firmware = "ath11k/IPQ5018/hw1.0/m3_fw.mdt";
 	};
 
 	// QCN6102
@@ -456,8 +472,8 @@
 			"stop",
 			"spawn";
 
-		firmware-name = "IPQ5018/q6_fw.mdt";
-		// m3_firmware = "qcn6122/m3_fw.mdt";
+		firmware-name = "ath11k/IPQ5018/hw1.0/q6_fw.mdt";
+		// m3_firmware = "ath11k/QCN6122/hw1.0/m3_fw.mdt";
 	};
 };
 
@@ -484,6 +500,7 @@
 &wifi1 {
 	// QCN6102
 	qcom,rproc = <&q6_wcss_pd2>;
+	qcom,userpd-subsys-name = "q6v5_wcss_userpd2";
 
 	qcom,board_id = <0x60>;
 

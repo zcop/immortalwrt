@@ -1,0 +1,42 @@
+From 11f16e621fcf8d24c62931253d639523a8b2ccde Mon Sep 17 00:00:00 2001
+From: builder <builder@local>
+Date: Wed, 18 Feb 2026 12:00:00 +0000
+Subject: [PATCH] spi: spi-qpic-snand: ipq5018: keep legacy ECC selection
+
+Older ipq50xx images relied on the 6.6-era behavior where ECC mode was
+derived from NAND OOB size (BCH4 for OOB64, BCH8 for OOB128), instead of
+using the SPI-NAND chip ECC requirement table.
+
+On some Redmi AX3000/CR880x variants this is needed to stay compatible with
+existing factory-programmed data and avoid UBI attach failures caused by ECC
+mode mismatch after upgrading to newer kernels.
+
+Keep this legacy selection path for IPQ5018 unless the user explicitly sets
+ECC properties in DT.
+
+Signed-off-by: builder <builder@local>
+---
+ drivers/spi/spi-qpic-snand.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+--- a/drivers/spi/spi-qpic-snand.c
++++ b/drivers/spi/spi-qpic-snand.c
+@@ -274,7 +274,17 @@ static int qcom_spi_ecc_init_ctx_pipelined(struct nand_device *nand)
+ 	if (user->step_size && user->strength) {
+ 		ecc_cfg->step_size = user->step_size;
+ 		ecc_cfg->strength = user->strength;
+-	} else if (reqs->step_size && reqs->strength) {
++	} else if (of_device_is_compatible(snandc->dev->of_node,
++					   "qcom,ipq5018-snand")) {
++		/*
++		 * Keep ipq50xx behavior from 6.6 where ECC mode is inferred
++		 * from OOB size (BCH4 for OOB64, BCH8 for OOB128). This keeps
++		 * compatibility with existing flashes written using the older
++		 * policy.
++		 */
++		ecc_cfg->step_size = NANDC_STEP_SIZE;
++		ecc_cfg->strength = mtd->oobsize > 64 ? 8 : 4;
++	} else if (reqs->step_size && reqs->strength) {
+ 		ecc_cfg->step_size = reqs->step_size;
+ 		ecc_cfg->strength = reqs->strength;
+ 	} else {
