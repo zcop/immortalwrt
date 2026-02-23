@@ -11,7 +11,20 @@ if (fs.lsdir(path)) {
 	exit(0);
 }
 
-let fp = fs.popen('fw_printenv');
+/*
+ * Skip loading when no env config is available yet (e.g. early boot before
+ * overlay/config is ready), so fw_printenv doesn't emit noisy warnings.
+ */
+let cmd = null;
+
+if (fs.stat('/etc/fw_env.config'))
+	cmd = 'fw_printenv 2>/dev/null';
+else if (fs.stat('/etc/fw_sys.config'))
+	cmd = 'fw_printenv -c /etc/fw_sys.config 2>/dev/null';
+else
+	exit(0);
+
+let fp = fs.popen(cmd);
 let raw = fp.read('all');
 fp.close();
 
