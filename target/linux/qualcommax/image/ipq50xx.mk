@@ -266,3 +266,24 @@ define Device/zyxel_scr50axe
 		ipq-wifi-zyxel_scr50axe
 endef
 TARGET_DEVICES += zyxel_scr50axe
+
+define Device/wf810df
+	$(call Device/FitImage)
+	$(call Device/UbiFit)
+	DEVICE_DTS := ipq5018-wf810df
+	DEVICE_DTS_CONFIG := config@mp03.3-c3
+	DEVICE_VENDOR := FPT
+	DEVICE_MODEL := AX3000CV2
+	DEVICE_ALT0_VENDOR := Actiontec
+	DEVICE_ALT0_MODEL := WF810DF
+	SUPPORTED_DEVICES += fpt_ax3000cv2 fpt,ax3000cv2 actiontec,wf810df
+	SOC := ipq5018
+	BLOCKSIZE := 128k
+	PAGESIZE := 2048
+	NAND_SIZE := 256m
+	UBINIZE_OPTS := -E 5
+	DEVICE_PACKAGES := ath11k-firmware-ipq5018-qcn6122 \
+		kmod-dsa-yt921x \
+		kmod-mdio-gpio
+endef
+TARGET_DEVICES += wf810df

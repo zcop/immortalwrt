@@ -1,0 +1,474 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+/dts-v1/;
+
+#include "ipq5018.dtsi"
+#include "ipq5018-ess.dtsi"
+#include "ipq5018-qcn6122.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/net/qcom-ipq-ess.h>
+
+/ {
+	model = "FPT AX3000CV2";
+	compatible = "fpt,wf810df", "fpt,ax3000cv2", "actiontec,wf810df",
+		     "qcom,ipq5018";
+
+	aliases {
+		serial0 = &blsp1_uart1;
+		label-mac-device = &dp1;
+
+		ethernet0 = &dp1;
+		ethernet1 = &dp2;
+
+		led-boot = &led_red;
+		led-failsafe = &led_red;
+		led-running = &led_white;
+		led-upgrade = &led_red;
+	};
+
+	chosen {
+		bootargs-append = " root=/dev/ubiblock0_1 coherent_pool=2M";
+		stdout-path = "serial0:115200n8";
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&button_pins>;
+		pinctrl-names = "default";
+
+		reset {
+			label = "reset";
+			gpios = <&tlmm 27 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+			linux,input-type = <EV_KEY>;
+			debounce-interval = <60>;
+		};
+
+		wps {
+			label = "wps";
+			gpios = <&tlmm 26 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_WPS_BUTTON>;
+			linux,input-type = <EV_KEY>;
+			debounce-interval = <60>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-0 = <&leds_pins>;
+		pinctrl-names = "default";
+
+		led_red: led-red {
+			color = <LED_COLOR_ID_RED>;
+			function = LED_FUNCTION_POWER;
+			gpios = <&tlmm 0 GPIO_ACTIVE_HIGH>;
+		};
+
+		led_white: led-white {
+			color = <LED_COLOR_ID_WHITE>;
+			function = LED_FUNCTION_STATUS;
+			gpios = <&tlmm 1 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	mdio_bitbang: mdio-gpio {
+		compatible = "virtual,mdio-gpio";
+		pinctrl-0 = <&mdio_gpio_pins>;
+		pinctrl-names = "default";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		gpios = <&tlmm 36 GPIO_ACTIVE_HIGH>,
+			<&tlmm 37 GPIO_ACTIVE_HIGH>;
+
+		ethernet-switch@1d {
+			compatible = "motorcomm,yt9215";
+			reg = <0x1d>;
+
+			reset-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
+			reset-assert-us = <20000>;
+			reset-deassert-us = <200000>;
+
+			mdio {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				sw_phy0: phy@0 {
+					reg = <0>;
+				};
+
+				sw_phy1: phy@1 {
+					reg = <1>;
+				};
+
+				sw_phy2: phy@2 {
+					reg = <2>;
+				};
+			};
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					label = "lan1";
+					phy-mode = "internal";
+					phy-handle = <&sw_phy0>;
+				};
+
+				port@1 {
+					reg = <1>;
+					label = "lan2";
+					phy-mode = "internal";
+					phy-handle = <&sw_phy1>;
+				};
+
+				port@2 {
+					reg = <2>;
+					label = "lan3";
+					phy-mode = "internal";
+					phy-handle = <&sw_phy2>;
+				};
+
+				/* Current upstream yt921x support models the CPU link on port 8. */
+				port@8 {
+					reg = <8>;
+					phy-mode = "sgmii";
+					ethernet = <&dp2>;
+
+					fixed-link {
+						speed = <1000>;
+						full-duplex;
+						pause;
+						asym-pause;
+					};
+				};
+			};
+		};
+	};
+};
+
+&sleep_clk {
+	clock-frequency = <32000>;
+};
+
+&xo_board_clk {
+	clock-div = <4>;
+	clock-mult = <1>;
+};
+
+&switch {
+	status = "okay";
+
+	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
+
+	qcom,port_phyinfo {
+		/* MAC0 -> integrated GE PHY -> WAN */
+		port@0 {
+			port_id = <1>;
+			mdiobus = <&mdio0>;
+			phy_address = <7>;
+		};
+
+		/* MAC1 -> YT9215 CPU port */
+		port@1 {
+			port_id = <2>;
+			forced-speed = <1000>;
+			forced-duplex = <1>;
+		};
+	};
+};
+
+&mdio0 {
+	status = "okay";
+};
+
+&ge_phy {
+	qcom,dac-preset-short-cable;
+};
+
+&dp1 {
+	status = "okay";
+	label = "wan";
+
+	nvmem-cells = <&macaddr_appsblenv_ethaddr 0>;
+	nvmem-cell-names = "mac-address";
+};
+
+&dp2 {
+	status = "okay";
+	label = "lan";
+
+	nvmem-cells = <&macaddr_appsblenv_ethaddr 1>;
+	nvmem-cell-names = "mac-address";
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+		pause;
+		asym-pause;
+	};
+};
+
+&blsp1_uart1 {
+	pinctrl-0 = <&serial_0_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&crypto {
+	status = "okay";
+};
+
+&cryptobam {
+	status = "okay";
+};
+
+&prng {
+	status = "okay";
+};
+
+&qfprom {
+	status = "okay";
+};
+
+&qpic_bam {
+	status = "okay";
+};
+
+&qpic_nand {
+	pinctrl-0 = <&qpic_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		nand-ecc-engine = <&qpic_nand>;
+		nand-ecc-strength = <8>;
+		nand-ecc-step-size = <512>;
+		nand-bus-width = <8>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "0:SBL1";
+				reg = <0x00000000 0x00080000>;
+				read-only;
+			};
+
+			partition@80000 {
+				label = "0:MIBIB";
+				reg = <0x00080000 0x00080000>;
+				read-only;
+			};
+
+			partition@100000 {
+				label = "0:BOOTCONFIG";
+				reg = <0x00100000 0x00040000>;
+				read-only;
+			};
+
+			partition@140000 {
+				label = "0:BOOTCONFIG1";
+				reg = <0x00140000 0x00040000>;
+				read-only;
+			};
+
+			partition@180000 {
+				label = "0:QSEE";
+				reg = <0x00180000 0x00100000>;
+				read-only;
+			};
+
+			partition@280000 {
+				label = "0:QSEE_1";
+				reg = <0x00280000 0x00100000>;
+				read-only;
+			};
+
+			partition@380000 {
+				label = "0:DEVCFG";
+				reg = <0x00380000 0x00040000>;
+				read-only;
+			};
+
+			partition@3c0000 {
+				label = "0:DEVCFG_1";
+				reg = <0x003c0000 0x00040000>;
+				read-only;
+			};
+
+			partition@400000 {
+				label = "0:CDT";
+				reg = <0x00400000 0x00040000>;
+				read-only;
+			};
+
+			partition@440000 {
+				label = "0:CDT_1";
+				reg = <0x00440000 0x00040000>;
+				read-only;
+			};
+
+			partition@480000 {
+				label = "0:APPSBLENV";
+				reg = <0x00480000 0x00080000>;
+
+				nvmem-layout {
+					compatible = "u-boot,env";
+
+					macaddr_appsblenv_ethaddr: ethaddr {
+						compatible = "mac-base";
+						#nvmem-cell-cells = <1>;
+					};
+				};
+			};
+
+			partition@500000 {
+				label = "0:APPSBL";
+				reg = <0x00500000 0x00140000>;
+				read-only;
+			};
+
+			partition@640000 {
+				label = "0:APPSBL_1";
+				reg = <0x00640000 0x00140000>;
+				read-only;
+			};
+
+			partition@780000 {
+				label = "0:ART";
+				reg = <0x00780000 0x00100000>;
+				read-only;
+			};
+
+			partition@880000 {
+				label = "0:TRAINING";
+				reg = <0x00880000 0x00080000>;
+				read-only;
+			};
+
+			partition@900000 {
+				label = "APPSBLENV_1";
+				reg = <0x00900000 0x00080000>;
+				read-only;
+			};
+
+			partition@980000 {
+				label = "ART_1";
+				reg = <0x00980000 0x00100000>;
+				read-only;
+			};
+
+			partition@a80000 {
+				label = "TRAINING_1";
+				reg = <0x00a80000 0x00080000>;
+				read-only;
+			};
+
+			partition@b00000 {
+				label = "cert";
+				reg = <0x00b00000 0x00100000>;
+				read-only;
+			};
+
+			partition@c00000 {
+				label = "cert_1";
+				reg = <0x00c00000 0x00100000>;
+				read-only;
+			};
+
+			partition@d00000 {
+				label = "rootfs";
+				reg = <0x00d00000 0x0f300000>;
+			};
+		};
+	};
+};
+
+&tlmm {
+	mdio_gpio_pins: mdio-gpio-pins {
+		pins = "gpio36", "gpio37";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	leds_pins: leds-pins {
+		pins = "gpio0", "gpio1";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-down;
+	};
+
+	button_pins: button-pins {
+		pins = "gpio27", "gpio26";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	qpic_pins: qpic-state {
+		clock-pins {
+			pins = "gpio9";
+			function = "qspi_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		cs-pins {
+			pins = "gpio8";
+			function = "qspi_cs";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		data-pins {
+			pins = "gpio4", "gpio5", "gpio6", "gpio7";
+			function = "qspi_data";
+			drive-strength = <8>;
+			bias-disable;
+		};
+	};
+
+	serial_0_pins: uart0-state {
+		pins = "gpio20", "gpio21";
+		function = "blsp0_uart0";
+		drive-strength = <8>;
+		bias-disable;
+	};
+};
+
+&q6v5_wcss {
+	boot-args = <0x2 4 2 18 0 0>;
+};
+
+&wifi {
+	status = "okay";
+
+	qcom,rproc = <&q6_wcss_pd1>;
+	qcom,userpd-subsys-name = "q6v5_wcss_userpd1";
+	qcom,ath11k-fw-memory-mode = <1>;
+	qcom,bdf-addr = <0x4c400000>;
+};
+
+&wifi1 {
+	status = "okay";
+
+	qcom,rproc = <&q6_wcss_pd2>;
+	qcom,userpd-subsys-name = "q6v5_wcss_userpd2";
+	qcom,ath11k-fw-memory-mode = <1>;
+	qcom,bdf-addr = <0x4d100000>;
+	qcom,m3-dump-addr = <0x4df00000>;
+};

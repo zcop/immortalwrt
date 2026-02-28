@@ -242,7 +242,9 @@ platform_do_upgrade() {
 		;;
 	yuncore,ax830|\
 	yuncore,ax850|\
-	zyxel,scr50axe)
+	zyxel,scr50axe|\
+	fpt,ax3000cv2|\
+	fpt,wf810df)
 		CI_UBIPART="rootfs"
 		remove_oem_ubi_volume ubi_rootfs
 		remove_oem_ubi_volume bt_fw
