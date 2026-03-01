@@ -1,0 +1,13 @@
+#!/bin/sh
+
+ip="$(uci -q get network.lan.ipaddr)"
+
+case "$ip" in
+    ""|"192.168.1.1"|"192.168.1.1/24")
+        uci set network.lan.ipaddr='192.168.2.1/24'
+        uci -q delete network.lan.netmask
+        uci commit network
+    ;;
+esac
+
+exit 0
