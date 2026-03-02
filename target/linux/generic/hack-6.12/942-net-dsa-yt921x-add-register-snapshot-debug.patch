@@ -1,0 +1,91 @@
+--- a/drivers/net/dsa/yt921x.c	2026-03-01 20:41:54.404899171 +0000
++++ b/drivers/net/dsa/yt921x.c	2026-03-01 20:42:08.911310069 +0000
+@@ -2566,6 +2566,61 @@
+ 	return 0;
+ }
+ 
++static void
++yt921x_dbg_dump_reg(struct yt921x_priv *priv, const char *tag, u32 reg)
++{
++	struct device *dev = to_device(priv);
++	u32 val;
++	int res;
++
++	res = yt921x_reg_read(priv, reg, &val);
++	if (res) {
++		dev_info(dev, "YTDBG %s reg=0x%05x err=%d\n", tag, reg, res);
++		return;
++	}
++
++	dev_info(dev, "YTDBG %s reg=0x%05x val=0x%08x\n", tag, reg, val);
++}
++
++static void
++yt921x_dbg_dump_snapshot(struct yt921x_priv *priv, const char *tag)
++{
++	struct device *dev = to_device(priv);
++	static const u32 regs[] = {
++		YT921X_CHIP_ID,
++		YT921X_EXT_CPU_PORT,
++		YT921X_SERDES_CTRL,
++		YT921X_SERDESn(8),
++		YT921X_SERDESn(9),
++		YT921X_PON_STRAP_FUNC,
++		YT921X_PON_STRAP_VAL,
++		YT921X_PON_STRAP_CAP,
++		YT921X_CHIP_MODE,
++		YT921X_XMII_CTRL,
++		YT921X_XMIIn(8),
++		YT921X_XMIIn(9),
++		YT921X_VLAN_IGR_FILTER,
++	};
++	int port;
++	int i;
++
++	if (!of_property_read_bool(dev->of_node, "motorcomm,dump-reg-snapshot"))
++		return;
++
++	for (i = 0; i < ARRAY_SIZE(regs); i++)
++		yt921x_dbg_dump_reg(priv, tag, regs[i]);
++
++	for (port = 0; port <= 9; port++) {
++		yt921x_dbg_dump_reg(priv, tag, YT921X_PORTn_CTRL(port));
++		yt921x_dbg_dump_reg(priv, tag, YT921X_PORTn_STATUS(port));
++		yt921x_dbg_dump_reg(priv, tag, YT921X_PORTn_ISOLATION(port));
++		yt921x_dbg_dump_reg(priv, tag, YT921X_PORTn_LEARN(port));
++	}
++
++	yt921x_dbg_dump_reg(priv, tag, YT921X_MDIO_POLLINGn(8));
++	yt921x_dbg_dump_reg(priv, tag, YT921X_MDIO_POLLINGn(9));
++}
++
+ static int yt921x_chip_reset(struct yt921x_priv *priv)
+ {
+ 	struct device *dev = to_device(priv);
+@@ -2578,6 +2633,8 @@
+ 	if (res)
+ 		return res;
+ 
++	yt921x_dbg_dump_snapshot(priv, "PRE");
++
+ 	skip_hw_reset = of_property_read_bool(dev->of_node,
+ 					      "motorcomm,skip-hw-reset");
+ 	if (!skip_hw_reset) {
+@@ -2595,6 +2652,8 @@
+ 			return res;
+ 	}
+ 
++	yt921x_dbg_dump_snapshot(priv, skip_hw_reset ? "POST_SKIP" : "POST_RST");
++
+ 	/* Check for tag EtherType; do it after reset in case you messed it up
+ 	 * before.
+ 	 */
+@@ -2744,6 +2803,8 @@
+ 
+ 	mutex_lock(&priv->reg_lock);
+ 	res = yt921x_chip_setup(priv);
++	if (!res)
++		yt921x_dbg_dump_snapshot(priv, "POST_SETUP");
+ 	mutex_unlock(&priv->reg_lock);
+ 
+ 	if (res)
