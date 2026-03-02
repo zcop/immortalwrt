@@ -85,8 +85,6 @@
 		compatible = "motorcomm,yt9215";
 		reg = <0x1d>;
 		yt,extif = <0x0a>;
-		/* Temporary debug: dump pre/post reset switch registers. */
-		motorcomm,dump-reg-snapshot;
 
 			mdio {
 				#address-cells = <1>;
