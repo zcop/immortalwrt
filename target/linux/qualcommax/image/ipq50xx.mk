@@ -283,6 +283,7 @@ define Device/wf810df
 	NAND_SIZE := 256m
 	UBINIZE_OPTS := -E 5
 	DEVICE_PACKAGES := ath11k-firmware-ipq5018-qcn6122 \
+		ipq-wifi-xiaomi_cr881x \
 		kmod-dsa-yt921x \
 		kmod-mdio-gpio
 endef

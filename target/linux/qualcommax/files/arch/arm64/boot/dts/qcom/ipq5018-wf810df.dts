@@ -74,58 +74,55 @@
 		};
 	};
 
-	mdio_bitbang: mdio-gpio {
-		compatible = "virtual,mdio-gpio";
-		pinctrl-0 = <&mdio_gpio_pins>;
-		pinctrl-names = "default";
-		#address-cells = <1>;
-		#size-cells = <0>;
+};
 
-		gpios = <&tlmm 36 GPIO_ACTIVE_HIGH>,
-			<&tlmm 37 GPIO_ACTIVE_HIGH>;
+&mdio1 {
+	pinctrl-0 = <&mdio1_pins>;
+	pinctrl-names = "default";
+	status = "okay";
 
-		ethernet-switch@1d {
-			compatible = "motorcomm,yt9215";
-			reg = <0x1d>;
-
-			reset-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
-			reset-assert-us = <20000>;
-			reset-deassert-us = <200000>;
+	ethernet-switch@1d {
+		compatible = "motorcomm,yt9215";
+		reg = <0x1d>;
+		yt,extif = <0x0a>;
+		/* Temporary debug: dump pre/post reset switch registers. */
+		motorcomm,dump-reg-snapshot;
 
 			mdio {
 				#address-cells = <1>;
 				#size-cells = <0>;
 
-				sw_phy0: phy@0 {
-					reg = <0>;
-				};
+			sw_phy0: phy@0 {
+				reg = <0>;
+			};
 
-				sw_phy1: phy@1 {
-					reg = <1>;
-				};
+			sw_phy1: phy@1 {
+				reg = <1>;
+			};
 
 				sw_phy2: phy@2 {
 					reg = <2>;
 				};
+
 			};
 
-			ports {
-				#address-cells = <1>;
-				#size-cells = <0>;
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
 
-				port@0 {
-					reg = <0>;
-					label = "lan1";
-					phy-mode = "internal";
-					phy-handle = <&sw_phy0>;
-				};
+			port@0 {
+				reg = <0>;
+				label = "lan1";
+				phy-mode = "internal";
+				phy-handle = <&sw_phy0>;
+			};
 
-				port@1 {
-					reg = <1>;
-					label = "lan2";
-					phy-mode = "internal";
-					phy-handle = <&sw_phy1>;
-				};
+			port@1 {
+				reg = <1>;
+				label = "lan2";
+				phy-mode = "internal";
+				phy-handle = <&sw_phy1>;
+			};
 
 				port@2 {
 					reg = <2>;
@@ -134,18 +131,17 @@
 					phy-handle = <&sw_phy2>;
 				};
 
-				/* Current upstream yt921x support models the CPU link on port 8. */
-				port@8 {
-					reg = <8>;
-					phy-mode = "sgmii";
-					ethernet = <&dp2>;
+			/* Current upstream yt921x support models the CPU link on port 8. */
+			port@8 {
+				reg = <8>;
+				phy-mode = "sgmii";
+				ethernet = <&dp2>;
 
-					fixed-link {
-						speed = <1000>;
-						full-duplex;
-						pause;
-						asym-pause;
-					};
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+					pause;
+					asym-pause;
 				};
 			};
 		};
@@ -165,6 +161,13 @@
 	status = "okay";
 
 	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
+	switch_mac_mode1 = <MAC_MODE_DISABLED>;
+	switch_mac_mode2 = <MAC_MODE_DISABLED>;
+
+	switch_cpu_bmp = <ESS_PORT0>;
+	switch_wan_bmp = <ESS_PORT1>;
+	switch_lan_bmp = <ESS_PORT2>;
+	switch_inner_bmp = <ESS_PORT7>;
 
 	qcom,port_phyinfo {
 		/* MAC0 -> integrated GE PHY -> WAN */
@@ -398,11 +401,20 @@
 };
 
 &tlmm {
-	mdio_gpio_pins: mdio-gpio-pins {
-		pins = "gpio36", "gpio37";
-		function = "gpio";
-		drive-strength = <8>;
-		bias-pull-up;
+	mdio1_pins: mdio-state {
+		mdc-pins {
+			pins = "gpio36";
+			function = "mdc";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+
+		mdio-pins {
+			pins = "gpio37";
+			function = "mdio";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
 	};
 
 	leds_pins: leds-pins {
@@ -459,6 +471,9 @@
 
 	qcom,rproc = <&q6_wcss_pd1>;
 	qcom,userpd-subsys-name = "q6v5_wcss_userpd1";
+	/* Temporary bring-up: reuse known IPQ5018 board-id/variant mapping. */
+	qcom,board_id = <0x23>;
+	qcom,ath11k-calibration-variant = "Xiaomi-CR8818";
 	qcom,ath11k-fw-memory-mode = <1>;
 	qcom,bdf-addr = <0x4c400000>;
 };
@@ -468,6 +483,9 @@
 
 	qcom,rproc = <&q6_wcss_pd2>;
 	qcom,userpd-subsys-name = "q6v5_wcss_userpd2";
+	/* Temporary bring-up: reuse known QCN6122 board-id/variant mapping. */
+	qcom,board_id = <0x60>;
+	qcom,ath11k-calibration-variant = "Xiaomi-CR8818";
 	qcom,ath11k-fw-memory-mode = <1>;
 	qcom,bdf-addr = <0x4d100000>;
 	qcom,m3-dump-addr = <0x4df00000>;
