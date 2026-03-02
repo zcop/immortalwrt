@@ -86,17 +86,16 @@ function iface_auth_type(config) {
 		config.ieee80211w = 2;
 		config.sae_require_mfp = 1;
 		if (!config.ppsk)
-			config.sae_pwe = 2;
+			set_default(config, 'sae_pwe', 2);
 	}
 
 	if (config.auth_type in [ 'psk-sae', 'eap-eap2' ]) {
-		if (!config.ieee80211w)
-			config.ieee80211w = 1;
+		set_default(config, 'ieee80211w', 1);
 		if (config.rsn_override)
 			config.rsn_override_mfp = 2;
 		config.sae_require_mfp = 1;
 		if (!config.ppsk)
-			config.sae_pwe = 2;
+			set_default(config, 'sae_pwe', 2);
 	}
 
 	if (config.own_ip_addr)
@@ -129,7 +128,7 @@ function iface_auth_type(config) {
 			config.macaddr_acl = 2;
 			config.wpa_psk_radius = 2;
 		} else if (length(config.key) == 64) {
-			config.wpa_psk = key;
+			config.wpa_psk = config.key;
 		} else if (length(config.key) >= 8 && length(config.key) <= 63) {
 			config.wpa_passphrase = config.key;
 		} else if (config.key) {
