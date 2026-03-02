@@ -469,9 +469,7 @@
 
 	qcom,rproc = <&q6_wcss_pd1>;
 	qcom,userpd-subsys-name = "q6v5_wcss_userpd1";
-	/* Temporary bring-up: reuse known IPQ5018 board-id/variant mapping. */
 	qcom,board_id = <0x23>;
-	qcom,ath11k-calibration-variant = "Xiaomi-CR8818";
 	qcom,ath11k-fw-memory-mode = <1>;
 	qcom,bdf-addr = <0x4c400000>;
 };
@@ -481,9 +479,7 @@
 
 	qcom,rproc = <&q6_wcss_pd2>;
 	qcom,userpd-subsys-name = "q6v5_wcss_userpd2";
-	/* Temporary bring-up: reuse known QCN6122 board-id/variant mapping. */
 	qcom,board_id = <0x60>;
-	qcom,ath11k-calibration-variant = "Xiaomi-CR8818";
 	qcom,ath11k-fw-memory-mode = <1>;
 	qcom,bdf-addr = <0x4d100000>;
 	qcom,m3-dump-addr = <0x4df00000>;
