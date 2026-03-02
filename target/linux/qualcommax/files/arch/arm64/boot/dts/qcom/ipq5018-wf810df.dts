@@ -85,6 +85,7 @@
 		compatible = "motorcomm,yt9215";
 		reg = <0x1d>;
 		yt,extif = <0x0a>;
+		motorcomm,skip-hw-reset;
 
 			mdio {
 				#address-cells = <1>;

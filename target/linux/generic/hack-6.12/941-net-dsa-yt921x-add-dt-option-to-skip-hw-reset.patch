@@ -1,0 +1,41 @@
+--- a/drivers/net/dsa/yt921x.c
++++ b/drivers/net/dsa/yt921x.c
+@@ -2572,23 +2572,28 @@ static int yt921x_chip_reset(struct yt921x_priv *priv)
+ 	u16 eth_p_tag;
+ 	u32 val;
+ 	int res;
++	bool skip_hw_reset;
+ 
+ 	res = yt921x_chip_detect(priv);
+ 	if (res)
+ 		return res;
+ 
+-	/* Reset */
+-	res = yt921x_reg_write(priv, YT921X_RST, YT921X_RST_HW);
+-	if (res)
+-		return res;
++	skip_hw_reset = of_property_read_bool(dev->of_node,
++					      "motorcomm,skip-hw-reset");
++	if (!skip_hw_reset) {
++		/* Reset */
++		res = yt921x_reg_write(priv, YT921X_RST, YT921X_RST_HW);
++		if (res)
++			return res;
+ 
+-	/* RST_HW is almost same as GPIO hard reset, so we need this delay. */
+-	fsleep(YT921X_RST_DELAY_US);
++		/* RST_HW is almost same as GPIO hard reset, so we need this delay. */
++		fsleep(YT921X_RST_DELAY_US);
+ 
+-	val = 0;
+-	res = yt921x_reg_wait(priv, YT921X_RST, ~0, &val);
+-	if (res)
+-		return res;
++		val = 0;
++		res = yt921x_reg_wait(priv, YT921X_RST, ~0, &val);
++		if (res)
++			return res;
++	}
+ 
+ 	/* Check for tag EtherType; do it after reset in case you messed it up
+ 	 * before.
