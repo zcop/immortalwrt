@@ -16,6 +16,18 @@ wait_for_overlay() {
 	return 1
 }
 
+set_bootenv_var() {
+	local name="$1"
+	local value="$2"
+
+	if ! fw_setenv "$name" "$value"; then
+		logger -t uboot_env "failed to set $name=$value"
+		return 1
+	fi
+
+	return 0
+}
+
 update_xiaomi_bootenv() {
 	local mtd="$1"
 	local current
@@ -43,26 +55,41 @@ update_xiaomi_bootenv() {
 
 	[ "$update" -eq 0 ] && return 0
 
-	fw_setenv -s - <<-EOF
-		flag_boot_rootfs $current
-		flag_last_success $current
-		flag_boot_success 1
-		flag_ota_reboot 0
-		flag_try_sys1_failed 0
-		flag_try_sys2_failed 0
-	EOF
+	logger -t uboot_env "repairing Xiaomi boot flags for $mtd"
+
+	set_bootenv_var flag_boot_rootfs "$current" || return 1
+	set_bootenv_var flag_last_success "$current" || return 1
+	set_bootenv_var flag_boot_success 1 || return 1
+	set_bootenv_var flag_ota_reboot 0 || return 1
+	set_bootenv_var flag_try_sys1_failed 0 || return 1
+	set_bootenv_var flag_try_sys2_failed 0 || return 1
+
+	return 0
 }
 
 boot() {
 	case $(board_name) in
 		redmi,ax3000|\
 		xiaomi,cr881x)
-			wait_for_overlay || return 0
-			[ -s /etc/fw_env.config ] || return 0
-			fw_printenv >/dev/null || return 0
+			wait_for_overlay || {
+				logger -t uboot_env "overlay not ready, skip"
+				return 0
+			}
+			[ -s /etc/fw_env.config ] || {
+				logger -t uboot_env "fw_env.config missing, skip"
+				return 0
+			}
+			fw_printenv >/dev/null || {
+				logger -t uboot_env "fw_printenv failed, skip"
+				return 0
+			}
 
 			local mtd="$(grep -oE 'ubi.mtd=[a-zA-Z0-9\-\_]*' /proc/cmdline | cut -d'=' -f2)"
-			update_xiaomi_bootenv "$mtd" || return 0
+			update_xiaomi_bootenv "$mtd" || logger -t uboot_env "boot flag repair failed for $mtd"
 			;;
 	esac
+}
+
+start() {
+	boot "$@"
 }

@@ -3,10 +3,8 @@
 mi_dualboot_check_image() {
 	local ret=0
 
-	local file_type="$( head -c 3 "$1" )"
-	if [ "${file_type}" != UBI ]; then
-		v "Unsupport file type: ${file_type}"
-		v "Please use ubi file"
+	if ! nand_do_platform_check "$(board_name)" "$1"; then
+		v "Unsupported upgrade image for $(board_name)"
 		ret=1
 	fi
 
@@ -28,6 +26,8 @@ mi_dualboot_do_upgrade() {
 	mkdir -p /var/lock
 	fw_printenv >/dev/null || return 1
 
+	local cmd="$(identify_if_gzip "$1")cat"
+
 	# Determine UBIPART
 	local mtd="$( grep -oE 'ubi.mtd=[a-zA-Z0-9\-\_]*' /proc/cmdline | cut -d'=' -f2 )"
 	case "${mtd}" in
@@ -47,10 +47,8 @@ mi_dualboot_do_upgrade() {
 
 	local mtdnum="$( find_mtd_index "${CI_UBIPART}" )"
 	v "Flashing to ${CI_UBIPART}(mtd${mtdnum})"
-	ubiformat "/dev/mtd${mtdnum}" -f "$1" -y || return 1
+	nand_do_flash_file "$1" "$cmd" || return 1
 	sync
-
-	ubiattach --mtdn "${mtdnum}"
 
 	# Check to avoid the bug of the vendor U-Boot
 	local ubidev="$( nand_find_ubi "${CI_UBIPART}" )"
