@@ -16,6 +16,43 @@ wait_for_overlay() {
 	return 1
 }
 
+update_xiaomi_bootenv() {
+	local mtd="$1"
+	local current
+	local update=0
+
+	case "$mtd" in
+		rootfs)
+			current=0
+			;;
+		rootfs_1)
+			current=1
+			;;
+		*)
+			echo "Unable to determine UBIPART: ubi.mtd=$mtd"
+			return 1
+			;;
+	esac
+
+	[ "$(fw_printenv -n flag_boot_rootfs 2>/dev/null)" = "$current" ] || update=1
+	[ "$(fw_printenv -n flag_last_success 2>/dev/null)" = "$current" ] || update=1
+	[ "$(fw_printenv -n flag_boot_success 2>/dev/null)" = "1" ] || update=1
+	[ "$(fw_printenv -n flag_ota_reboot 2>/dev/null)" = "0" ] || update=1
+	[ "$(fw_printenv -n flag_try_sys1_failed 2>/dev/null)" = "0" ] || update=1
+	[ "$(fw_printenv -n flag_try_sys2_failed 2>/dev/null)" = "0" ] || update=1
+
+	[ "$update" -eq 0 ] && return 0
+
+	fw_setenv -s - <<-EOF
+		flag_boot_rootfs $current
+		flag_last_success $current
+		flag_boot_success 1
+		flag_ota_reboot 0
+		flag_try_sys1_failed 0
+		flag_try_sys2_failed 0
+	EOF
+}
+
 boot() {
 	case $(board_name) in
 		redmi,ax3000|\
@@ -24,26 +61,8 @@ boot() {
 			[ -s /etc/fw_env.config ] || return 0
 			fw_printenv >/dev/null || return 0
 
-			local flag_ota_reboot="$(fw_printenv flag_ota_reboot | cut -d'=' -f2)"
-			if [[ "$flag_ota_reboot" == 1 ]]; then
-				local mtd="$(grep -oE 'ubi.mtd=[a-zA-Z0-9\-\_]*' /proc/cmdline | cut -d'=' -f2)"
-				case $mtd in
-					rootfs)
-						fw_setenv flag_last_success 0
-						fw_setenv flag_ota_reboot 0
-						fw_setenv flag_boot_success 1
-						;;
-					rootfs_1)
-						fw_setenv flag_last_success 1
-						fw_setenv flag_ota_reboot 0
-						fw_setenv flag_boot_success 1
-						;;
-					*)
-						echo "Unable to determine UBIPART: ubi.mtd=$mtd"
-						return 1
-						;;
-				esac
-			fi
+			local mtd="$(grep -oE 'ubi.mtd=[a-zA-Z0-9\-\_]*' /proc/cmdline | cut -d'=' -f2)"
+			update_xiaomi_bootenv "$mtd" || return 0
 			;;
 	esac
 }
