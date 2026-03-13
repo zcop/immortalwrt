@@ -1,0 +1,17 @@
+--- a/src/init/ssdk_init.c
++++ b/src/init/ssdk_init.c
+@@ -2308,6 +2308,14 @@ static int ssdk_dev_event(struct notifier_block *this, unsigned long event, voi
+ 				if (dev->phydev != NULL) {
+ 					port_id = qca_ssdk_phydev_to_port(priv->device_id,
+ 						dev->phydev);
++					/*
++					 * Some DSA child PHY events are not part of the
++					 * SSDK-managed internal PHY map. Ignore those
++					 * link notifications instead of reporting a
++					 * bogus "incorrect port 0" error.
++					 */
++					if (port_id == 0)
++						return NOTIFY_DONE;
+ 					rv = p_api->adpt_port_netdev_notify_set(priv, port_id);
+ 					if (rv) {
+ 						SSDK_ERROR("netdev change notify failed\n");

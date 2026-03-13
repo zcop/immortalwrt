@@ -4,10 +4,24 @@ START=99
 
 . /lib/functions.sh
 
+wait_for_overlay() {
+	local timeout=10
+
+	while [ "$timeout" -gt 0 ]; do
+		grep -q ' /overlay ' /proc/mounts && return 0
+		sleep 1
+		timeout=$((timeout - 1))
+	done
+
+	return 1
+}
+
 boot() {
 	case $(board_name) in
 		redmi,ax3000|\
 		xiaomi,cr881x)
+			wait_for_overlay || return 0
+			[ -s /etc/fw_env.config ] || return 0
 			fw_printenv >/dev/null || return 0
 
 			local flag_ota_reboot="$(fw_printenv flag_ota_reboot | cut -d'=' -f2)"
