@@ -33,6 +33,13 @@
 		stdout-path = "serial0:115200n8";
 	};
 
+	vddcpu: regulator-vddcpu {
+		compatible = "regulator-fixed";
+		regulator-name = "vddcpu";
+		regulator-min-microvolt = <1100000>;
+		regulator-max-microvolt = <1100000>;
+		regulator-always-on;
+	};
 };
 
 &tlmm {
@@ -130,17 +137,15 @@
 		};
 	};
 
-	vddcpu: regulator-vddcpu {
-		compatible = "regulator-fixed";
-		regulator-name = "vddcpu";
-		regulator-min-microvolt = <1100000>;
-		regulator-max-microvolt = <1100000>;
-		regulator-always-on;
-	};
 };
 
 &sleep_clk {
 	clock-frequency = <32768>;
+};
+
+&xo_board_clk {
+	clock-div = <4>;
+	clock-mult = <1>;
 };
 
 &cpu0 {
