@@ -1,6 +1,25 @@
 . /lib/functions/uci-defaults.sh
 
-fw_loadenv
+ensure_fw_env_config() {
+	[ -s /etc/fw_env.config ] && return 0
+
+	if [ -e /etc/config/ubootenv ]; then
+		. /lib/uboot-envtools.sh
+
+		rm -f /etc/fw_env.config /etc/fw_sys.config
+		config_load ubootenv
+		config_foreach ubootenv_add_app_config
+		[ -s /etc/fw_sys.config ] || rm -f /etc/fw_sys.config
+		[ -s /etc/fw_env.config ] && return 0
+	fi
+
+	[ -f /etc/uci-defaults/30_uboot-envtools ] && \
+		( . /etc/uci-defaults/30_uboot-envtools ) >/dev/null 2>&1
+
+	[ -s /etc/fw_env.config ]
+}
+
+ensure_fw_env_config && fw_loadenv
 
 board_config_update
 
