@@ -1881,14 +1881,53 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return res;
 +}
 +
++static u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv)
++{
++	return GENMASK(YT921X_PORT_NUM - 1, 0) & ~priv->cpu_ports_mask;
++}
++
++static int
++yt921x_port_isolation_set(struct yt921x_priv *priv, int port, u32 blocked_mask)
++{
++	u32 mask;
++
++	mask = yt921x_non_cpu_port_mask(priv);
++
++	return yt921x_reg_update_bits(priv, YT921X_PORTn_ISOLATION(port),
++				      mask, blocked_mask & mask);
++}
++
++static u32
++yt921x_bridge_block_mask(struct yt921x_priv *priv, int port, u16 ports_mask,
++			 u32 isolated_mask)
++{
++	struct yt921x_port *pp = &priv->ports[port];
++	u32 blocked_mask;
++
++	/* PORTn_ISOLATION keeps unrelated upper bits. Only the non-CPU
++	 * destination field was proven by live register tests.
++	 */
++	blocked_mask = yt921x_non_cpu_port_mask(priv) & ~ports_mask;
++
++	if (pp->isolated)
++		blocked_mask |= isolated_mask;
++
++	if (!pp->hairpin)
++		blocked_mask |= BIT(port);
++	else
++		blocked_mask &= ~BIT(port);
++
++	return blocked_mask;
++}
++
 +static int yt921x_userport_standalone(struct yt921x_priv *priv, int port)
 +{
 +	u32 mask;
-+	u32 ctrl;
++	u32 blocked_mask;
 +	int res;
 +
-+	ctrl = ~priv->cpu_ports_mask;
-+	res = yt921x_reg_write(priv, YT921X_PORTn_ISOLATION(port), ctrl);
++	blocked_mask = yt921x_non_cpu_port_mask(priv);
++	res = yt921x_port_isolation_set(priv, port, blocked_mask);
 +	if (res)
 +		return res;
 +
@@ -1953,7 +1992,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	unsigned long targets_mask = ports_mask & ~priv->cpu_ports_mask;
 +	u32 isolated_mask;
-+	u32 ctrl;
++	u32 blocked_mask;
 +	int port;
 +	int res;
 +
@@ -1967,21 +2006,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	/* Block from non-cpu bridge ports ... */
 +	for_each_set_bit(port, &targets_mask, YT921X_PORT_NUM) {
-+		struct yt921x_port *pp = &priv->ports[port];
++		blocked_mask = yt921x_bridge_block_mask(priv, port, ports_mask,
++							isolated_mask);
 +
-+		/* to non-bridge ports */
-+		ctrl = ~ports_mask;
-+		/* to isolated ports when isolated */
-+		if (pp->isolated)
-+			ctrl |= isolated_mask;
-+		/* to itself when non-hairpin */
-+		if (!pp->hairpin)
-+			ctrl |= BIT(port);
-+		else
-+			ctrl &= ~BIT(port);
-+
-+		res = yt921x_reg_write(priv, YT921X_PORTn_ISOLATION(port),
-+				       ctrl);
++		res = yt921x_port_isolation_set(priv, port, blocked_mask);
 +		if (res)
 +			return res;
 +	}
