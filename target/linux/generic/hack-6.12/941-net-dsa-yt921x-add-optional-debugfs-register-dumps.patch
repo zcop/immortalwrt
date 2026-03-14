@@ -649,7 +649,7 @@ Signed-off-by: Codex <codex@openai.com>
  static int yt921x_reg_mdio_read(void *context, u32 reg, u32 *valp)
  {
  	struct yt921x_reg_mdio *mdio = context;
-@@ -2820,8 +3427,13 @@
+@@ -2848,8 +3455,13 @@
  		disable_delayed_work_sync(&pp->mib_read);
  	}
  
@@ -663,7 +663,10 @@ Signed-off-by: Codex <codex@openai.com>
  	mutex_destroy(&priv->reg_lock);
  }
  
-@@ -2831,6 +3443,7 @@
+@@ -3468,37 +4080,75 @@
+ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
+ {
+ 	struct device *dev = &mdiodev->dev;
  	struct yt921x_reg_mdio *mdio;
  	struct yt921x_priv *priv;
  	struct dsa_switch *ds;
@@ -671,11 +674,38 @@ Signed-off-by: Codex <codex@openai.com>
  
  	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
  	if (!priv)
-@@ -2866,7 +3479,16 @@
+ 		return -ENOMEM;
  
- 	mdiodev_set_drvdata(mdiodev, priv);
+ 	mdio = devm_kzalloc(dev, sizeof(*mdio), GFP_KERNEL);
+ 	if (!mdio)
+ 		return -ENOMEM;
  
--	return dsa_register_switch(ds);
+ 	mdio->bus = mdiodev->bus;
+ 	mdio->addr = mdiodev->addr;
+ 	mdio->switchid = 0;
+ 
+ 	mutex_init(&priv->reg_lock);
+ 
+ 	priv->reg_ops = &yt921x_reg_ops_mdio;
+ 	priv->reg_ctx = mdio;
+ 
+ 	for (size_t i = 0; i < ARRAY_SIZE(priv->ports); i++) {
+ 		struct yt921x_port *pp = &priv->ports[i];
+ 
+ 		pp->index = i;
+ 		INIT_DELAYED_WORK(&pp->mib_read, yt921x_poll_mib);
+ 	}
+ 
+ 	ds = &priv->ds;
+ 	ds->dev = dev;
+ 	ds->assisted_learning_on_cpu_port = true;
+ 	ds->priv = priv;
+ 	ds->ops = &yt921x_dsa_switch_ops;
+ 	ds->phylink_mac_ops = &yt921x_phylink_mac_ops;
++	ds->num_ports = YT921X_PORT_NUM;
++
++	mdiodev_set_drvdata(mdiodev, priv);
++
 +	ret = dsa_register_switch(ds);
 +	if (ret)
 +		return ret;
@@ -686,9 +716,29 @@ Signed-off-by: Codex <codex@openai.com>
 +		dev_warn(dev, "YT921x proc interface unavailable: %d\n", ret);
 +
 +	return 0;
- }
- 
- static const struct of_device_id yt921x_of_match[] = {
++}
++
++static const struct of_device_id yt921x_of_match[] = {
++	{ .compatible = "motorcomm,yt9215" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, yt921x_of_match);
++
++static struct mdio_driver yt921x_mdio_driver = {
++	.probe = yt921x_mdio_probe,
++	.remove = yt921x_mdio_remove,
++	.shutdown = yt921x_mdio_shutdown,
++	.mdiodrv.driver = {
++		.name = YT921X_NAME,
++		.of_match_table = yt921x_of_match,
++	},
++};
++
++mdio_module_driver(yt921x_mdio_driver);
++
++MODULE_AUTHOR("David Yang <mmyangfl@gmail.com>");
++MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
++MODULE_LICENSE("GPL");
 --- a/drivers/net/dsa/yt921x.h
 +++ b/drivers/net/dsa/yt921x.h
 @@ -480,6 +480,9 @@
