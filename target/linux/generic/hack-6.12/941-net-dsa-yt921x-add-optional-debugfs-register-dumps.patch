@@ -1,0 +1,718 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 14 Mar 2026 00:00:00 +0000
+Subject: [PATCH] net: dsa: yt921x: add optional debug register controls
+
+Add a build-time disabled debug mode for YT921x that exposes
+read-only debugfs views and a proc command interface for controlled
+register experiments. The debug surface stays out of normal images,
+while explicit debug builds gain live inspection and read/write helpers
+for switch, internal MDIO, external MDIO, and stock address mapping.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+--- a/drivers/net/dsa/Kconfig
++++ b/drivers/net/dsa/Kconfig
+@@ -166,4 +166,12 @@
+ 	help
+ 	  This enables support for the Motorcomm YT9215 ethernet switch
+ 	  chip.
++
++config NET_DSA_YT921X_DEBUG
++	bool "Enable YT921x debug register helpers"
++	default n
++	depends on NET_DSA_YT921X && DEBUG_FS
++	help
++	  Enable read-only debugfs helpers for inspecting YT921x core,
++	  uplink, stock-profile, and per-port register state.
+ endmenu
+--- a/drivers/net/dsa/yt921x.c
++++ b/drivers/net/dsa/yt921x.c
+@@ -18,6 +18,12 @@
+ #include <linux/of.h>
+ #include <linux/of_mdio.h>
+ #include <linux/of_net.h>
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++#include <linux/debugfs.h>
++#include <linux/proc_fs.h>
++#include <linux/seq_file.h>
++#include <linux/uaccess.h>
++#endif
+ 
+ #include <net/dsa.h>
+ 
+@@ -315,6 +321,607 @@
+ 	return yt921x_reg64_update_bits(priv, reg, mask, 0);
+ }
+ 
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++static int yt921x_port_setup(struct yt921x_priv *priv, int port);
++static int yt921x_chip_reset(struct yt921x_priv *priv);
++static int yt921x_chip_setup(struct yt921x_priv *priv);
++static int yt921x_intif_read(struct yt921x_priv *priv, int port, int reg,
++			     u16 *valp);
++static int yt921x_intif_write(struct yt921x_priv *priv, int port, int reg,
++			      u16 val);
++static int yt921x_extif_read(struct yt921x_priv *priv, int port, int reg,
++			     u16 *valp);
++static int yt921x_extif_write(struct yt921x_priv *priv, int port, int reg,
++			      u16 val);
++
++struct yt921x_debug_reg {
++	u32 reg;
++	const char *name;
++	bool has_stock;
++	u32 stock;
++};
++
++static const struct yt921x_debug_reg yt921x_debug_core_regs[] = {
++	{ YT921X_RST, "RST", false, 0 },
++	{ YT921X_FUNC, "FUNC", true, 0x00000807 },
++	{ YT921X_CHIP_ID, "CHIP_ID", false, 0 },
++	{ YT921X_EXT_CPU_PORT, "EXT_CPU_PORT", true, 0x00008008 },
++	{ YT921X_CPU_TAG_TPID, "CPU_TAG_TPID", true, 0x00009988 },
++	{ YT921X_PVID_SEL, "PVID_SEL", false, 0 },
++	{ 0x80044, "UNK_80044", true, 0x004a8a08 },
++	{ YT921X_CHIP_MODE, "CHIP_MODE", false, 0 },
++	{ YT921X_XMII_CTRL, "XMII_CTRL", true, 0x00000000 },
++	{ YT921X_CPU_COPY, "CPU_COPY", false, 0 },
++	{ YT921X_FILTER_UNK_UCAST, "FILTER_UNK_UCAST", false, 0 },
++	{ YT921X_FILTER_UNK_MCAST, "FILTER_UNK_MCAST", false, 0 },
++	{ YT921X_ACT_UNK_UCAST, "ACT_UNK_UCAST", false, 0 },
++	{ YT921X_ACT_UNK_MCAST, "ACT_UNK_MCAST", false, 0 },
++};
++
++static const struct yt921x_debug_reg yt921x_debug_uplink_regs[] = {
++	{ YT921X_SERDES_CTRL, "SERDES_CTRL", true, 0x00000001 },
++	{ YT921X_SERDESn(8), "SERDES8", true, 0x0000027a },
++	{ YT921X_PORTn_CTRL(8), "PORT8_CTRL", true, 0x000001fc },
++	{ YT921X_PORTn_STATUS(8), "PORT8_STATUS", true, 0x000001fc },
++	{ YT921X_MDIO_POLLINGn(8), "MDIO_POLLING8", false, 0 },
++	{ YT921X_XMII_CTRL, "XMII_CTRL", true, 0x00000000 },
++	{ YT921X_XMIIn(8), "XMII8", true, 0x04184908 },
++	{ YT921X_XMIIn(9), "XMII9", true, 0x04184108 },
++};
++
++static int
++yt921x_debugfs_show_reg_block(struct seq_file *s, struct yt921x_priv *priv,
++			      const struct yt921x_debug_reg *regs,
++			      size_t count, bool stock_only)
++{
++	size_t i;
++
++	mutex_lock(&priv->reg_lock);
++
++	if (stock_only)
++		seq_puts(s, "name                 reg      value      stock      match\n");
++	else
++		seq_puts(s, "name                 reg      value\n");
++
++	for (i = 0; i < count; i++) {
++		const struct yt921x_debug_reg *dbg = &regs[i];
++		u32 val;
++		int ret;
++
++		if (stock_only && !dbg->has_stock)
++			continue;
++
++		ret = yt921x_reg_read(priv, dbg->reg, &val);
++		if (ret) {
++			seq_printf(s, "%-20s 0x%06x error %d\n",
++				   dbg->name, dbg->reg, ret);
++			continue;
++		}
++
++		if (stock_only) {
++			seq_printf(s, "%-20s 0x%06x 0x%08x 0x%08x %s\n",
++				   dbg->name, dbg->reg, val, dbg->stock,
++				   val == dbg->stock ? "match" : "diff");
++		} else if (dbg->has_stock) {
++			seq_printf(s, "%-20s 0x%06x 0x%08x  stock=0x%08x\n",
++				   dbg->name, dbg->reg, val, dbg->stock);
++		} else {
++			seq_printf(s, "%-20s 0x%06x 0x%08x\n",
++				   dbg->name, dbg->reg, val);
++		}
++	}
++
++	mutex_unlock(&priv->reg_lock);
++
++	return 0;
++}
++
++static int yt921x_debugfs_core_regs_show(struct seq_file *s, void *unused)
++{
++	struct yt921x_priv *priv = s->private;
++
++	return yt921x_debugfs_show_reg_block(s, priv, yt921x_debug_core_regs,
++					     ARRAY_SIZE(yt921x_debug_core_regs),
++					     false);
++}
++
++static int yt921x_debugfs_uplink_regs_show(struct seq_file *s, void *unused)
++{
++	struct yt921x_priv *priv = s->private;
++
++	return yt921x_debugfs_show_reg_block(s, priv, yt921x_debug_uplink_regs,
++					     ARRAY_SIZE(yt921x_debug_uplink_regs),
++					     false);
++}
++
++static int yt921x_debugfs_stock_profile_show(struct seq_file *s, void *unused)
++{
++	struct yt921x_priv *priv = s->private;
++
++	yt921x_debugfs_show_reg_block(s, priv, yt921x_debug_core_regs,
++				      ARRAY_SIZE(yt921x_debug_core_regs),
++				      true);
++	seq_putc(s, '\n');
++	return yt921x_debugfs_show_reg_block(s, priv, yt921x_debug_uplink_regs,
++					     ARRAY_SIZE(yt921x_debug_uplink_regs),
++					     true);
++}
++
++static int yt921x_debugfs_port_regs_show(struct seq_file *s, void *unused)
++{
++	struct yt921x_priv *priv = s->private;
++	int port;
++
++	mutex_lock(&priv->reg_lock);
++
++	for (port = 0; port < priv->ds.num_ports; port++) {
++		static const struct {
++			u32 reg;
++			const char *name;
++		} port_regs[] = {
++			{ 0, "CTRL" },
++			{ 1, "STATUS" },
++			{ 2, "ISOLATION" },
++			{ 3, "LEARN" },
++			{ 4, "IGR_TPID" },
++			{ 5, "VLAN_CTRL1" },
++		};
++		u32 regs[ARRAY_SIZE(port_regs)];
++		size_t i;
++
++		regs[0] = YT921X_PORTn_CTRL(port);
++		regs[1] = YT921X_PORTn_STATUS(port);
++		regs[2] = YT921X_PORTn_ISOLATION(port);
++		regs[3] = YT921X_PORTn_LEARN(port);
++		regs[4] = YT921X_PORTn_IGR_TPID(port);
++		regs[5] = YT921X_PORTn_VLAN_CTRL1(port);
++
++		seq_printf(s, "port %d%s%s\n", port,
++			   dsa_is_cpu_port(&priv->ds, port) ? " [cpu]" : "",
++			   dsa_is_unused_port(&priv->ds, port) ? " [unused]" : "");
++
++		for (i = 0; i < ARRAY_SIZE(port_regs); i++) {
++			u32 val;
++			int ret;
++
++			ret = yt921x_reg_read(priv, regs[i], &val);
++			if (ret) {
++				seq_printf(s, "  %-12s 0x%06x error %d\n",
++					   port_regs[i].name, regs[i], ret);
++				continue;
++			}
++
++			seq_printf(s, "  %-12s 0x%06x 0x%08x\n",
++				   port_regs[i].name, regs[i], val);
++		}
++
++		if (port >= 8 && port <= 9) {
++			u32 val;
++			int ret;
++
++			ret = yt921x_reg_read(priv, YT921X_MDIO_POLLINGn(port), &val);
++			if (ret) {
++				seq_printf(s, "  %-12s 0x%06x error %d\n",
++					   "MDIO_POLLING",
++					   YT921X_MDIO_POLLINGn(port), ret);
++			} else {
++				seq_printf(s, "  %-12s 0x%06x 0x%08x\n",
++					   "MDIO_POLLING",
++					   YT921X_MDIO_POLLINGn(port), val);
++			}
++		}
++
++		seq_putc(s, '\n');
++	}
++
++	mutex_unlock(&priv->reg_lock);
++
++	return 0;
++}
++
++static int yt921x_debugfs_core_regs_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, yt921x_debugfs_core_regs_show, inode->i_private);
++}
++
++static int yt921x_debugfs_uplink_regs_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, yt921x_debugfs_uplink_regs_show,
++			   inode->i_private);
++}
++
++static int
++yt921x_debugfs_stock_profile_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, yt921x_debugfs_stock_profile_show,
++			   inode->i_private);
++}
++
++static int yt921x_debugfs_port_regs_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, yt921x_debugfs_port_regs_show, inode->i_private);
++}
++
++static const struct file_operations yt921x_debugfs_core_regs_fops = {
++	.owner = THIS_MODULE,
++	.open = yt921x_debugfs_core_regs_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
++static const struct file_operations yt921x_debugfs_uplink_regs_fops = {
++	.owner = THIS_MODULE,
++	.open = yt921x_debugfs_uplink_regs_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
++static const struct file_operations yt921x_debugfs_stock_profile_fops = {
++	.owner = THIS_MODULE,
++	.open = yt921x_debugfs_stock_profile_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
++static const struct file_operations yt921x_debugfs_port_regs_fops = {
++	.owner = THIS_MODULE,
++	.open = yt921x_debugfs_port_regs_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
++static struct dentry *yt921x_debugfs_root;
++
++static void yt921x_proc_reply_reset(struct yt921x_priv *priv)
++{
++	priv->proc_reply[0] = '\0';
++	priv->proc_reply_len = 0;
++}
++
++static void yt921x_proc_reply_append(struct yt921x_priv *priv, const char *fmt, ...)
++{
++	va_list ap;
++
++	if (priv->proc_reply_len >= sizeof(priv->proc_reply) - 1)
++		return;
++
++	va_start(ap, fmt);
++	priv->proc_reply_len += vscnprintf(priv->proc_reply + priv->proc_reply_len,
++					   sizeof(priv->proc_reply) - priv->proc_reply_len,
++					   fmt, ap);
++	va_end(ap);
++}
++
++static void yt921x_proc_reply_help(struct yt921x_priv *priv)
++{
++	yt921x_proc_reply_reset(priv);
++	yt921x_proc_reply_append(priv,
++				 "commands:\n"
++				 "  help\n"
++				 "  reg read <addr>\n"
++				 "  reg write <addr> <val>\n"
++				 "  int read <port> <reg>\n"
++				 "  int write <port> <reg> <val>\n"
++				 "  ext read <port> <reg>\n"
++				 "  ext write <port> <reg> <val>\n"
++				 "  stock map <reg>\n"
++				 "  dump <start> <end> [stride]\n");
++}
++
++static int yt921x_proc_parse_u32(const char *s, u32 *val)
++{
++	return kstrtou32(s, 0, val);
++}
++
++static int yt921x_proc_parse_u16(const char *s, u16 *val)
++{
++	return kstrtou16(s, 0, val);
++}
++
++static void
++yt921x_proc_stock_map(u32 reg, u16 *page, u16 *phy, u16 *word0, u16 *word1)
++{
++	*page = (reg >> 9) & 0x3ff;
++	*phy = ((reg >> 6) & 0x7) | 0x10;
++	*word0 = (reg >> 1) & 0x1e;
++	*word1 = *word0 + 1;
++}
++
++static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
++{
++	char *argv[6] = { 0 };
++	unsigned int argc = 0;
++	char *tok;
++	int res = 0;
++
++	cmd = strim(cmd);
++	while (argc < ARRAY_SIZE(argv) && (tok = strsep(&cmd, " \t")) != NULL) {
++		if (!*tok)
++			continue;
++		argv[argc++] = tok;
++	}
++
++	if (!argc || !strcmp(argv[0], "help")) {
++		yt921x_proc_reply_help(priv);
++		return 0;
++	}
++
++	yt921x_proc_reply_reset(priv);
++
++	if (!strcmp(argv[0], "reg") && argc >= 3) {
++		u32 reg;
++		u32 val;
++
++		res = yt921x_proc_parse_u32(argv[2], &reg);
++		if (res)
++			goto out;
++
++		mutex_lock(&priv->reg_lock);
++		if (!strcmp(argv[1], "read")) {
++			res = yt921x_reg_read(priv, reg, &val);
++			if (!res)
++				yt921x_proc_reply_append(priv,
++							 "reg 0x%06x = 0x%08x\n",
++							 reg, val);
++		} else if (!strcmp(argv[1], "write") && argc >= 4) {
++			res = yt921x_proc_parse_u32(argv[3], &val);
++			if (!res)
++				res = yt921x_reg_write(priv, reg, val);
++			if (!res)
++				yt921x_proc_reply_append(priv,
++							 "reg 0x%06x <= 0x%08x\n",
++							 reg, val);
++		} else {
++			res = -EINVAL;
++		}
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if ((!strcmp(argv[0], "int") || !strcmp(argv[0], "ext")) && argc >= 4) {
++		bool ext = !strcmp(argv[0], "ext");
++		u32 port;
++		u32 reg32;
++		u16 reg;
++		u16 val;
++
++		res = yt921x_proc_parse_u32(argv[2], &port);
++		if (res)
++			goto out;
++		res = yt921x_proc_parse_u32(argv[3], &reg32);
++		if (res || reg32 > U16_MAX) {
++			res = -EINVAL;
++			goto out;
++		}
++		reg = reg32;
++
++		mutex_lock(&priv->reg_lock);
++		if (!strcmp(argv[1], "read")) {
++			if (ext)
++				res = yt921x_extif_read(priv, port, reg, &val);
++			else
++				res = yt921x_intif_read(priv, port, reg, &val);
++			if (!res)
++				yt921x_proc_reply_append(priv,
++							 "%s[%u].0x%04x = 0x%04x\n",
++							 argv[0], port, reg, val);
++		} else if (!strcmp(argv[1], "write") && argc >= 5) {
++			res = yt921x_proc_parse_u16(argv[4], &val);
++			if (!res) {
++				if (ext)
++					res = yt921x_extif_write(priv, port, reg, val);
++				else
++					res = yt921x_intif_write(priv, port, reg, val);
++			}
++			if (!res)
++				yt921x_proc_reply_append(priv,
++							 "%s[%u].0x%04x <= 0x%04x\n",
++							 argv[0], port, reg, val);
++		} else {
++			res = -EINVAL;
++		}
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "stock") && argc >= 3) {
++		u16 page, phy, w0, w1;
++		u32 reg;
++
++		res = yt921x_proc_parse_u32(argv[2], &reg);
++		if (res)
++			goto out;
++
++		yt921x_proc_stock_map(reg, &page, &phy, &w0, &w1);
++
++		if (!strcmp(argv[1], "map")) {
++			yt921x_proc_reply_append(priv,
++						 "stock map reg=0x%06x page=0x%03x phy=0x%02x w0=0x%02x w1=0x%02x\n",
++						 reg, page, phy, w0, w1);
++		} else {
++			res = -EINVAL;
++		}
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "dump") && argc >= 3) {
++		u32 start;
++		u32 end;
++		u32 stride = 4;
++		u32 val;
++		u32 reg;
++
++		res = yt921x_proc_parse_u32(argv[1], &start);
++		if (res)
++			goto out;
++		res = yt921x_proc_parse_u32(argv[2], &end);
++		if (res)
++			goto out;
++		if (argc >= 4) {
++			res = yt921x_proc_parse_u32(argv[3], &stride);
++			if (res || !stride) {
++				res = -EINVAL;
++				goto out;
++			}
++		}
++
++		mutex_lock(&priv->reg_lock);
++		for (reg = start; reg <= end; reg += stride) {
++			res = yt921x_reg_read(priv, reg, &val);
++			if (res) {
++				yt921x_proc_reply_append(priv,
++							 "reg 0x%06x err=%d\n",
++							 reg, res);
++				break;
++			}
++			yt921x_proc_reply_append(priv,
++						 "reg 0x%06x = 0x%08x\n",
++						 reg, val);
++			if (priv->proc_reply_len >= sizeof(priv->proc_reply) - 32) {
++				yt921x_proc_reply_append(priv, "... truncated ...\n");
++				break;
++			}
++			if (reg > U32_MAX - stride)
++				break;
++		}
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	res = -EINVAL;
++out:
++	if (res)
++		yt921x_proc_reply_append(priv, "err=%d\n", res);
++	return res;
++}
++
++static int yt921x_proc_show(struct seq_file *m, void *unused)
++{
++	struct yt921x_priv *priv = m->private;
++
++	mutex_lock(&priv->proc_lock);
++	if (!priv->proc_reply_len)
++		yt921x_proc_reply_help(priv);
++	seq_write(m, priv->proc_reply, priv->proc_reply_len);
++	mutex_unlock(&priv->proc_lock);
++
++	return 0;
++}
++
++static int yt921x_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, yt921x_proc_show, pde_data(inode));
++}
++
++static ssize_t yt921x_proc_write(struct file *file, const char __user *buf,
++				 size_t len, loff_t *ppos)
++{
++	struct seq_file *m = file->private_data;
++	struct yt921x_priv *priv = m->private;
++	char cmd[128];
++
++	if (!len)
++		return 0;
++	len = min(len, sizeof(cmd) - 1);
++	if (copy_from_user(cmd, buf, len))
++		return -EFAULT;
++	cmd[len] = '\0';
++
++	mutex_lock(&priv->proc_lock);
++	yt921x_proc_run(priv, cmd);
++	mutex_unlock(&priv->proc_lock);
++
++	return len;
++}
++
++static const struct proc_ops yt921x_proc_ops = {
++	.proc_open = yt921x_proc_open,
++	.proc_read = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++	.proc_write = yt921x_proc_write,
++};
++
++static void yt921x_debugfs_init(struct yt921x_priv *priv)
++{
++	struct dentry *dir;
++
++	if (!yt921x_debugfs_root) {
++		yt921x_debugfs_root = debugfs_create_dir("yt921x", NULL);
++		if (IS_ERR_OR_NULL(yt921x_debugfs_root)) {
++			yt921x_debugfs_root = NULL;
++			return;
++		}
++	}
++
++	dir = debugfs_create_dir(dev_name(priv->ds.dev), yt921x_debugfs_root);
++	if (IS_ERR_OR_NULL(dir))
++		return;
++
++	priv->debugfs_dir = dir;
++
++	debugfs_create_file("core_regs", 0400, dir, priv,
++			    &yt921x_debugfs_core_regs_fops);
++	debugfs_create_file("uplink_regs", 0400, dir, priv,
++			    &yt921x_debugfs_uplink_regs_fops);
++	debugfs_create_file("stock_profile", 0400, dir, priv,
++			    &yt921x_debugfs_stock_profile_fops);
++	debugfs_create_file("port_regs", 0400, dir, priv,
++			    &yt921x_debugfs_port_regs_fops);
++}
++
++static int yt921x_proc_init(struct yt921x_priv *priv)
++{
++	struct device *dev = to_device(priv);
++
++	mutex_init(&priv->proc_lock);
++	yt921x_proc_reply_help(priv);
++
++	priv->proc_cmd = proc_create_data("yt921x_cmd", 0600, NULL,
++					  &yt921x_proc_ops, priv);
++	if (!priv->proc_cmd) {
++		dev_warn(dev, "failed to create /proc/yt921x_cmd\n");
++		return -ENOMEM;
++	}
++
++	return 0;
++}
++
++static void yt921x_debugfs_remove(struct yt921x_priv *priv)
++{
++	debugfs_remove_recursive(priv->debugfs_dir);
++	priv->debugfs_dir = NULL;
++}
++
++static void yt921x_proc_cleanup(struct yt921x_priv *priv)
++{
++	if (priv->proc_cmd)
++		proc_remove(priv->proc_cmd);
++	priv->proc_cmd = NULL;
++}
++#else
++static void yt921x_debugfs_init(struct yt921x_priv *priv)
++{
++}
++
++static int yt921x_proc_init(struct yt921x_priv *priv)
++{
++	return 0;
++}
++
++static void yt921x_debugfs_remove(struct yt921x_priv *priv)
++{
++}
++
++static void yt921x_proc_cleanup(struct yt921x_priv *priv)
++{
++}
++#endif
++
+ static int yt921x_reg_mdio_read(void *context, u32 reg, u32 *valp)
+ {
+ 	struct yt921x_reg_mdio *mdio = context;
+@@ -2820,8 +3427,13 @@
+ 		disable_delayed_work_sync(&pp->mib_read);
+ 	}
+ 
++	yt921x_debugfs_remove(priv);
++	yt921x_proc_cleanup(priv);
+ 	dsa_unregister_switch(&priv->ds);
+ 
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	mutex_destroy(&priv->proc_lock);
++#endif
+ 	mutex_destroy(&priv->reg_lock);
+ }
+ 
+@@ -2831,6 +3443,7 @@
+ 	struct yt921x_reg_mdio *mdio;
+ 	struct yt921x_priv *priv;
+ 	struct dsa_switch *ds;
++	int ret;
+ 
+ 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+ 	if (!priv)
+@@ -2866,7 +3479,16 @@
+ 
+ 	mdiodev_set_drvdata(mdiodev, priv);
+ 
+-	return dsa_register_switch(ds);
++	ret = dsa_register_switch(ds);
++	if (ret)
++		return ret;
++
++	yt921x_debugfs_init(priv);
++	ret = yt921x_proc_init(priv);
++	if (ret)
++		dev_warn(dev, "YT921x proc interface unavailable: %d\n", ret);
++
++	return 0;
+ }
+ 
+ static const struct of_device_id yt921x_of_match[] = {
+--- a/drivers/net/dsa/yt921x.h
++++ b/drivers/net/dsa/yt921x.h
+@@ -480,6 +480,9 @@
+ 	int (*write)(void *context, u32 reg, u32 val);
+ };
+ 
++struct dentry;
++struct proc_dir_entry;
++
+ struct yt921x_priv {
+ 	struct dsa_switch ds;
+ 
+@@ -499,6 +502,14 @@
+ 	struct yt921x_port ports[YT921X_PORT_NUM];
+ 
+ 	u16 eee_ports_mask;
++
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	struct mutex proc_lock;
++	struct proc_dir_entry *proc_cmd;
++	char proc_reply[PAGE_SIZE];
++	size_t proc_reply_len;
++	struct dentry *debugfs_dir;
++#endif
+ };
+ 
+ #endif
