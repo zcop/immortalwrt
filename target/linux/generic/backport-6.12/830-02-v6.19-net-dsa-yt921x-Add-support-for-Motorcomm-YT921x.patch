@@ -52,7 +52,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3106 @@
+@@ -0,0 +1,3126 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -159,7 +159,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u8 extmode;
 +	/* Ports with integral GbE PHYs, not including MCU Port 10 */
 +	u16 internal_mask;
-+	/* TODO: see comments in yt921x_dsa_phylink_get_caps() */
++	/* External ports */
 +	u16 external_mask;
 +};
 +
@@ -2625,14 +2625,49 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static void
++yt921x_phylink_set_external_caps(struct phylink_config *config,
++				 phy_interface_t interface)
++{
++	switch (interface) {
++	case PHY_INTERFACE_MODE_SGMII:
++		/* This kernel lacks PHY_INTERFACE_MODE_REVSGMII.
++		 * PHY_INTERFACE_MODE_SGMII defaults to REVSGMII for
++		 * compatibility.
++		 */
++		__set_bit(PHY_INTERFACE_MODE_SGMII,
++			  config->supported_interfaces);
++		config->mac_capabilities |= MAC_10 | MAC_100 | MAC_1000;
++		break;
++	case PHY_INTERFACE_MODE_100BASEX:
++		__set_bit(PHY_INTERFACE_MODE_100BASEX,
++			  config->supported_interfaces);
++		config->mac_capabilities |= MAC_100;
++		break;
++	case PHY_INTERFACE_MODE_1000BASEX:
++		__set_bit(PHY_INTERFACE_MODE_1000BASEX,
++			  config->supported_interfaces);
++		config->mac_capabilities |= MAC_1000;
++		break;
++	case PHY_INTERFACE_MODE_2500BASEX:
++		__set_bit(PHY_INTERFACE_MODE_2500BASEX,
++			  config->supported_interfaces);
++		config->mac_capabilities |= MAC_2500FD;
++		break;
++	default:
++		break;
++	}
++}
++
++static void
 +yt921x_dsa_phylink_get_caps(struct dsa_switch *ds, int port,
 +			    struct phylink_config *config)
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
 +	const struct yt921x_info *info = priv->info;
++	struct dsa_port *dp = dsa_to_port(ds, port);
++	phy_interface_t interface;
 +
-+	config->mac_capabilities = MAC_ASYM_PAUSE | MAC_SYM_PAUSE |
-+				   MAC_10 | MAC_100 | MAC_1000;
++	config->mac_capabilities = MAC_ASYM_PAUSE | MAC_SYM_PAUSE;
 +
 +	if (info->internal_mask & BIT(port)) {
 +		/* Port 10 for MCU should probably go here too. But since that
@@ -2641,41 +2676,26 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		 */
 +		__set_bit(PHY_INTERFACE_MODE_INTERNAL,
 +			  config->supported_interfaces);
++		config->mac_capabilities |= MAC_10 | MAC_100 | MAC_1000;
 +	} else if (info->external_mask & BIT(port)) {
-+		/* TODO: external ports may support SERDES only, XMII only, or
-+		 * SERDES + XMII depending on the chip. However, we can't get
-+		 * the accurate config table due to lack of document, thus
-+		 * we simply declare SERDES + XMII and rely on the correctness
-+		 * of devicetree for now.
++		/* External interface support is per-port and driven by
++		 * devicetree. Advertise only the configured, implemented modes.
 +		 */
-+
-+		/* SERDES */
-+		__set_bit(PHY_INTERFACE_MODE_SGMII,
-+			  config->supported_interfaces);
-+		/* This kernel lacks PHY_INTERFACE_MODE_REVSGMII.
-+		 * PHY_INTERFACE_MODE_SGMII defaults to REVSGMII for
-+		 * compatibility.
-+		 *
-+		 * Per-port devicetree overrides:
-+		 *   - motorcomm,serdes-sgmii
-+		 *   - motorcomm,serdes-revsgmii
-+		 *   - motorcomm,serdes-mode = "sgmii" / "revsgmii" /
-+		 *     "100base-x" / "1000base-x" / "2500base-x"
-+		 */
-+		__set_bit(PHY_INTERFACE_MODE_100BASEX,
-+			  config->supported_interfaces);
-+		__set_bit(PHY_INTERFACE_MODE_1000BASEX,
-+			  config->supported_interfaces);
-+		__set_bit(PHY_INTERFACE_MODE_2500BASEX,
-+			  config->supported_interfaces);
-+		config->mac_capabilities |= MAC_2500FD;
-+
-+		/* XMII */
-+
-+		/* Not tested. To add support for XMII:
-+		 *   - Add proper interface modes below
-+		 *   - Handle them in yt921x_port_config()
-+		 */
++		if (dp && dp->dn && !of_get_phy_mode(dp->dn, &interface)) {
++			yt921x_phylink_set_external_caps(config, interface);
++		} else {
++			/* Compatibility fallback for old trees without
++			 * explicit phy-mode on external ports.
++			 */
++			yt921x_phylink_set_external_caps(config,
++							 PHY_INTERFACE_MODE_SGMII);
++			yt921x_phylink_set_external_caps(config,
++							 PHY_INTERFACE_MODE_100BASEX);
++			yt921x_phylink_set_external_caps(config,
++							 PHY_INTERFACE_MODE_1000BASEX);
++			yt921x_phylink_set_external_caps(config,
++							 PHY_INTERFACE_MODE_2500BASEX);
++		}
 +	}
 +	/* no such port: empty supported_interfaces causes phylink to turn it
 +	 * down
