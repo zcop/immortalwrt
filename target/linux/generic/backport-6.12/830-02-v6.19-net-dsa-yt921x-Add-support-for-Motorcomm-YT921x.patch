@@ -2416,9 +2416,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		   phy_interface_t interface)
 +{
 +	struct device *dev = to_device(priv);
++	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
++	bool sgmii_is_rev = true;
 +	u32 mask;
 +	u32 ctrl;
 +	int res;
++
++	if (dp && dp->dn && of_property_read_bool(dp->dn,
++						  "motorcomm,serdes-sgmii"))
++		sgmii_is_rev = false;
 +
 +	if (!yt921x_port_is_external(port)) {
 +		if (interface != PHY_INTERFACE_MODE_INTERNAL) {
@@ -2448,7 +2454,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		mask = YT921X_SERDES_MODE_M;
 +		switch (interface) {
 +		case PHY_INTERFACE_MODE_SGMII:
-+			ctrl = YT921X_SERDES_MODE_REVSGMII;
++			ctrl = sgmii_is_rev ? YT921X_SERDES_MODE_REVSGMII
++					    : YT921X_SERDES_MODE_SGMII;
 +			break;
 +		case PHY_INTERFACE_MODE_100BASEX:
 +			ctrl = YT921X_SERDES_MODE_100BASEX;
@@ -2567,8 +2574,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		__set_bit(PHY_INTERFACE_MODE_SGMII,
 +			  config->supported_interfaces);
 +		/* This kernel lacks PHY_INTERFACE_MODE_REVSGMII.
-+		 * PHY_INTERFACE_MODE_SGMII is interpreted as REVSGMII in
-+		 * yt921x_port_config() for compatibility.
++		 * PHY_INTERFACE_MODE_SGMII defaults to REVSGMII for
++		 * compatibility, but a port node can force true SGMII with
++		 * motorcomm,serdes-sgmii.
 +		 */
 +		__set_bit(PHY_INTERFACE_MODE_100BASEX,
 +			  config->supported_interfaces);
