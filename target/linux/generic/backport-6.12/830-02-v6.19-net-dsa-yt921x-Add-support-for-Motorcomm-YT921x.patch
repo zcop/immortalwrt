@@ -52,7 +52,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3022 @@
+@@ -0,0 +1,3106 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -2412,19 +2412,112 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_port_get_serdes_mode(struct yt921x_priv *priv, int port,
++			    phy_interface_t interface, u32 *ctrl)
++{
++	struct device *dev = to_device(priv);
++	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
++	const char *mode;
++	u32 force_mode;
++
++	if (!dp || !dp->dn)
++		goto from_phy_mode;
++
++	if (of_property_read_bool(dp->dn, "motorcomm,serdes-sgmii") &&
++	    of_property_read_bool(dp->dn, "motorcomm,serdes-revsgmii")) {
++		dev_err(dev, "Port %d has both serdes-sgmii and serdes-revsgmii\n",
++			port);
++		return -EINVAL;
++	}
++
++	/* Legacy bool controls for PHY_INTERFACE_MODE_SGMII */
++	if (of_property_read_bool(dp->dn, "motorcomm,serdes-sgmii")) {
++		force_mode = YT921X_SERDES_MODE_SGMII;
++		goto validate_force_mode;
++	}
++	if (of_property_read_bool(dp->dn, "motorcomm,serdes-revsgmii")) {
++		force_mode = YT921X_SERDES_MODE_REVSGMII;
++		goto validate_force_mode;
++	}
++
++	/* Explicit serdes mode override */
++	if (!of_property_read_string(dp->dn, "motorcomm,serdes-mode", &mode)) {
++		if (!strcmp(mode, "sgmii"))
++			force_mode = YT921X_SERDES_MODE_SGMII;
++		else if (!strcmp(mode, "revsgmii"))
++			force_mode = YT921X_SERDES_MODE_REVSGMII;
++		else if (!strcmp(mode, "100base-x"))
++			force_mode = YT921X_SERDES_MODE_100BASEX;
++		else if (!strcmp(mode, "1000base-x"))
++			force_mode = YT921X_SERDES_MODE_1000BASEX;
++		else if (!strcmp(mode, "2500base-x"))
++			force_mode = YT921X_SERDES_MODE_2500BASEX;
++		else {
++			dev_err(dev, "Port %d has unsupported serdes-mode '%s'\n",
++				port, mode);
++			return -EINVAL;
++		}
++
++validate_force_mode:
++		switch (interface) {
++		case PHY_INTERFACE_MODE_SGMII:
++			if (force_mode == YT921X_SERDES_MODE_SGMII ||
++			    force_mode == YT921X_SERDES_MODE_REVSGMII)
++				break;
++			fallthrough;
++		case PHY_INTERFACE_MODE_100BASEX:
++			if (force_mode == YT921X_SERDES_MODE_100BASEX)
++				break;
++			fallthrough;
++		case PHY_INTERFACE_MODE_1000BASEX:
++			if (force_mode == YT921X_SERDES_MODE_1000BASEX)
++				break;
++			fallthrough;
++		case PHY_INTERFACE_MODE_2500BASEX:
++			if (force_mode == YT921X_SERDES_MODE_2500BASEX)
++				break;
++			fallthrough;
++		default:
++			dev_err(dev,
++				"Port %d serdes-mode incompatible with phy-mode %d\n",
++				port, interface);
++			return -EINVAL;
++		}
++
++		*ctrl = force_mode;
++		return 0;
++	}
++
++from_phy_mode:
++	switch (interface) {
++	case PHY_INTERFACE_MODE_SGMII:
++		/* This kernel lacks PHY_INTERFACE_MODE_REVSGMII. */
++		*ctrl = YT921X_SERDES_MODE_REVSGMII;
++		break;
++	case PHY_INTERFACE_MODE_100BASEX:
++		*ctrl = YT921X_SERDES_MODE_100BASEX;
++		break;
++	case PHY_INTERFACE_MODE_1000BASEX:
++		*ctrl = YT921X_SERDES_MODE_1000BASEX;
++		break;
++	case PHY_INTERFACE_MODE_2500BASEX:
++		*ctrl = YT921X_SERDES_MODE_2500BASEX;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int
 +yt921x_port_config(struct yt921x_priv *priv, int port, unsigned int mode,
 +		   phy_interface_t interface)
 +{
 +	struct device *dev = to_device(priv);
-+	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
-+	bool sgmii_is_rev = true;
 +	u32 mask;
 +	u32 ctrl;
 +	int res;
-+
-+	if (dp && dp->dn && of_property_read_bool(dp->dn,
-+						  "motorcomm,serdes-sgmii"))
-+		sgmii_is_rev = false;
 +
 +	if (!yt921x_port_is_external(port)) {
 +		if (interface != PHY_INTERFACE_MODE_INTERNAL) {
@@ -2452,23 +2545,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			return res;
 +
 +		mask = YT921X_SERDES_MODE_M;
-+		switch (interface) {
-+		case PHY_INTERFACE_MODE_SGMII:
-+			ctrl = sgmii_is_rev ? YT921X_SERDES_MODE_REVSGMII
-+					    : YT921X_SERDES_MODE_SGMII;
-+			break;
-+		case PHY_INTERFACE_MODE_100BASEX:
-+			ctrl = YT921X_SERDES_MODE_100BASEX;
-+			break;
-+		case PHY_INTERFACE_MODE_1000BASEX:
-+			ctrl = YT921X_SERDES_MODE_1000BASEX;
-+			break;
-+		case PHY_INTERFACE_MODE_2500BASEX:
-+			ctrl = YT921X_SERDES_MODE_2500BASEX;
-+			break;
-+		default:
-+			return -EINVAL;
-+		}
++		res = yt921x_port_get_serdes_mode(priv, port, interface, &ctrl);
++		if (res)
++			return res;
 +		res = yt921x_reg_update_bits(priv, YT921X_SERDESn(port),
 +					     mask, ctrl);
 +		if (res)
@@ -2575,8 +2654,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			  config->supported_interfaces);
 +		/* This kernel lacks PHY_INTERFACE_MODE_REVSGMII.
 +		 * PHY_INTERFACE_MODE_SGMII defaults to REVSGMII for
-+		 * compatibility, but a port node can force true SGMII with
-+		 * motorcomm,serdes-sgmii.
++		 * compatibility.
++		 *
++		 * Per-port devicetree overrides:
++		 *   - motorcomm,serdes-sgmii
++		 *   - motorcomm,serdes-revsgmii
++		 *   - motorcomm,serdes-mode = "sgmii" / "revsgmii" /
++		 *     "100base-x" / "1000base-x" / "2500base-x"
 +		 */
 +		__set_bit(PHY_INTERFACE_MODE_100BASEX,
 +			  config->supported_interfaces);
