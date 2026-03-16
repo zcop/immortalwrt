@@ -375,7 +375,7 @@
 &switch {
 	status = "okay";
 
-	// TODO: YT9215 supports 2500base-x
+	// Keep the CPU uplink on 1G SGMII for compatibility/stability.
 	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
 	switch_mac_mode1 = <MAC_MODE_DISABLED>;
 	switch_mac_mode2 = <MAC_MODE_DISABLED>;
@@ -472,6 +472,15 @@
 			sw_phy4: phy@4 {
 				reg = <4>;
 			};
+		};
+
+		/*
+		 * Expose YT9215 external MDIO bus so yt921x can register
+		 * mdio-external and support external PHY C22/C45 accesses.
+		 */
+		mdio-external {
+			#address-cells = <1>;
+			#size-cells = <0>;
 		};
 
 		ports {
