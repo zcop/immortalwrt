@@ -2448,7 +2448,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		mask = YT921X_SERDES_MODE_M;
 +		switch (interface) {
 +		case PHY_INTERFACE_MODE_SGMII:
-+			ctrl = YT921X_SERDES_MODE_SGMII;
++			ctrl = YT921X_SERDES_MODE_REVSGMII;
 +			break;
 +		case PHY_INTERFACE_MODE_100BASEX:
 +			ctrl = YT921X_SERDES_MODE_100BASEX;
@@ -2566,8 +2566,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		/* SERDES */
 +		__set_bit(PHY_INTERFACE_MODE_SGMII,
 +			  config->supported_interfaces);
-+		/* REVSGMII (SGMII in PHY role) should go here, once
-+		 * PHY_INTERFACE_MODE_REVSGMII is introduced.
++		/* This kernel lacks PHY_INTERFACE_MODE_REVSGMII.
++		 * PHY_INTERFACE_MODE_SGMII is interpreted as REVSGMII in
++		 * yt921x_port_config() for compatibility.
 +		 */
 +		__set_bit(PHY_INTERFACE_MODE_100BASEX,
 +			  config->supported_interfaces);
