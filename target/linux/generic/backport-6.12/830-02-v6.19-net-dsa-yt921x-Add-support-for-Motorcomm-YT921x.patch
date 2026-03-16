@@ -52,7 +52,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,2891 @@
+@@ -0,0 +1,3013 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -69,6 +69,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#include <linux/if_vlan.h>
 +#include <linux/iopoll.h>
 +#include <linux/mdio.h>
++#include <linux/mii.h>
 +#include <linux/module.h>
 +#include <linux/of.h>
 +#include <linux/of_mdio.h>
@@ -226,12 +227,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	int addr;
 +	/* SWITCH_ID_1 / SWITCH_ID_0 of the device
 +	 *
-+	 * This is a way to multiplex multiple devices on the same MII phyaddr
-+	 * and should be configurable in DT. However, MDIO core simply doesn't
-+	 * allow multiple devices over one reg addr, so this is a fixed value
-+	 * for now until a solution is found.
-+	 *
-+	 * Keep this because we need switchid to form MII regaddrs anyway.
++	 * This is a way to multiplex multiple devices on the same MII phyaddr.
++	 * One MDIO device node still maps to one core mii_bus address, but DT
++	 * can override switchid used for SMI register addressing.
 +	 */
 +	unsigned char switchid;
 +};
@@ -535,8 +533,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u16 val;
 +	int res;
 +
-+	if (port >= YT921X_PORT_NUM)
-+		return U16_MAX;
++	if (port < 0 || port >= YT921X_PORT_NUM || reg < 0 || reg > 0x1f)
++		return -EINVAL;
 +
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_intif_read(priv, port, reg, &val);
@@ -553,8 +551,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	struct yt921x_priv *priv = mbus->priv;
 +	int res;
 +
-+	if (port >= YT921X_PORT_NUM)
-+		return -ENODEV;
++	if (port < 0 || port >= YT921X_PORT_NUM || reg < 0 || reg > 0x1f)
++		return -EINVAL;
 +
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_intif_write(priv, port, reg, data);
@@ -672,6 +670,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u16 val;
 +	int res;
 +
++	if (port < 0 || port > 0x1f || reg < 0 || reg > 0x1f)
++		return -EINVAL;
++
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_extif_read(priv, port, reg, &val);
 +	mutex_unlock(&priv->reg_lock);
@@ -687,8 +688,74 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	struct yt921x_priv *priv = mbus->priv;
 +	int res;
 +
++	if (port < 0 || port > 0x1f || reg < 0 || reg > 0x1f)
++		return -EINVAL;
++
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_extif_write(priv, port, reg, data);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static int
++yt921x_mbus_ext_c45_prepare(struct yt921x_priv *priv, int port, int devnum,
++			      int regnum)
++{
++	int res;
++
++	if (port < 0 || port > 0x1f || devnum < 0 ||
++	    devnum > MII_MMD_CTRL_DEVAD_MASK || regnum < 0 || regnum > 0xffff)
++		return -EINVAL;
++
++	res = yt921x_extif_write(priv, port, MII_MMD_CTRL, devnum);
++	if (res)
++		return res;
++
++	res = yt921x_extif_write(priv, port, MII_MMD_DATA, regnum);
++	if (res)
++		return res;
++
++	return yt921x_extif_write(priv, port, MII_MMD_CTRL,
++				  devnum | MII_MMD_CTRL_NOINCR);
++}
++
++static int
++yt921x_mbus_ext_read_c45(struct mii_bus *mbus, int port, int devnum, int regnum)
++{
++	struct yt921x_priv *priv = mbus->priv;
++	u16 val;
++	int res;
++
++	mutex_lock(&priv->reg_lock);
++
++	res = yt921x_mbus_ext_c45_prepare(priv, port, devnum, regnum);
++	if (res)
++		goto out_unlock;
++
++	res = yt921x_extif_read(priv, port, MII_MMD_DATA, &val);
++
++out_unlock:
++	mutex_unlock(&priv->reg_lock);
++
++	if (res)
++		return res;
++	return val;
++}
++
++static int
++yt921x_mbus_ext_write_c45(struct mii_bus *mbus, int port, int devnum,
++			   int regnum, u16 data)
++{
++	struct yt921x_priv *priv = mbus->priv;
++	int res;
++
++	mutex_lock(&priv->reg_lock);
++
++	res = yt921x_mbus_ext_c45_prepare(priv, port, devnum, regnum);
++	if (!res)
++		res = yt921x_extif_write(priv, port, MII_MMD_DATA, data);
++
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -708,9 +775,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	mbus->name = "YT921x external MDIO bus";
 +	snprintf(mbus->id, MII_BUS_ID_SIZE, "%s@ext", dev_name(dev));
 +	mbus->priv = priv;
-+	/* TODO: c45? */
 +	mbus->read = yt921x_mbus_ext_read;
 +	mbus->write = yt921x_mbus_ext_write;
++	mbus->read_c45 = yt921x_mbus_ext_read_c45;
++	mbus->write_c45 = yt921x_mbus_ext_write_c45;
 +	mbus->parent = dev;
 +
 +	res = devm_of_mdiobus_register(dev, mbus, mnp);
@@ -2186,6 +2254,45 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return res;
 +}
 +
++static int
++yt921x_mdio_polling_set(struct yt921x_priv *priv, int port, bool link,
++			int speed, int duplex)
++{
++	u32 ctrl = 0;
++
++	if (!yt921x_port_is_external(port))
++		return 0;
++
++	if (!link)
++		return yt921x_reg_write(priv, YT921X_MDIO_POLLINGn(port), 0);
++
++	switch (speed) {
++	case SPEED_10:
++		ctrl = YT921X_MDIO_POLLING_SPEED_10;
++		break;
++	case SPEED_100:
++		ctrl = YT921X_MDIO_POLLING_SPEED_100;
++		break;
++	case SPEED_1000:
++		ctrl = YT921X_MDIO_POLLING_SPEED_1000;
++		break;
++	case SPEED_2500:
++		ctrl = YT921X_MDIO_POLLING_SPEED_2500;
++		break;
++	case SPEED_10000:
++		ctrl = YT921X_MDIO_POLLING_SPEED_10000;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	if (duplex == DUPLEX_FULL)
++		ctrl |= YT921X_MDIO_POLLING_DUPLEX_FULL;
++	ctrl |= YT921X_MDIO_POLLING_LINK;
++
++	return yt921x_reg_write(priv, YT921X_MDIO_POLLINGn(port), ctrl);
++}
++
 +static int yt921x_port_down(struct yt921x_priv *priv, int port)
 +{
 +	u32 mask;
@@ -2204,6 +2311,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +		mask = YT921X_XMII_LINK;
 +		res = yt921x_reg_clear_bits(priv, YT921X_XMIIn(port), mask);
++		if (res)
++			return res;
++
++		res = yt921x_mdio_polling_set(priv, port, false, 0, 0);
 +		if (res)
 +			return res;
 +	}
@@ -2292,29 +2403,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (res)
 +			return res;
 +
-+		switch (speed) {
-+		case SPEED_10:
-+			ctrl = YT921X_MDIO_POLLING_SPEED_10;
-+			break;
-+		case SPEED_100:
-+			ctrl = YT921X_MDIO_POLLING_SPEED_100;
-+			break;
-+		case SPEED_1000:
-+			ctrl = YT921X_MDIO_POLLING_SPEED_1000;
-+			break;
-+		case SPEED_2500:
-+			ctrl = YT921X_MDIO_POLLING_SPEED_2500;
-+			break;
-+		case SPEED_10000:
-+			ctrl = YT921X_MDIO_POLLING_SPEED_10000;
-+			break;
-+		default:
-+			return -EINVAL;
-+		}
-+		if (duplex == DUPLEX_FULL)
-+			ctrl |= YT921X_MDIO_POLLING_DUPLEX_FULL;
-+		ctrl |= YT921X_MDIO_POLLING_LINK;
-+		res = yt921x_reg_write(priv, YT921X_MDIO_POLLINGn(port), ctrl);
++		res = yt921x_mdio_polling_set(priv, port, true, speed, duplex);
 +		if (res)
 +			return res;
 +	}
@@ -2814,9 +2903,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		of_node_put(child);
 +		if (res)
 +			return res;
-+
-+		dev_err(dev, "Untested external mdio bus\n");
-+		return -ENODEV;
 +	}
 +
 +	mutex_lock(&priv->reg_lock);
@@ -2913,6 +2999,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	struct yt921x_reg_mdio *mdio;
 +	struct yt921x_priv *priv;
 +	struct dsa_switch *ds;
++	u32 switchid = 0;
 +
 +	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 +	if (!priv)
@@ -2924,7 +3011,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mdio->bus = mdiodev->bus;
 +	mdio->addr = mdiodev->addr;
-+	mdio->switchid = 0;
++	if (of_property_read_u32(dev->of_node, "motorcomm,switchid",
++				 &switchid))
++		of_property_read_u32(dev->of_node, "switchid", &switchid);
++	if (switchid > 1) {
++		dev_err(dev, "Invalid switchid %u\n", switchid);
++		return -EINVAL;
++	}
++	mdio->switchid = switchid;
 +
 +	mutex_init(&priv->reg_lock);
 +
