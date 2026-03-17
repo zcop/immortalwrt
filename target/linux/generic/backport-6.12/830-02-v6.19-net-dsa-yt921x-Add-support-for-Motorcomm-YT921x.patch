@@ -3233,6 +3233,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +static bool yt921x_mdio_phyid_valid(u16 id1, u16 id2)
 +{
++	/* 0x1140/0x1140 is a known pseudo responder pattern on non-PHY MBUS
++	 * paths; exclude it from the valid responder mask.
++	 */
++	if (id1 == 0x1140 && id2 == 0x1140)
++		return false;
++
 +	return id1 != 0x0000 && id1 != 0xffff &&
 +	       id2 != 0x0000 && id2 != 0xffff;
 +}
@@ -3298,10 +3304,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			if (res)
 +				continue;
 +
-+			if (yt921x_mdio_phyid_valid(id1, id2))
-+				__set_bit(port, &int_valid_mask);
-+			else if (id1 == 0x1140 && id2 == 0x1140)
++			if (id1 == 0x1140 && id2 == 0x1140)
 +				__set_bit(port, &int_placeholder_mask);
++			else if (yt921x_mdio_phyid_valid(id1, id2))
++				__set_bit(port, &int_valid_mask);
 +		}
 +
 +		dev_info(dev,
