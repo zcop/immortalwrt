@@ -251,6 +251,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define to_yt921x_priv(_ds) container_of_const(_ds, struct yt921x_priv, ds)
 +#define to_device(priv) ((priv)->ds.dev)
 +
++static bool yt921x_is_external_port(const struct yt921x_priv *priv, int port)
++{
++	return !!(priv->info->external_mask & BIT(port));
++}
++
 +static int yt921x_reg_read(struct yt921x_priv *priv, u32 reg, u32 *valp)
 +{
 +	WARN_ON(!mutex_is_locked(&priv->reg_lock));
@@ -2597,7 +2602,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	u32 ctrl = 0;
 +
-+	if (!yt921x_port_is_external(port))
++	if (!yt921x_is_external_port(priv, port))
 +		return 0;
 +
 +	if (!link)
@@ -2677,7 +2682,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
-+	if (yt921x_port_is_external(port)) {
++	if (yt921x_is_external_port(priv, port)) {
 +		mask = YT921X_SERDES_LINK;
 +		res = yt921x_reg_clear_bits(priv, YT921X_SERDESn(port), mask);
 +		if (res)
@@ -2746,7 +2751,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
-+	if (yt921x_port_is_external(port)) {
++	if (yt921x_is_external_port(priv, port)) {
 +		mask = YT921X_SERDES_SPEED_M;
 +		switch (speed) {
 +		case SPEED_10:
@@ -2904,7 +2909,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 ctrl;
 +	int res;
 +
-+	if (!yt921x_port_is_external(port)) {
++	if (!yt921x_is_external_port(priv, port)) {
 +		if (interface != PHY_INTERFACE_MODE_INTERNAL) {
 +			dev_err(dev, "Wrong mode %d on port %d\n",
 +				interface, port);
@@ -3823,7 +3828,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_LICENSE("GPL");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,520 @@
+@@ -0,0 +1,517 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -4242,9 +4247,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +/* 8 internal + 2 external + 1 mcu */
 +#define YT921X_PORT_NUM			11
-+
-+#define yt921x_port_is_internal(port) ((port) < 8)
-+#define yt921x_port_is_external(port) (8 <= (port) && (port) < 9)
 +
 +struct yt921x_mib {
 +	u64 rx_broadcast;
