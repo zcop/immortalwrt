@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3761 @@
+@@ -0,0 +1,3851 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -3407,11 +3407,30 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		((YT921X_INIT_DBG_31C_END - YT921X_INIT_DBG_31C_START) / 4) + 1,
 +};
 +
++static const u32 yt921x_init_dbg_watch_regs[] = {
++	YT921X_FUNC,
++	YT921X_EXT_CPU_PORT,
++	YT921X_SERDES_CTRL,
++	YT921X_SERDESn(8),
++	YT921X_SERDESn(9),
++	YT921X_XMII_CTRL,
++	YT921X_XMIIn(8),
++	YT921X_XMIIn(9),
++	YT921X_MIB_CTRL,
++	YT921X_CPU_COPY,
++	YT921X_FILTER_UNK_UCAST,
++	YT921X_FILTER_UNK_MCAST,
++	YT921X_ACT_UNK_UCAST,
++	YT921X_ACT_UNK_MCAST,
++};
++
 +struct yt921x_init_dbg_snapshot {
 +	u32 win2c[YT921X_INIT_DBG_2C_WORDS];
 +	int win2c_err[YT921X_INIT_DBG_2C_WORDS];
 +	u32 win31c[YT921X_INIT_DBG_31C_WORDS];
 +	int win31c_err[YT921X_INIT_DBG_31C_WORDS];
++	u32 watch[ARRAY_SIZE(yt921x_init_dbg_watch_regs)];
++	int watch_err[ARRAY_SIZE(yt921x_init_dbg_watch_regs)];
 +};
 +
 +static void
@@ -3429,22 +3448,38 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static void
-+yt921x_debug_log_window_delta_locked(struct yt921x_priv *priv, const char *label,
-+				      u32 start, u32 end, const u32 *before,
-+				      const int *before_err, const u32 *after,
-+				      const int *after_err)
++yt921x_debug_snapshot_regs_locked(struct yt921x_priv *priv, const u32 *regs,
++				  unsigned int n, u32 *vals, int *errs)
++{
++	unsigned int i;
++
++	for (i = 0; i < n; i++) {
++		errs[i] = yt921x_reg_read(priv, regs[i], &vals[i]);
++		if (errs[i])
++			vals[i] = 0;
++	}
++}
++
++static int
++yt921x_debug_log_reg_delta_locked(struct yt921x_priv *priv, const char *stage,
++				  const u32 *regs, unsigned int n,
++				  const u32 *before, const int *before_err,
++				  const u32 *after, const int *after_err,
++				  const char *label)
 +{
 +	struct device *dev = to_device(priv);
-+	u32 reg;
++	unsigned int i;
 +	int changed = 0;
-+	int i = 0;
 +
-+	for (reg = start; reg <= end; reg += 4, i++) {
++	for (i = 0; i < n; i++) {
++		u32 reg = regs[i];
++
 +		if (before_err[i] || after_err[i]) {
 +			if (before_err[i] != after_err[i]) {
 +				dev_info(dev,
-+					 "init-delta %-5s reg 0x%06x err %d -> %d\n",
-+					 label, reg, before_err[i], after_err[i]);
++					 "init-delta %-12s %-6s reg 0x%06x err %d -> %d\n",
++					 stage, label, reg, before_err[i],
++					 after_err[i]);
 +				changed++;
 +			}
 +			continue;
@@ -3453,13 +3488,32 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (before[i] == after[i])
 +			continue;
 +
-+		dev_info(dev, "init-delta %-5s reg 0x%06x 0x%08x -> 0x%08x\n",
-+			 label, reg, before[i], after[i]);
++		dev_info(dev,
++			 "init-delta %-12s %-6s reg 0x%06x 0x%08x -> 0x%08x\n",
++			 stage, label, reg, before[i], after[i]);
 +		changed++;
 +	}
 +
-+	if (!changed)
-+		dev_info(dev, "init-delta %-5s no changes\n", label);
++	return changed;
++}
++
++static int
++yt921x_debug_log_window_delta_locked(struct yt921x_priv *priv, const char *stage,
++				      const char *label, u32 start, u32 end,
++				      const u32 *before, const int *before_err,
++				      const u32 *after, const int *after_err)
++{
++	u32 reg;
++	int changed = 0;
++	unsigned int i = 0;
++
++	for (reg = start; reg <= end; reg += 4, i++)
++		changed += yt921x_debug_log_reg_delta_locked(priv, stage, &reg, 1,
++							     &before[i], &before_err[i],
++							     &after[i], &after_err[i],
++							     label);
++
++	return changed;
 +}
 +
 +static void
@@ -3472,34 +3526,41 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	yt921x_debug_snapshot_window_locked(priv, YT921X_INIT_DBG_31C_START,
 +					    YT921X_INIT_DBG_31C_END,
 +					    snap->win31c, snap->win31c_err);
++	yt921x_debug_snapshot_regs_locked(priv, yt921x_init_dbg_watch_regs,
++					  ARRAY_SIZE(yt921x_init_dbg_watch_regs),
++					  snap->watch, snap->watch_err);
 +}
 +
 +static void
-+yt921x_debug_init_snapshot_log_delta_locked(struct yt921x_priv *priv,
-+					    const struct yt921x_init_dbg_snapshot *before)
++yt921x_debug_init_checkpoint_locked(struct yt921x_priv *priv,
++				    struct yt921x_init_dbg_snapshot *prev,
++				    const char *stage)
 +{
-+	u32 after2c[YT921X_INIT_DBG_2C_WORDS];
-+	int after2c_err[YT921X_INIT_DBG_2C_WORDS];
-+	u32 after31c[YT921X_INIT_DBG_31C_WORDS];
-+	int after31c_err[YT921X_INIT_DBG_31C_WORDS];
++	struct device *dev = to_device(priv);
++	struct yt921x_init_dbg_snapshot now;
++	int changed_watch;
++	int changed_2c;
++	int changed_31c;
 +
-+	yt921x_debug_snapshot_window_locked(priv, YT921X_INIT_DBG_2C_START,
-+					    YT921X_INIT_DBG_2C_END,
-+					    after2c, after2c_err);
-+	yt921x_debug_snapshot_window_locked(priv, YT921X_INIT_DBG_31C_START,
-+					    YT921X_INIT_DBG_31C_END,
-+					    after31c, after31c_err);
++	yt921x_debug_init_snapshot_take_locked(priv, &now);
 +
-+	yt921x_debug_log_window_delta_locked(priv, "0x2c01",
-+					     YT921X_INIT_DBG_2C_START,
-+					     YT921X_INIT_DBG_2C_END,
-+					     before->win2c, before->win2c_err,
-+					     after2c, after2c_err);
-+	yt921x_debug_log_window_delta_locked(priv, "0x31c0",
-+					     YT921X_INIT_DBG_31C_START,
-+					     YT921X_INIT_DBG_31C_END,
-+					     before->win31c, before->win31c_err,
-+					     after31c, after31c_err);
++	changed_watch = yt921x_debug_log_reg_delta_locked(
++		priv, stage, yt921x_init_dbg_watch_regs,
++		ARRAY_SIZE(yt921x_init_dbg_watch_regs), prev->watch,
++		prev->watch_err, now.watch, now.watch_err, "watch");
++	changed_2c = yt921x_debug_log_window_delta_locked(
++		priv, stage, "0x2c01", YT921X_INIT_DBG_2C_START,
++		YT921X_INIT_DBG_2C_END, prev->win2c, prev->win2c_err,
++		now.win2c, now.win2c_err);
++	changed_31c = yt921x_debug_log_window_delta_locked(
++		priv, stage, "0x31c0", YT921X_INIT_DBG_31C_START,
++		YT921X_INIT_DBG_31C_END, prev->win31c, prev->win31c_err,
++		now.win31c, now.win31c_err);
++
++	dev_info(dev,
++		 "init-delta %-12s summary watch=%d 0x2c01=%d 0x31c0=%d\n",
++		 stage, changed_watch, changed_2c, changed_31c);
++	*prev = now;
 +}
 +#endif
 +
@@ -3512,14 +3573,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	int port;
 +	int res;
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+	struct yt921x_init_dbg_snapshot dbg_init;
++	struct yt921x_init_dbg_snapshot dbg_stage;
 +#endif
 +
 +	/* Enable DSA */
 +	priv->cpu_ports_mask = dsa_cpu_ports(ds);
 +
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+	yt921x_debug_init_snapshot_take_locked(priv, &dbg_init);
++	yt921x_debug_init_snapshot_take_locked(priv, &dbg_stage);
 +#endif
 +
 +	ctrl = YT921X_EXT_CPU_PORT_TAG_EN | YT921X_EXT_CPU_PORT_PORT_EN |
@@ -3527,16 +3588,25 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_write(priv, YT921X_EXT_CPU_PORT, ctrl);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "ext-cpu-port");
++#endif
 +
 +	/* Enable and clear MIB */
 +	res = yt921x_reg_set_bits(priv, YT921X_FUNC, YT921X_FUNC_MIB);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "func-mib");
++#endif
 +
 +	ctrl = YT921X_MIB_CTRL_CLEAN | YT921X_MIB_CTRL_ALL_PORT;
 +	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, ctrl);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mib-clean");
++#endif
 +
 +	/* CLEAN is edge/latched on some runtimes; settle to steady all-port
 +	 * accounting mode to avoid keeping high bits asserted.
@@ -3544,12 +3614,18 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, YT921X_MIB_CTRL_ALL_PORT);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mib-steady");
++#endif
 +
 +	/* Setup software switch */
 +	ctrl = YT921X_CPU_COPY_TO_EXT_CPU;
 +	res = yt921x_reg_write(priv, YT921X_CPU_COPY, ctrl);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "cpu-copy");
++#endif
 +
 +	ctrl = GENMASK(10, 0);
 +	res = yt921x_reg_write(priv, YT921X_FILTER_UNK_UCAST, ctrl);
@@ -3558,6 +3634,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_write(priv, YT921X_FILTER_UNK_MCAST, ctrl);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "unk-filter");
++#endif
 +
 +	/* YT921x does not support native DSA port bridging, so we use port
 +	 * isolation to emulate it. However, be especially careful that port
@@ -3588,6 +3667,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_write(priv, YT921X_ACT_UNK_MCAST, ctrl);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "unk-action");
++#endif
 +
 +	/* Tagged VID 0 should be treated as untagged, which confuses the
 +	 * hardware a lot
@@ -3596,6 +3678,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg64_write(priv, YT921X_VLANn_CTRL(0), ctrl64);
 +	if (res)
 +		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "vlan0");
++#endif
 +
 +	/* Miscellaneous */
 +	res = yt921x_reg_set_bits(priv, YT921X_SENSOR, YT921X_SENSOR_TEMP);
@@ -3603,7 +3688,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+	yt921x_debug_init_snapshot_log_delta_locked(priv, &dbg_init);
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "sensor");
 +#endif
 +
 +	res = yt921x_validate_setup_locked(priv);
