@@ -1,5 +1,23 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-17: Actionability map from `/mnt/wsl/tmp` archive
+
+New doc:
+- `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
+
+What was added:
+- Consolidated classification of registers/windows into:
+  - safe now
+  - writable but coupled
+  - writable but low-confidence
+  - coerced/non-plain
+  - backend-unreliable windows
+  - MIB/stat data windows
+- Explicit carry-over of high-value raw-vs-normal deltas (`0x0800xx` and
+  `0x31c0xx` families).
+- Guidance on what can enter driver logic immediately versus what should stay
+  in debug-only experimentation.
+
 ## 2026-03-16: CR881x post-fix live snapshot (switch restored)
 
 Build / board:
