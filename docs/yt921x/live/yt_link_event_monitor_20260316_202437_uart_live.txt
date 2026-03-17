@@ -1,0 +1,3 @@
+# monitor-start 2026-03-16T20:24:37-0700
+# fields: time carrier(lan1,lan2,lan3,wan) status(p0..p4,p8) bmsr(p0..p4)
+20:24:41 READ_ERROR

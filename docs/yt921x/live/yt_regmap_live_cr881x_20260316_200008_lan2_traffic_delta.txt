@@ -1,0 +1,22 @@
+# traffic delta snapshot 2026-03-16T18:30:01+00:00
+## counters before
+rx_packets=318
+tx_packets=415
+rx_bytes=52246
+tx_bytes=69648
+## counters after
+rx_packets=354
+tx_packets=453
+rx_bytes=59167
+tx_bytes=75246
+## regs after traffic
+reg 0x0c0004 = 0x00000001
+reg 0x180454 = 0xccd84354
+reg 0x180458 = 0x70011c7a
+reg 0x18045c = 0x04000000
+reg 0x180460 = 0x00000000
+reg 0x180464 = 0x00008f05
+reg 0x080200 = 0x000000e2
+reg 0x080204 = 0x000001fa
+reg 0x080210 = 0x000001fa
+reg 0x080220 = 0x000001fa

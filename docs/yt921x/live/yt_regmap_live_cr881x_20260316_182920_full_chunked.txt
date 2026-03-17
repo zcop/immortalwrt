@@ -1,0 +1,290 @@
+# yt921x live register map full chunked (decimal loop)
+# date=2026-03-16T18:29:20+00:00
+## dump 0x080000 0x08003c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x080040 0x08007c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x080080 0x0800b0 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100000 0x10003c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100040 0x10007c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100080 0x1000bc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x1000c0 0x1000fc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100100 0x10013c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100140 0x10017c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100180 0x1001bc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x1001c0 0x1001fc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100200 0x10023c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100240 0x10027c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100280 0x1002bc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x1002c0 0x1002fc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x100300 0x100324 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x180280 0x1802bc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x1802c0 0x1802fc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x180300 0x18033c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x180340 0x18037c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x180380 0x1803bc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x1803c0 0x1803fc 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x180400 0x18043c 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+
+## dump 0x180440 0x180470 4
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  stock map <reg>
+  dump <start> <end> [stride]
+

@@ -1,0 +1,227 @@
+# snapshot 2026-03-16T18:25:49+00:00
+Linux ImmortalWrt 6.12.74 #0 SMP Mon Mar 16 18:20:12 2026 aarch64 GNU/Linux
+## netdev
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN qlen 1000\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eth0: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1508 qdisc fq_codel state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+4: lan1@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+8: cpu@eth1: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+10: phy0-ap0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether cc:d8:43:54:1c:7b brd ff:ff:ff:ff:ff:ff
+11: phy1-ap0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether cc:d8:43:54:1c:7a brd ff:ff:ff:ff:ff:ff
+## dmesg yt
+[    5.000797] yt921x 90000.mdio-1:1d: Motorcomm YT9215S ethernet switch, chipid: 0x90020001, chipmode: 0x2 0x0
+[    5.448322] yt921x 90000.mdio-1:1d: mdio-int responders: phyid_mask=0x31f placeholder_mask=0x000
+[    6.078922] yt921x 90000.mdio-1:1d: mdio-ext responders: none detected on ports 0..31
+[    6.080504] yt921x 90000.mdio-1:1d: configuring for fixed/sgmii link mode
+[    6.089304] yt921x 90000.mdio-1:1d: Link is Up - 1Gbps/Full - flow control rx/tx
+[    6.099123] yt921x 90000.mdio-1:1d lan1 (uninitialized): PHY [90000.mdio-1:1d:00] driver [Generic PHY] (irq=POLL)
+[    6.112031] yt921x 90000.mdio-1:1d lan2 (uninitialized): PHY [90000.mdio-1:1d:01] driver [Generic PHY] (irq=POLL)
+[    6.123581] yt921x 90000.mdio-1:1d lan3 (uninitialized): PHY [90000.mdio-1:1d:02] driver [Generic PHY] (irq=POLL)
+[    6.133824] yt921x 90000.mdio-1:1d wan (uninitialized): PHY [90000.mdio-1:1d:03] driver [Generic PHY] (irq=POLL)
+[    6.151158] yt921x 90000.mdio-1:1d cpu (uninitialized): PHY [90000.mdio-1:1d:04] driver [Generic PHY] (irq=POLL)
+[    6.172617] yt921x 90000.mdio-1:1d lan1: configuring for phy/internal link mode
+[   22.381216] yt921x 90000.mdio-1:1d lan1: configuring for phy/internal link mode
+[   22.403981] yt921x 90000.mdio-1:1d lan1: entered allmulticast mode
+[   22.415188] yt921x 90000.mdio-1:1d lan1: entered promiscuous mode
+[   22.511521] yt921x 90000.mdio-1:1d lan2: configuring for phy/internal link mode
+[   22.533219] yt921x 90000.mdio-1:1d lan2: entered allmulticast mode
+[   22.540888] yt921x 90000.mdio-1:1d lan2: entered promiscuous mode
+[   22.579900] yt921x 90000.mdio-1:1d lan3: configuring for phy/internal link mode
+[   22.596422] yt921x 90000.mdio-1:1d lan3: entered allmulticast mode
+[   22.610439] yt921x 90000.mdio-1:1d lan3: entered promiscuous mode
+[   22.675589] yt921x 90000.mdio-1:1d wan: configuring for phy/internal link mode
+[   25.796953] yt921x 90000.mdio-1:1d lan2: Link is Up - 1Gbps/Full - flow control rx/tx
+## key regs
+reg 0x080008 = 0x90020001
+reg 0x08000c = 0x0000c008
+reg 0x080010 = 0x00009988
+reg 0x080028 = 0x00000041
+reg 0x080388 = 0x00000002
+reg 0x080394 = 0x00000000
+reg 0x080400 = 0x04184108
+reg 0x080404 = 0x00000000
+reg 0x080408 = 0x04184108
+reg 0x080364 = 0x0000001a
+reg 0x080368 = 0x00000012
+reg 0x06a000 = 0x00000000
+reg 0x06a004 = 0x03e30408
+reg 0x06a008 = 0x00000000
+reg 0x06a00c = 0x00000000
+reg 0x0f0000 = 0x00000000
+reg 0x0f0004 = 0x000a0908
+reg 0x0f0008 = 0x00004007
+reg 0x0f000c = 0x00000000
+reg 0x0c0004 = 0x80000001
+reg 0x0e0000 = 0x00000000
+reg 0x0e0004 = 0x00000003
+reg 0x180280 = 0x00000000
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x1802b4 = 0x000007ff
+reg 0x180440 = 0x0000003c
+reg 0x180450 = 0xdeadbeef
+reg 0x180454 = 0xccd84354
+reg 0x180458 = 0x70011c7a
+reg 0x18045c = 0x04000000
+reg 0x180460 = 0x00000000
+reg 0x180464 = 0x00008f05
+## port ctrl/status
+reg 0x080100 = 0x000007fa
+reg 0x080200 = 0x000000e2
+reg 0x080104 = 0x000000fa
+reg 0x080204 = 0x000001fa
+reg 0x080108 = 0x000007fa
+reg 0x080208 = 0x000000e2
+reg 0x08010c = 0x000007fa
+reg 0x08020c = 0x000000e2
+reg 0x080110 = 0x000007fa
+reg 0x080210 = 0x000001fa
+reg 0x080114 = 0x000007fa
+reg 0x080214 = 0x000000e2
+reg 0x080118 = 0x000007fa
+reg 0x080218 = 0x000000e2
+reg 0x08011c = 0x000007fa
+reg 0x08021c = 0x000000e2
+reg 0x080120 = 0x000000fa
+reg 0x080220 = 0x000001fa
+reg 0x080124 = 0x000007fa
+reg 0x080224 = 0x000000e2
+reg 0x080128 = 0x000007fa
+reg 0x080228 = 0x000001fa
+## internal mdio ids+bmsr
+-- int port 0
+int[0].0x0000 = 0x1140
+int[0].0x0001 = 0x7949
+int[0].0x0002 = 0x01e0
+int[0].0x0003 = 0x4281
+int[0].0x0011 = 0x0000
+-- int port 1
+int[1].0x0000 = 0x1140
+int[1].0x0001 = 0x796d
+int[1].0x0002 = 0x01e0
+int[1].0x0003 = 0x4281
+int[1].0x0011 = 0xbc4c
+-- int port 2
+int[2].0x0000 = 0x1140
+int[2].0x0001 = 0x7949
+int[2].0x0002 = 0x01e0
+int[2].0x0003 = 0x4281
+int[2].0x0011 = 0x0000
+-- int port 3
+int[3].0x0000 = 0x1140
+int[3].0x0001 = 0x7949
+int[3].0x0002 = 0x01e0
+int[3].0x0003 = 0x4281
+int[3].0x0011 = 0x0000
+-- int port 4
+int[4].0x0000 = 0x1140
+int[4].0x0001 = 0x796d
+int[4].0x0002 = 0x01e0
+int[4].0x0003 = 0x4281
+int[4].0x0011 = 0xbc0c
+-- int port 5
+int[5].0x0000 = 0x0000
+int[5].0x0001 = 0x0000
+int[5].0x0002 = 0x0000
+int[5].0x0003 = 0x0000
+int[5].0x0011 = 0x0000
+-- int port 6
+int[6].0x0000 = 0x0000
+int[6].0x0001 = 0x0000
+int[6].0x0002 = 0x0000
+int[6].0x0003 = 0x0000
+int[6].0x0011 = 0x0000
+-- int port 7
+int[7].0x0000 = 0x0000
+int[7].0x0001 = 0x0000
+int[7].0x0002 = 0x0000
+int[7].0x0003 = 0x0000
+int[7].0x0011 = 0x0000
+-- int port 8
+int[8].0x0000 = 0x1140
+int[8].0x0001 = 0x1140
+int[8].0x0002 = 0x1140
+int[8].0x0003 = 0x1140
+int[8].0x0011 = 0x1140
+-- int port 9
+int[9].0x0000 = 0x1140
+int[9].0x0001 = 0x1140
+int[9].0x0002 = 0x1140
+int[9].0x0003 = 0x1140
+int[9].0x0011 = 0x1140
+-- int port 10
+int[10].0x0000 = 0x0000
+int[10].0x0001 = 0x0000
+int[10].0x0002 = 0x0000
+int[10].0x0003 = 0x0000
+int[10].0x0011 = 0x0000
+## external mdio quick sweep ids
+ext[0].0x0002 = 0x0000
+ext[0].0x0003 = 0x0000
+ext[1].0x0002 = 0x0000
+ext[1].0x0003 = 0x0000
+ext[2].0x0002 = 0x0000
+ext[2].0x0003 = 0x0000
+ext[3].0x0002 = 0x0000
+ext[3].0x0003 = 0x0000
+ext[4].0x0002 = 0x0000
+ext[4].0x0003 = 0x0000
+ext[5].0x0002 = 0x0000
+ext[5].0x0003 = 0x0000
+ext[6].0x0002 = 0x0000
+ext[6].0x0003 = 0x0000
+ext[7].0x0002 = 0x0000
+ext[7].0x0003 = 0x0000
+ext[8].0x0002 = 0x0000
+ext[8].0x0003 = 0x0000
+ext[9].0x0002 = 0x0000
+ext[9].0x0003 = 0x0000
+ext[10].0x0002 = 0x0000
+ext[10].0x0003 = 0x0000
+ext[11].0x0002 = 0x0000
+ext[11].0x0003 = 0x0000
+ext[12].0x0002 = 0x0000
+ext[12].0x0003 = 0x0000
+ext[13].0x0002 = 0x0000
+ext[13].0x0003 = 0x0000
+ext[14].0x0002 = 0x0000
+ext[14].0x0003 = 0x0000
+ext[15].0x0002 = 0x0000
+ext[15].0x0003 = 0x0000
+ext[16].0x0002 = 0x0000
+ext[16].0x0003 = 0x0000
+ext[17].0x0002 = 0x0000
+ext[17].0x0003 = 0x0000
+ext[18].0x0002 = 0x0000
+ext[18].0x0003 = 0x0000
+ext[19].0x0002 = 0x0000
+ext[19].0x0003 = 0x0000
+ext[20].0x0002 = 0x0000
+ext[20].0x0003 = 0x0000
+ext[21].0x0002 = 0x0000
+ext[21].0x0003 = 0x0000
+ext[22].0x0002 = 0x0000
+ext[22].0x0003 = 0x0000
+ext[23].0x0002 = 0x0000
+ext[23].0x0003 = 0x0000
+ext[24].0x0002 = 0x0000
+ext[24].0x0003 = 0x0000
+ext[25].0x0002 = 0x0000
+ext[25].0x0003 = 0x0000
+ext[26].0x0002 = 0x0000
+ext[26].0x0003 = 0x0000
+ext[27].0x0002 = 0x0000
+ext[27].0x0003 = 0x0000
+ext[28].0x0002 = 0x0000
+ext[28].0x0003 = 0x0000
+ext[29].0x0002 = 0x0000
+ext[29].0x0003 = 0x0000
+ext[30].0x0002 = 0x0000
+ext[30].0x0003 = 0x0000
+ext[31].0x0002 = 0x0000
+ext[31].0x0003 = 0x0000
