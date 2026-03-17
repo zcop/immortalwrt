@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3851 @@
+@@ -0,0 +1,3900 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -2702,13 +2702,62 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_port_validate_link_mode(struct yt921x_priv *priv, int port,
++			       phy_interface_t interface, int speed, int duplex)
++{
++	if (!yt921x_is_external_port(priv, port)) {
++		if (interface != PHY_INTERFACE_MODE_INTERNAL)
++			return -EINVAL;
++
++		switch (speed) {
++		case SPEED_10:
++		case SPEED_100:
++		case SPEED_1000:
++			return 0;
++		default:
++			return -EINVAL;
++		}
++	}
++
++	switch (interface) {
++	case PHY_INTERFACE_MODE_SGMII:
++		switch (speed) {
++		case SPEED_10:
++		case SPEED_100:
++		case SPEED_1000:
++			return 0;
++		default:
++			return -EINVAL;
++		}
++	case PHY_INTERFACE_MODE_100BASEX:
++		return (speed == SPEED_100 && duplex == DUPLEX_FULL) ? 0 : -EINVAL;
++	case PHY_INTERFACE_MODE_1000BASEX:
++		return (speed == SPEED_1000 && duplex == DUPLEX_FULL) ? 0 : -EINVAL;
++	case PHY_INTERFACE_MODE_2500BASEX:
++		return (speed == SPEED_2500 && duplex == DUPLEX_FULL) ? 0 : -EINVAL;
++	default:
++		return -EINVAL;
++	}
++}
++
++static int
 +yt921x_port_up(struct yt921x_priv *priv, int port, unsigned int mode,
 +	       phy_interface_t interface, int speed, int duplex,
 +	       bool tx_pause, bool rx_pause)
 +{
++	struct device *dev = to_device(priv);
 +	u32 mask;
 +	u32 ctrl;
 +	int res;
++
++	res = yt921x_port_validate_link_mode(priv, port, interface, speed,
++					     duplex);
++	if (res) {
++		dev_err(dev,
++			"Unsupported link mode on port %d: if=%d speed=%d duplex=%d\n",
++			port, interface, speed, duplex);
++		return res;
++	}
 +
 +	switch (speed) {
 +	case SPEED_10:
