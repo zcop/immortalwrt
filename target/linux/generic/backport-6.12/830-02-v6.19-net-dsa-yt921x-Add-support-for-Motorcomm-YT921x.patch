@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3930 @@
+@@ -0,0 +1,3938 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -1161,7 +1161,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			break;
 +
 +		if (desc->size <= 1) {
-+			if (val < (u32)val)
++			if (val0 < (u32)val)
 +				/* overflow */
 +				val += (u64)U32_MAX + 1;
 +			val &= ~U32_MAX;
@@ -1195,8 +1195,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct yt921x_port *pp = container_of_const(work, struct yt921x_port,
 +						    mib_read.work);
-+	struct yt921x_priv *priv = (void *)(pp - pp->index) -
-+				   offsetof(struct yt921x_priv, ports);
++	struct yt921x_priv *priv = container_of(pp - pp->index,
++						struct yt921x_priv, ports[0]);
 +	unsigned long delay = YT921X_STATS_INTERVAL_JIFFIES;
 +	int port = pp->index;
 +	int res;
@@ -1374,6 +1374,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
 +	struct yt921x_port *pp = &priv->ports[port];
 +	struct yt921x_mib *mib = &pp->mib;
++	u64 rx_fcs_bytes;
++	u64 tx_fcs_bytes;
 +
 +	stats->rx_length_errors = mib->rx_undersize_errors +
 +				  mib->rx_fragment_errors;
@@ -1391,8 +1393,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	stats->rx_packets = pp->rx_frames;
 +	stats->tx_packets = pp->tx_frames;
-+	stats->rx_bytes = mib->rx_good_bytes - ETH_FCS_LEN * stats->rx_packets;
-+	stats->tx_bytes = mib->tx_good_bytes - ETH_FCS_LEN * stats->tx_packets;
++	rx_fcs_bytes = ETH_FCS_LEN * stats->rx_packets;
++	tx_fcs_bytes = ETH_FCS_LEN * stats->tx_packets;
++	stats->rx_bytes = mib->rx_good_bytes;
++	if (stats->rx_bytes >= rx_fcs_bytes)
++		stats->rx_bytes -= rx_fcs_bytes;
++	stats->tx_bytes = mib->tx_good_bytes;
++	if (stats->tx_bytes >= tx_fcs_bytes)
++		stats->tx_bytes -= tx_fcs_bytes;
 +	stats->rx_errors = stats->rx_length_errors + stats->rx_over_errors +
 +			   stats->rx_crc_errors + stats->rx_frame_errors;
 +	stats->tx_errors = stats->tx_aborted_errors + stats->tx_fifo_errors +
