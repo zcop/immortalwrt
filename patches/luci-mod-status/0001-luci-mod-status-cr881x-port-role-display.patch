@@ -1,0 +1,94 @@
+diff --git a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js
+index c475f2e..ac5e61c 100644
+--- a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js
++++ b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js
+@@ -20,11 +20,59 @@ const callNetworkDeviceStatus = rpc.declare({
+ 	expect: { '': {} }
+ });
+ 
++const callCR881xWanModeStatus = rpc.declare({
++	object: 'luci.cr881x_wan_mode',
++	method: 'status',
++	expect: {}
++});
++
+ function isString(v)
+ {
+ 	return typeof(v) === 'string' && v !== '';
+ }
+ 
++function getBoardId(board)
++{
++	return (L.isObject(board) && L.isObject(board.model) && isString(board.model.id))
++		? board.model.id
++		: '';
++}
++
++function normalizePortValue(port)
++{
++	if (!isString(port) || port == '<unset>' || port == '<none>')
++		return null;
++
++	return port;
++}
++
++function buildCR881xPortLabelMap(board, status)
++{
++	const labels = {};
++
++	if (getBoardId(board) != 'xiaomi,cr881x')
++		return labels;
++
++	labels.wan = 'lan4';
++
++	const wan1 = normalizePortValue(status ? status.wan : null);
++	const wan2 = normalizePortValue(status ? status.wan2 : null);
++
++	if (wan1)
++		labels[wan1] = (wan1 == 'wan') ? 'wan1' : '%s (wan1)'.format(wan1);
++
++	if (wan2)
++		labels[wan2] = (wan2 == 'wan') ? 'wan2' : '%s (wan2)'.format(wan2);
++
++	return labels;
++}
++
++function getPortDisplayName(port, labels)
++{
++	const name = (port && port.netdev) ? port.netdev.getName() : null;
++	return (name && labels[name]) ? labels[name] : name;
++}
++
+ function resolveVLANChain(ifname, bridges, mapping)
+ {
+ 	while (!mapping[ifname]) {
+@@ -380,7 +428,8 @@ return baseclass.extend({
+ 			L.resolveDefault(fs.read('/etc/board.json'), '{}'),
+ 			firewall.getZones(),
+ 			network.getNetworks(),
+-			uci.load('network')
++			uci.load('network'),
++			L.resolveDefault(callCR881xWanModeStatus(), {})
+ 		]).then((data) => {
+ 			/* Get all known port names from builtin ports or board.json */
+ 			const builtinPorts = data[0] || [];
+@@ -430,7 +479,9 @@ return baseclass.extend({
+ 
+ 		const board = JSON.parse(data[1]),
+ 		      port_map = buildInterfaceMapping(data[2], data[3]),
+-		      pseMap = data[5] || {};
++		      wanModeStatus = data[5] || {},
++		      portLabelMap = buildCR881xPortLabelMap(board, wanModeStatus),
++		      pseMap = data[6] || {};
+ 		let known_ports = [];
+ 
+ 		if (Array.isArray(data[0]) && data[0].length > 0) {
+@@ -498,7 +549,7 @@ return baseclass.extend({
+ 			statsContent.push(E('span', { 'class': 'cbi-tooltip' }, formatStats(port.netdev, pse)));
+ 
+ 			return E('div', { 'class': 'ifacebox', 'style': 'margin:.25em;width:100px' }, [
+-				E('div', { 'class': 'ifacebox-head', 'style': 'font-weight:bold' }, [ port.netdev.getName() ]),
++				E('div', { 'class': 'ifacebox-head', 'style': 'font-weight:bold' }, [ getPortDisplayName(port, portLabelMap) ]),
+ 				E('div', { 'class': 'ifacebox-body' }, [
+ 					E('img', { 'src': L.resource('icons/port_%s.svg').format(portIcon) }),
+ 					E('br'),
