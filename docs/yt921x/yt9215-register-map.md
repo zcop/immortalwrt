@@ -7,6 +7,7 @@ Primary data:
 - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_182545.txt`
 - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_full_chunked_ssh.txt`
 - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_195556_postfix_recovery.txt`
+- `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
 - Driver symbols in `target/linux/generic/backport-6.12/830-02-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch`
 - UART transition run:
   - `docs/yt921x/live/yt_link_event_monitor_20260316_210441_uart_transitions_final.txt`
