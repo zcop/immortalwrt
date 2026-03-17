@@ -3476,7 +3476,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +		if (before_err[i] || after_err[i]) {
 +			if (before_err[i] != after_err[i]) {
-+				dev_info(dev,
++				dev_dbg(dev,
 +					 "init-delta %-12s %-6s reg 0x%06x err %d -> %d\n",
 +					 stage, label, reg, before_err[i],
 +					 after_err[i]);
@@ -3488,7 +3488,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (before[i] == after[i])
 +			continue;
 +
-+		dev_info(dev,
++		dev_dbg(dev,
 +			 "init-delta %-12s %-6s reg 0x%06x 0x%08x -> 0x%08x\n",
 +			 stage, label, reg, before[i], after[i]);
 +		changed++;
@@ -3557,7 +3557,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		YT921X_INIT_DBG_31C_END, prev->win31c, prev->win31c_err,
 +		now.win31c, now.win31c_err);
 +
-+	dev_info(dev,
++	dev_dbg(dev,
 +		 "init-delta %-12s summary watch=%d 0x2c01=%d 0x31c0=%d\n",
 +		 stage, changed_watch, changed_2c, changed_31c);
 +	*prev = now;
