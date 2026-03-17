@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3934 @@
+@@ -0,0 +1,3976 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -3233,6 +3233,46 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return res;
 +}
 +
++static int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
++				  struct phy_device *phydev)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 mask = YT921X_PORT_RX_MAC_EN | YT921X_PORT_TX_MAC_EN;
++	int res;
++
++	if (!dsa_is_user_port(ds, port))
++		return 0;
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_set_bits(priv, YT921X_PORTn_CTRL(port), mask);
++	if (!res)
++		res = yt921x_port_ctrl_apply_dt(priv, port, false);
++	mutex_unlock(&priv->reg_lock);
++
++	if (!res && phydev)
++		phy_support_asym_pause(phydev);
++
++	return res;
++}
++
++static void yt921x_dsa_port_disable(struct dsa_switch *ds, int port)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	int res;
++
++	if (!dsa_is_user_port(ds, port))
++		return;
++
++	cancel_delayed_work_sync(&priv->ports[port].mib_read);
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_port_down(priv, port);
++	mutex_unlock(&priv->reg_lock);
++
++	if (res)
++		dev_err(ds->dev, "Failed to disable port %d: %d\n", port, res);
++}
++
 +static int yt921x_edata_wait(struct yt921x_priv *priv, u32 *valp)
 +{
 +	u32 val = YT921X_EDATA_DATA_IDLE;
@@ -3875,6 +3915,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	.get_tag_protocol	= yt921x_dsa_get_tag_protocol,
 +	.phylink_get_caps	= yt921x_dsa_phylink_get_caps,
 +	.port_setup		= yt921x_dsa_port_setup,
++	.port_enable		= yt921x_dsa_port_enable,
++	.port_disable		= yt921x_dsa_port_disable,
 +	/* chip */
 +	.setup			= yt921x_dsa_setup,
 +};
