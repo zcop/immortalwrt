@@ -1,0 +1,16 @@
+{
+	"admin/network/cr881x-wan-mode": {
+		"title": "CR881x WAN Mode",
+		"order": 95,
+		"action": {
+			"type": "view",
+			"path": "network/cr881x_wan_mode"
+		},
+		"depends": {
+			"acl": [ "luci-app-cr881x-wan-mode" ],
+			"fs": {
+				"/usr/sbin/cr881x-wan-mode": "executable"
+			}
+		}
+	}
+}
