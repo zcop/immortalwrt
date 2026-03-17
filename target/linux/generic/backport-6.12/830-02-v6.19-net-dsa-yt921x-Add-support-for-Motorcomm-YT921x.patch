@@ -41,10 +41,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	  chip.
 +
 +config NET_DSA_YT921X_DEBUG
-+	bool "Enable YT921x debug proc interface"
++	bool "Enable YT921x debug debugfs interface"
 +	depends on NET_DSA_YT921X
 +	help
-+	  This enables /proc/yt921x_cmd for live register and MDIO
++	  This enables /sys/kernel/debug/yt921x_cmd for live register and MDIO
 +	  debug access. Do not enable on production devices.
  endmenu
 --- a/drivers/net/dsa/Makefile
@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3938 @@
+@@ -0,0 +1,3934 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -82,8 +82,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#include <linux/of_mdio.h>
 +#include <linux/of_net.h>
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+#include <linux/proc_fs.h>
-+#include <linux/seq_file.h>
++#include <linux/debugfs.h>
++#include <linux/fs.h>
 +#include <linux/uaccess.h>
 +#endif
 +
@@ -1049,29 +1049,26 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return res;
 +}
 +
-+static int yt921x_proc_show(struct seq_file *m, void *unused)
++static ssize_t yt921x_debugfs_read(struct file *file, char __user *buf,
++				   size_t len, loff_t *ppos)
 +{
-+	struct yt921x_priv *priv = m->private;
++	struct yt921x_priv *priv = file->private_data;
++	ssize_t res;
 +
 +	mutex_lock(&priv->proc_lock);
 +	if (!priv->proc_reply_len)
 +		yt921x_proc_reply_help(priv);
-+	seq_write(m, priv->proc_reply, priv->proc_reply_len);
++	res = simple_read_from_buffer(buf, len, ppos, priv->proc_reply,
++				      priv->proc_reply_len);
 +	mutex_unlock(&priv->proc_lock);
 +
-+	return 0;
++	return res;
 +}
 +
-+static int yt921x_proc_open(struct inode *inode, struct file *file)
++static ssize_t yt921x_debugfs_write(struct file *file, const char __user *buf,
++				    size_t len, loff_t *ppos)
 +{
-+	return single_open(file, yt921x_proc_show, pde_data(inode));
-+}
-+
-+static ssize_t yt921x_proc_write(struct file *file, const char __user *buf,
-+				 size_t len, loff_t *ppos)
-+{
-+	struct seq_file *m = file->private_data;
-+	struct yt921x_priv *priv = m->private;
++	struct yt921x_priv *priv = file->private_data;
 +	char cmd[128];
 +
 +	if (!len)
@@ -1088,12 +1085,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return len;
 +}
 +
-+static const struct proc_ops yt921x_proc_ops = {
-+	.proc_open = yt921x_proc_open,
-+	.proc_read = seq_read,
-+	.proc_lseek = seq_lseek,
-+	.proc_release = single_release,
-+	.proc_write = yt921x_proc_write,
++static const struct file_operations yt921x_debugfs_fops = {
++	.owner = THIS_MODULE,
++	.open = simple_open,
++	.read = yt921x_debugfs_read,
++	.write = yt921x_debugfs_write,
++	.llseek = default_llseek,
 +};
 +
 +static int yt921x_proc_init(struct yt921x_priv *priv)
@@ -1103,12 +1100,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	mutex_init(&priv->proc_lock);
 +	yt921x_proc_reply_help(priv);
 +
-+	priv->proc_cmd = proc_create_data("yt921x_cmd", 0600, NULL,
-+					  &yt921x_proc_ops, priv);
-+	if (!priv->proc_cmd) {
-+		dev_warn(dev, "failed to create /proc/yt921x_cmd\n");
-+		mutex_destroy(&priv->proc_lock);
-+		return -ENOMEM;
++	priv->proc_cmd = debugfs_create_file("yt921x_cmd", 0600, NULL, priv,
++					     &yt921x_debugfs_fops);
++	if (IS_ERR_OR_NULL(priv->proc_cmd)) {
++		dev_warn(dev, "failed to create debugfs yt921x_cmd\n");
++		priv->proc_cmd = NULL;
 +	}
 +
 +	return 0;
@@ -1117,7 +1113,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static void yt921x_proc_exit(struct yt921x_priv *priv)
 +{
 +	if (priv->proc_cmd)
-+		proc_remove(priv->proc_cmd);
++		debugfs_remove(priv->proc_cmd);
 +	priv->proc_cmd = NULL;
 +	mutex_destroy(&priv->proc_lock);
 +}
@@ -4011,7 +4007,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +#include <net/dsa.h>
 +
-+struct proc_dir_entry;
++struct dentry;
 +
 +#define YT921X_SMI_SWITCHID_M		GENMASK(3, 2)
 +#define  YT921X_SMI_SWITCHID(x)			FIELD_PREP(YT921X_SMI_SWITCHID_M, (x))
@@ -4509,7 +4505,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 +	struct mutex proc_lock;
-+	struct proc_dir_entry *proc_cmd;
++	struct dentry *proc_cmd;
 +	char proc_reply[1024];
 +	size_t proc_reply_len;
 +#endif
