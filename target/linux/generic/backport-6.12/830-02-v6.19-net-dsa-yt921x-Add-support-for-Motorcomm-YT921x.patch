@@ -2710,7 +2710,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 mask;
 +	int res;
 +
-+	mask = YT921X_PORT_LINK | YT921X_PORT_RX_MAC_EN | YT921X_PORT_TX_MAC_EN;
++	mask = YT921X_PORT_CTRL_ADMIN_M;
 +	res = yt921x_reg_clear_bits(priv, YT921X_PORTn_CTRL(port), mask);
 +	if (res)
 +		return res;
@@ -3237,7 +3237,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				  struct phy_device *phydev)
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
-+	u32 mask = YT921X_PORT_RX_MAC_EN | YT921X_PORT_TX_MAC_EN;
++	u32 mask = YT921X_PORT_CTRL_ADMIN_M;
 +	int res;
 +
 +	if (!dsa_is_user_port(ds, port))
@@ -4038,7 +4038,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_LICENSE("GPL");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,517 @@
+@@ -0,0 +1,520 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -4159,6 +4159,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +						 YT921X_PORT_RX_MAC_EN | \
 +						 YT921X_PORT_TX_MAC_EN | \
 +						 YT921X_PORT_SPEED_M)
++#define  YT921X_PORT_CTRL_ADMIN_M		(YT921X_PORT_LINK | \
++						 YT921X_PORT_RX_MAC_EN | \
++						 YT921X_PORT_TX_MAC_EN)
 +#define YT921X_PON_STRAP_FUNC		0x80320
 +#define YT921X_PON_STRAP_VAL		0x80324
 +#define YT921X_PON_STRAP_CAP		0x80328
