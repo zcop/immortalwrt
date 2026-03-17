@@ -20,9 +20,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 ---
  drivers/net/dsa/Kconfig  |   14 +
  drivers/net/dsa/Makefile |    1 +
- drivers/net/dsa/yt921x.c | 3576 ++++++++++++++++++++++++++++++++++++++++++++++
- drivers/net/dsa/yt921x.h |  513 +++++++
- 4 files changed, 4104 insertions(+)
+ drivers/net/dsa/yt921x.c | 3761 ++++++++++++++++++++++++++++++++++++++++++++++
+ drivers/net/dsa/yt921x.h |  520 +++++++
+ 4 files changed, 4296 insertions(+)
  create mode 100644 drivers/net/dsa/yt921x.c
  create mode 100644 drivers/net/dsa/yt921x.h
 
@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3576 @@
+@@ -0,0 +1,3761 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -2630,6 +2630,43 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return yt921x_reg_write(priv, YT921X_MDIO_POLLINGn(port), ctrl);
 +}
 +
++/* Optional per-port board override for PORTn_CTRL.
++ * - motorcomm,port-ctrl-mask: bits to update
++ * - motorcomm,port-ctrl-value: replacement value for masked bits
++ */
++static int
++yt921x_port_ctrl_apply_dt(struct yt921x_priv *priv, int port, bool allow_managed)
++{
++	struct device *dev = to_device(priv);
++	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
++	u32 mask = 0;
++	u32 val = 0;
++	int res;
++
++	if (!dp || !dp->dn)
++		return 0;
++
++	if (of_property_read_u32(dp->dn, "motorcomm,port-ctrl-mask", &mask))
++		return 0;
++
++	of_property_read_u32(dp->dn, "motorcomm,port-ctrl-value", &val);
++
++	if (!allow_managed)
++		mask &= ~YT921X_PORT_CTRL_DYNAMIC_M;
++
++	if (!mask)
++		return 0;
++
++	res = yt921x_reg_update_bits(priv, YT921X_PORTn_CTRL(port), mask, val);
++	if (res) {
++		dev_err(dev, "Failed to apply port-ctrl override on port %d: %d\n",
++			port, res);
++		return res;
++	}
++
++	return 0;
++}
++
 +static int yt921x_port_down(struct yt921x_priv *priv, int port)
 +{
 +	u32 mask;
@@ -2701,6 +2738,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	       YT921X_PORT_RX_PAUSE | YT921X_PORT_TX_PAUSE |
 +	       YT921X_PORT_RX_MAC_EN | YT921X_PORT_TX_MAC_EN;
 +	res = yt921x_reg_update_bits(priv, YT921X_PORTn_CTRL(port), mask, ctrl);
++	if (res)
++		return res;
++
++	/* Keep board-specific non-managed bits stable across link events. */
++	res = yt921x_port_ctrl_apply_dt(priv, port, false);
 +	if (res)
 +		return res;
 +
@@ -3076,6 +3118,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		 */
 +	}
 +
++	/* Apply full board override once during setup (before link events). */
++	res = yt921x_port_ctrl_apply_dt(priv, port, true);
++	if (res)
++		return res;
++
 +	return 0;
 +}
 +
@@ -3343,6 +3390,114 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	}
 +}
 +
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++enum {
++	YT921X_INIT_DBG_2C_START = 0x2c0100,
++	YT921X_INIT_DBG_2C_END = 0x2c013c,
++	YT921X_INIT_DBG_2C_WORDS =
++		((YT921X_INIT_DBG_2C_END - YT921X_INIT_DBG_2C_START) / 4) + 1,
++	YT921X_INIT_DBG_31C_START = 0x31c000,
++	YT921X_INIT_DBG_31C_END = 0x31c0fc,
++	YT921X_INIT_DBG_31C_WORDS =
++		((YT921X_INIT_DBG_31C_END - YT921X_INIT_DBG_31C_START) / 4) + 1,
++};
++
++struct yt921x_init_dbg_snapshot {
++	u32 win2c[YT921X_INIT_DBG_2C_WORDS];
++	int win2c_err[YT921X_INIT_DBG_2C_WORDS];
++	u32 win31c[YT921X_INIT_DBG_31C_WORDS];
++	int win31c_err[YT921X_INIT_DBG_31C_WORDS];
++};
++
++static void
++yt921x_debug_snapshot_window_locked(struct yt921x_priv *priv, u32 start, u32 end,
++				       u32 *vals, int *errs)
++{
++	u32 reg;
++	int i = 0;
++
++	for (reg = start; reg <= end; reg += 4, i++) {
++		errs[i] = yt921x_reg_read(priv, reg, &vals[i]);
++		if (errs[i])
++			vals[i] = 0;
++	}
++}
++
++static void
++yt921x_debug_log_window_delta_locked(struct yt921x_priv *priv, const char *label,
++				      u32 start, u32 end, const u32 *before,
++				      const int *before_err, const u32 *after,
++				      const int *after_err)
++{
++	struct device *dev = to_device(priv);
++	u32 reg;
++	int changed = 0;
++	int i = 0;
++
++	for (reg = start; reg <= end; reg += 4, i++) {
++		if (before_err[i] || after_err[i]) {
++			if (before_err[i] != after_err[i]) {
++				dev_info(dev,
++					 "init-delta %-5s reg 0x%06x err %d -> %d\n",
++					 label, reg, before_err[i], after_err[i]);
++				changed++;
++			}
++			continue;
++		}
++
++		if (before[i] == after[i])
++			continue;
++
++		dev_info(dev, "init-delta %-5s reg 0x%06x 0x%08x -> 0x%08x\n",
++			 label, reg, before[i], after[i]);
++		changed++;
++	}
++
++	if (!changed)
++		dev_info(dev, "init-delta %-5s no changes\n", label);
++}
++
++static void
++yt921x_debug_init_snapshot_take_locked(struct yt921x_priv *priv,
++				       struct yt921x_init_dbg_snapshot *snap)
++{
++	yt921x_debug_snapshot_window_locked(priv, YT921X_INIT_DBG_2C_START,
++					    YT921X_INIT_DBG_2C_END,
++					    snap->win2c, snap->win2c_err);
++	yt921x_debug_snapshot_window_locked(priv, YT921X_INIT_DBG_31C_START,
++					    YT921X_INIT_DBG_31C_END,
++					    snap->win31c, snap->win31c_err);
++}
++
++static void
++yt921x_debug_init_snapshot_log_delta_locked(struct yt921x_priv *priv,
++					    const struct yt921x_init_dbg_snapshot *before)
++{
++	u32 after2c[YT921X_INIT_DBG_2C_WORDS];
++	int after2c_err[YT921X_INIT_DBG_2C_WORDS];
++	u32 after31c[YT921X_INIT_DBG_31C_WORDS];
++	int after31c_err[YT921X_INIT_DBG_31C_WORDS];
++
++	yt921x_debug_snapshot_window_locked(priv, YT921X_INIT_DBG_2C_START,
++					    YT921X_INIT_DBG_2C_END,
++					    after2c, after2c_err);
++	yt921x_debug_snapshot_window_locked(priv, YT921X_INIT_DBG_31C_START,
++					    YT921X_INIT_DBG_31C_END,
++					    after31c, after31c_err);
++
++	yt921x_debug_log_window_delta_locked(priv, "0x2c01",
++					     YT921X_INIT_DBG_2C_START,
++					     YT921X_INIT_DBG_2C_END,
++					     before->win2c, before->win2c_err,
++					     after2c, after2c_err);
++	yt921x_debug_log_window_delta_locked(priv, "0x31c0",
++					     YT921X_INIT_DBG_31C_START,
++					     YT921X_INIT_DBG_31C_END,
++					     before->win31c, before->win31c_err,
++					     after31c, after31c_err);
++}
++#endif
++
 +static int yt921x_chip_setup(struct yt921x_priv *priv)
 +{
 +	struct dsa_switch *ds = &priv->ds;
@@ -3351,9 +3506,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 ctrl;
 +	int port;
 +	int res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	struct yt921x_init_dbg_snapshot dbg_init;
++#endif
 +
 +	/* Enable DSA */
 +	priv->cpu_ports_mask = dsa_cpu_ports(ds);
++
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_snapshot_take_locked(priv, &dbg_init);
++#endif
 +
 +	ctrl = YT921X_EXT_CPU_PORT_TAG_EN | YT921X_EXT_CPU_PORT_PORT_EN |
 +	       YT921X_EXT_CPU_PORT_PORT(__ffs(priv->cpu_ports_mask));
@@ -3368,6 +3530,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	ctrl = YT921X_MIB_CTRL_CLEAN | YT921X_MIB_CTRL_ALL_PORT;
 +	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, ctrl);
++	if (res)
++		return res;
++
++	/* CLEAN is edge/latched on some runtimes; settle to steady all-port
++	 * accounting mode to avoid keeping high bits asserted.
++	 */
++	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, YT921X_MIB_CTRL_ALL_PORT);
 +	if (res)
 +		return res;
 +
@@ -3427,6 +3596,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_set_bits(priv, YT921X_SENSOR, YT921X_SENSOR_TEMP);
 +	if (res)
 +		return res;
++
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_snapshot_log_delta_locked(priv, &dbg_init);
++#endif
 +
 +	res = yt921x_validate_setup_locked(priv);
 +	if (res)
@@ -3650,7 +3823,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_LICENSE("GPL");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,520 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -3764,6 +3937,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define   YT921X_PORT_SPEED_1000			YT921X_PORT_SPEED(2)
 +#define   YT921X_PORT_SPEED_10000			YT921X_PORT_SPEED(3)
 +#define   YT921X_PORT_SPEED_2500			YT921X_PORT_SPEED(4)
++#define  YT921X_PORT_CTRL_DYNAMIC_M		(YT921X_PORT_LINK | \
++						 YT921X_PORT_DUPLEX_FULL | \
++						 YT921X_PORT_RX_PAUSE | \
++						 YT921X_PORT_TX_PAUSE | \
++						 YT921X_PORT_RX_MAC_EN | \
++						 YT921X_PORT_TX_MAC_EN | \
++						 YT921X_PORT_SPEED_M)
 +#define YT921X_PON_STRAP_FUNC		0x80320
 +#define YT921X_PON_STRAP_VAL		0x80324
 +#define YT921X_PON_STRAP_CAP		0x80328
