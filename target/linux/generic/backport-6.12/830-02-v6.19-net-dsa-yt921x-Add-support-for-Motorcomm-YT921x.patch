@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3900 @@
+@@ -0,0 +1,3930 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -1596,7 +1596,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_wait(priv, YT921X_FDB_RESULT, YT921X_FDB_RESULT_DONE,
 +			      &val);
 +	if (res) {
-+		dev_err(dev, "FDB probably stucked\n");
++		dev_err(dev, "FDB probably stuck\n");
 +		return res;
 +	}
 +
@@ -1713,12 +1713,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +yt921x_fdb_dump(struct yt921x_priv *priv, u16 ports_mask,
 +		dsa_fdb_dump_cb_t *cb, void *data)
 +{
++	struct device *dev = to_device(priv);
 +	unsigned char addr[ETH_ALEN];
 +	u8 status;
 +	u16 pmask;
 +	u16 index;
 +	u32 ctrl;
 +	u16 vid;
++	unsigned int iter = 0;
 +	int res;
 +
 +	ctrl = YT921X_FDB_OP_INDEX(0) | YT921X_FDB_OP_MODE_INDEX |
@@ -1743,6 +1745,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	index = 0;
 +	do {
++		u16 prev = index;
++
 +		ctrl = YT921X_FDB_OP_INDEX(index) | YT921X_FDB_OP_MODE_INDEX |
 +		       YT921X_FDB_OP_NEXT_TYPE_UCAST_PORT |
 +		       YT921X_FDB_OP_OP_GET_NEXT | YT921X_FDB_OP_START;
@@ -1763,6 +1767,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 data);
 +			if (res)
 +				return res;
++		}
++		if (index <= prev) {
++			dev_err(dev, "FDB get-next stalled at index %u\n", index);
++			return -EIO;
++		}
++		if (++iter >= YT921X_FDB_NUM) {
++			dev_err(dev, "FDB get-next overflow\n");
++			return -EIO;
 +		}
 +
 +		/* Never call GET_NEXT with 4095, otherwise it will hang
@@ -2122,11 +2134,28 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int
 +yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid)
 +{
++	u32 non_cpu_ports;
++	u64 ctrl64;
 +	u64 mask64;
++	int res;
 +
-+	mask64 = YT921X_VLAN_CTRL_PORTS(port) |
++	mask64 = YT921X_VLAN_CTRL_PORTn(port) |
 +		 YT921X_VLAN_CTRL_UNTAG_PORTn(port);
 +
++	res = yt921x_reg64_clear_bits(priv, YT921X_VLANn_CTRL(vid), mask64);
++	if (res)
++		return res;
++
++	res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
++	if (res)
++		return res;
++
++	non_cpu_ports = GENMASK(YT921X_PORT_NUM - 1, 0) & ~priv->cpu_ports_mask;
++	if (ctrl64 & YT921X_VLAN_CTRL_PORTS(non_cpu_ports))
++		return 0;
++
++	mask64 = YT921X_VLAN_CTRL_PORTS(priv->cpu_ports_mask) |
++		 YT921X_VLAN_CTRL_UNTAG_PORTS(priv->cpu_ports_mask);
 +	return yt921x_reg64_clear_bits(priv, YT921X_VLANn_CTRL(vid), mask64);
 +}
 +
@@ -3010,8 +3039,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	int port = dp->index;
 +	int res;
 +
-+	/* No need to sync; port control block is hold until device remove */
-+	cancel_delayed_work(&priv->ports[port].mib_read);
++	cancel_delayed_work_sync(&priv->ports[port].mib_read);
 +
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_port_down(priv, port);
