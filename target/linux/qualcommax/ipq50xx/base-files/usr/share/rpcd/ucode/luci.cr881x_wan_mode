@@ -1,0 +1,207 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import { access, popen } from 'fs';
+
+const helper = '/usr/sbin/cr881x-wan-mode';
+const valid_ports = [ 'lan1', 'lan2', 'lan3', 'wan' ];
+const valid_modes = [ 'all-lan', 'single-wan', 'dual-wan' ];
+
+function shell_quote(s) {
+	if (s == null || s == '')
+		return "''";
+
+	return "'" + replace(s, "'", "'\\''") + "'";
+}
+
+function array_contains(arr, val) {
+	for (let i = 0; i < length(arr); i++) {
+		if (arr[i] == val)
+			return true;
+	}
+
+	return false;
+}
+
+function run_helper(args) {
+	let command = helper;
+	let output = '';
+
+	for (let i = 0; i < length(args); i++)
+		command += ' ' + shell_quote(args[i]);
+
+	command += ' 2>&1';
+
+	const fd = popen(command, 'r');
+	if (fd == null) {
+		return {
+			code: -1,
+			output: 'failed to execute helper'
+		};
+	}
+
+	for (let line = fd.read('line'); length(line); line = fd.read('line'))
+		output += line;
+
+	return {
+		code: fd.close(),
+		output: trim(output)
+	};
+}
+
+function schedule_restart_async() {
+	/* Return RPC response first, then bounce services in background
+	 * to avoid browser-side XHR aborts during long restart output.
+	 */
+	const fd = popen("( sleep 1; /etc/init.d/network restart; /etc/init.d/firewall restart ) >/dev/null 2>&1 &", 'r');
+	if (fd != null)
+		fd.close();
+}
+
+function parse_status_output(output) {
+	const status = {
+		board: '',
+		mode: '',
+		br_lan_ports: '',
+		wan: '',
+		wan2: ''
+	};
+
+	let lines = split(output, '\n');
+
+	for (let i = 0; i < length(lines); i++) {
+		let line = lines[i];
+
+		line = trim(line);
+		if (!line)
+			continue;
+
+		if (index(line, 'board: ') == 0)
+			status.board = substr(line, 7);
+		else if (index(line, 'mode: ') == 0)
+			status.mode = substr(line, 6);
+		else if (index(line, 'br-lan ports: ') == 0)
+			status.br_lan_ports = substr(line, 14);
+		else if (index(line, 'wan2: ') == 0)
+			status.wan2 = substr(line, 6);
+		else if (index(line, 'wan: ') == 0)
+			status.wan = substr(line, 5);
+	}
+
+	return status;
+}
+
+function status_call() {
+	if (!access(helper, 'x')) {
+		return {
+			ok: false,
+			code: 127,
+			error: `${helper} is missing`
+		};
+	}
+
+	const res = run_helper([ 'status' ]);
+	const parsed = parse_status_output(res.output);
+
+	parsed.ok = (res.code == 0);
+	parsed.code = res.code;
+	parsed.output = res.output;
+	if (res.code != 0)
+		parsed.error = res.output || 'status failed';
+
+	return parsed;
+}
+
+const methods = {
+	get_info: {
+		call: function() {
+			return {
+				helper,
+				valid_ports,
+				valid_modes
+			};
+		}
+	},
+
+	status: {
+		call: function() {
+			return status_call();
+		}
+	},
+
+	apply: {
+		args: {
+			mode: 'string',
+			port1: 'string',
+			port2: 'string'
+		},
+		call: function(request) {
+			if (!array_contains(valid_modes, request.args.mode)) {
+				return {
+					ok: false,
+					code: 1,
+					error: `unsupported mode '${request.args.mode}'`
+				};
+			}
+
+			let args = [];
+
+			if (request.args.mode == 'all-lan') {
+				args = [ 'all-lan' ];
+			}
+			else if (request.args.mode == 'single-wan') {
+				if (!array_contains(valid_ports, request.args.port1)) {
+					return {
+						ok: false,
+						code: 1,
+						error: `invalid WAN port '${request.args.port1}'`
+					};
+				}
+
+				args = [ 'single-wan', request.args.port1 ];
+			}
+			else if (request.args.mode == 'dual-wan') {
+				if (!array_contains(valid_ports, request.args.port1) ||
+				    !array_contains(valid_ports, request.args.port2)) {
+					return {
+						ok: false,
+						code: 1,
+						error: 'invalid WAN1/WAN2 port'
+					};
+				}
+
+				if (request.args.port1 == request.args.port2) {
+					return {
+						ok: false,
+						code: 1,
+						error: 'WAN1 and WAN2 must be different'
+					};
+				}
+
+				args = [ 'dual-wan', request.args.port1, request.args.port2 ];
+			}
+
+			args[length(args)] = '--no-restart';
+
+			const res = run_helper(args);
+			if (res.code != 0) {
+				return {
+					ok: false,
+					code: res.code,
+					error: res.output || 'apply failed',
+					output: res.output
+				};
+			}
+
+			schedule_restart_async();
+
+			const status = status_call();
+			status.apply_output = res.output;
+			status.restart = 'scheduled';
+			return status;
+		}
+	}
+};
+
+return { 'luci.cr881x_wan_mode': methods };

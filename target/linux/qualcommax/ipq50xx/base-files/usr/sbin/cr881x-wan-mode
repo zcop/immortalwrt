@@ -28,6 +28,10 @@ die() {
 	exit 1
 }
 
+uci_delete_quiet() {
+	uci -q delete "$1" >/dev/null 2>&1 || true
+}
+
 valid_port() {
 	case " $PORTS " in
 	*" $1 "*)
@@ -66,7 +70,7 @@ set_br_lan_ports() {
 	local ports="$1"
 	local p
 
-	uci -q delete network.br_lan.ports
+	uci_delete_quiet network.br_lan.ports
 	for p in $ports; do
 		uci -q add_list network.br_lan.ports="$p"
 	done
@@ -87,7 +91,7 @@ set_wan_zone_networks() {
 	local n
 
 	ensure_wan_zone
-	uci -q delete firewall.wan.network
+	uci_delete_quiet firewall.wan.network
 	for n in $nets; do
 		uci -q add_list firewall.wan.network="$n"
 	done
@@ -113,10 +117,10 @@ apply_all_lan() {
 	ensure_br_lan
 	set_br_lan_ports "$PORTS"
 
-	uci -q delete network.wan
-	uci -q delete network.wan6
-	uci -q delete network.wan2
-	uci -q delete network.wan2_6
+	uci_delete_quiet network.wan
+	uci_delete_quiet network.wan6
+	uci_delete_quiet network.wan2
+	uci_delete_quiet network.wan2_6
 
 	set_wan_zone_networks ""
 }
@@ -131,8 +135,8 @@ apply_single_wan() {
 	set_br_lan_ports "$lan_ports"
 
 	set_wan_v4v6 wan "$wanp"
-	uci -q delete network.wan2
-	uci -q delete network.wan2_6
+	uci_delete_quiet network.wan2
+	uci_delete_quiet network.wan2_6
 
 	set_wan_zone_networks "wan wan6"
 }

@@ -1,0 +1,15 @@
+{
+	"luci-app-cr881x-wan-mode": {
+		"description": "Grant access to CR881x WAN mode helper",
+		"read": {
+			"ubus": {
+				"luci.cr881x_wan_mode": [ "status", "get_info" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci.cr881x_wan_mode": [ "apply" ]
+			}
+		}
+	}
+}
