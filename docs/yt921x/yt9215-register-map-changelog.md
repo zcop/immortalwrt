@@ -1,5 +1,21 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-17: Port admin/speed mapping from live UART/debugfs
+
+New doc:
+- `docs/yt921x/yt9215-port-admin-speed-map-2026-03-17.md`
+
+What was added:
+- Per-port register mapping for CR881x user lanes:
+  - `lan1/lan2/lan3/wan -> 0x8010x / 0x8020x`
+- Stable signatures for:
+  - `1G up` (`0x5fa/0x1fa`)
+  - `100M up` (`0x5f9/0x1f9`)
+  - `admin down` (`0x5e2 or 0x582` and `0x0e2 or 0x082`)
+- Live-delta interpretation showing admin-control mask behavior aligns with:
+  - `LINK | RX_MAC_EN | TX_MAC_EN`
+- Capture references for reproducibility and audit.
+
 ## 2026-03-17: Actionability map from `/mnt/wsl/tmp` archive
 
 New doc:
