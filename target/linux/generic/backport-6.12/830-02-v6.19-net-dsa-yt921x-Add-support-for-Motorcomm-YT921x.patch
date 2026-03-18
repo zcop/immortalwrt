@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,3976 @@
+@@ -0,0 +1,4051 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -843,6 +843,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  int write <port> <reg> <val>\n"
 +				 "  ext read <port> <reg>\n"
 +				 "  ext write <port> <reg> <val>\n"
++				 "  mirror\n"
 +				 "  stock map <reg>\n"
 +				 "  dump <start> <end> [stride]\n");
 +}
@@ -855,6 +856,23 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int yt921x_proc_parse_u16(const char *s, u16 *val)
 +{
 +	return kstrtou16(s, 0, val);
++}
++
++static void
++yt921x_proc_reply_port_mask(struct yt921x_priv *priv, u32 mask)
++{
++	bool empty = true;
++	int port;
++
++	for (port = 0; port < YT921X_PORT_NUM; port++) {
++		if (!(mask & BIT(port)))
++			continue;
++		yt921x_proc_reply_append(priv, "%s%d", empty ? "" : ",", port);
++		empty = false;
++	}
++
++	if (empty)
++		yt921x_proc_reply_append(priv, "-");
 +}
 +
 +static void
@@ -966,6 +984,35 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			res = -EINVAL;
 +		}
 +		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "mirror") && argc == 1) {
++		u32 igr_ports;
++		u32 egr_ports;
++		u32 dst_port;
++		u32 val;
++
++		mutex_lock(&priv->reg_lock);
++		res = yt921x_reg_read(priv, YT921X_MIRROR, &val);
++		mutex_unlock(&priv->reg_lock);
++		if (res)
++			goto out;
++
++		igr_ports = FIELD_GET(YT921X_MIRROR_IGR_PORTS_M, val);
++		egr_ports = FIELD_GET(YT921X_MIRROR_EGR_PORTS_M, val);
++		dst_port = FIELD_GET(YT921X_MIRROR_PORT_M, val);
++
++		yt921x_proc_reply_append(priv,
++					 "mirror reg 0x%06x = 0x%08x\n",
++					 YT921X_MIRROR, val);
++		yt921x_proc_reply_append(priv, "  ingress src: ");
++		yt921x_proc_reply_port_mask(priv, igr_ports);
++		yt921x_proc_reply_append(priv, "\n");
++		yt921x_proc_reply_append(priv, "  egress src: ");
++		yt921x_proc_reply_port_mask(priv, egr_ports);
++		yt921x_proc_reply_append(priv, "\n");
++		yt921x_proc_reply_append(priv, "  dst port: %u\n", dst_port);
 +		goto out;
 +	}
 +
@@ -1510,13 +1557,27 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int
 +yt921x_mirror_del(struct yt921x_priv *priv, int port, bool ingress)
 +{
-+	u32 mask;
++	u32 src_mask;
++	u32 val;
++	u32 ctrl;
++	int res;
 +
 +	if (ingress)
-+		mask = YT921X_MIRROR_IGR_PORTn(port);
++		src_mask = YT921X_MIRROR_IGR_PORTn(port);
 +	else
-+		mask = YT921X_MIRROR_EGR_PORTn(port);
-+	return yt921x_reg_clear_bits(priv, YT921X_MIRROR, mask);
++		src_mask = YT921X_MIRROR_EGR_PORTn(port);
++
++	res = yt921x_reg_read(priv, YT921X_MIRROR, &val);
++	if (res)
++		return res;
++
++	ctrl = val & ~src_mask;
++	if (!(ctrl & (YT921X_MIRROR_EGR_PORTS_M | YT921X_MIRROR_IGR_PORTS_M)))
++		ctrl &= ~YT921X_MIRROR_PORT_M;
++	if (ctrl == val)
++		return 0;
++
++	return yt921x_reg_write(priv, YT921X_MIRROR, ctrl);
 +}
 +
 +static int
@@ -1581,11 +1642,25 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			   bool ingress, struct netlink_ext_ack *extack)
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	int to_port = mirror->to_local_port;
 +	int res;
++
++	if (!dsa_is_user_port(ds, port)) {
++		NL_SET_ERR_MSG_MOD(extack, "Only user ports can be mirrored");
++		return -EOPNOTSUPP;
++	}
++	if (to_port >= ds->num_ports || !dsa_is_user_port(ds, to_port)) {
++		NL_SET_ERR_MSG_MOD(extack, "Mirror destination must be a user port");
++		return -EOPNOTSUPP;
++	}
++	if (to_port == port) {
++		NL_SET_ERR_MSG_MOD(extack, "Mirror destination must differ from source port");
++		return -EINVAL;
++	}
 +
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_mirror_add(priv, port, ingress,
-+				mirror->to_local_port, extack);
++				to_port, extack);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
