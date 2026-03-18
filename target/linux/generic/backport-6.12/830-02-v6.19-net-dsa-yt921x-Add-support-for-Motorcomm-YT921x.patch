@@ -2564,7 +2564,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 struct netlink_ext_ack *extack)
 +{
 +	if (flags.mask & ~(BR_HAIRPIN_MODE | BR_LEARNING | BR_FLOOD |
-+			   BR_MCAST_FLOOD | BR_ISOLATED))
++			   BR_MCAST_FLOOD | BR_BCAST_FLOOD | BR_ISOLATED))
 +		return -EINVAL;
 +	return 0;
 +}
