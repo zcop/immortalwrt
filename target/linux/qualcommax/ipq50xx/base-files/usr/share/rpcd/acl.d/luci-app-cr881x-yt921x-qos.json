@@ -1,0 +1,10 @@
+{
+	"luci-app-cr881x-yt921x-qos": {
+		"description": "Grant read access to CR881x YT921x QoS status",
+		"read": {
+			"ubus": {
+				"luci.cr881x_yt921x_qos": [ "status", "get_info" ]
+			}
+		}
+	}
+}

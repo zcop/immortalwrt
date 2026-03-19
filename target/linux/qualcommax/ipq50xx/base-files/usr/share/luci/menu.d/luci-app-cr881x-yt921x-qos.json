@@ -1,0 +1,16 @@
+{
+	"admin/network/cr881x-yt921x-qos": {
+		"title": "CR881x QoS Offload",
+		"order": 96,
+		"action": {
+			"type": "view",
+			"path": "network/cr881x_yt921x_qos"
+		},
+		"depends": {
+			"acl": [ "luci-app-cr881x-yt921x-qos" ],
+			"fs": {
+				"/usr/sbin/cr881x-yt921x-qos": "executable"
+			}
+		}
+	}
+}
