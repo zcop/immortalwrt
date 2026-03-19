@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5321 @@
+@@ -0,0 +1,5327 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -5016,6 +5016,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +	res = yt921x_reg_write(priv, YT921X_FILTER_UNK_MCAST, ctrl);
++	if (res)
++		return res;
++	res = yt921x_reg_write(priv, YT921X_FILTER_MCAST, ctrl);
++	if (res)
++		return res;
++	res = yt921x_reg_write(priv, YT921X_FILTER_BCAST, ctrl);
 +	if (res)
 +		return res;
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
