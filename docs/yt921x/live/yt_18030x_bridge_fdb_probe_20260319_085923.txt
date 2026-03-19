@@ -1,0 +1,307 @@
+=== probe_start_utc 2026-03-19_13:35:43 ===
+Linux ImmortalWrt 6.12.74 #0 SMP Thu Mar 19 12:59:01 2026 aarch64 GNU/Linux
+{
+	"kernel": "6.12.74",
+	"hostname": "ImmortalWrt",
+	"system": "ARMv8 Processor rev 4",
+	"model": "Xiaomi CR881x",
+	"board_name": "xiaomi,cr881x",
+	"rootfs_type": "squashfs",
+	"release": {
+		"distribution": "ImmortalWrt",
+		"version": "SNAPSHOT",
+		"firmware_url": "https://downloads.immortalwrt.org/",
+		"revision": "r38281+4-dbb6c88688",
+		"target": "qualcommax/ipq50xx",
+		"description": "ImmortalWrt SNAPSHOT r38281+4-dbb6c88688",
+		"builddate": "1773925141"
+	}
+}
+=== baseline ===
+15: br-lan.123@br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff promiscuity 0 allmulti 0 minmtu 0 maxmtu 65535 
+    vlan protocol 802.1Q id 123 <REORDER_HDR> addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 gso_ipv4_max_size 65536 gro_ipv4_max_size 65536 
+10.123.0.0/24 dev br-lan.123 proto kernel scope link src 10.123.0.1 
+224.0.0.0/4 dev br-lan scope link 
+bridge utility, 6.18.0
+fdb_total=22
+fdb_target_matches=2
+fdb_target_lines:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+fdb_head:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+a4:a9:30:36:b4:28 dev lan1 vlan 1 master br-lan permanent
+a4:a9:30:36:b4:28 dev lan1 master br-lan permanent
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+84:47:09:2c:4e:01 dev lan3 master br-lan 
+84:47:09:2c:4e:01 dev lan3 vlan 4095 self 
+33:33:00:00:00:01 dev br-lan self permanent
+33:33:00:00:00:02 dev br-lan self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+33:33:ff:00:00:01 dev br-lan self permanent
+33:33:ff:36:b4:28 dev br-lan self permanent
+33:33:ff:00:00:00 dev br-lan self permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy0-ap0 self permanent
+33:33:00:00:00:02 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy1-ap0 self permanent
+-- br-lan
+rx_packets=46162 tx_packets=46154 rx_bytes=3608537 tx_bytes=3631441 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=43635 tx_packets=43151 rx_bytes=17826759978079796 tx_bytes=15059890506390980 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=3443 tx_packets=3255 rx_bytes=1502572833655348 tx_bytes=1428965684137252 rx_dropped=159 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+tcpdump_pid=15664
+workload_pid=15665
+=== phase_set_all_7ff ===
+reg 0x18030c = 0x000007ff
+reg 0x180310 = 0x000007ff
+reg 0x180314 = 0x000007ff
+reg 0x180318 = 0x000007ff
+reg 0x18031c = 0x000007ff
+reg 0x180320 = 0x000007ff
+reg 0x180324 = 0x000007ff
+reg 0x180328 = 0x000007ff
+reg 0x18032c = 0x000007ff
+reg 0x180330 = 0x000007ff
+reg 0x180334 = 0x000007ff
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+fdb_total=22
+fdb_target_matches=2
+fdb_target_lines:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+fdb_head:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+a4:a9:30:36:b4:28 dev lan1 vlan 1 master br-lan permanent
+a4:a9:30:36:b4:28 dev lan1 master br-lan permanent
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+84:47:09:2c:4e:01 dev lan3 master br-lan 
+84:47:09:2c:4e:01 dev lan3 vlan 4095 self 
+33:33:00:00:00:01 dev br-lan self permanent
+33:33:00:00:00:02 dev br-lan self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+33:33:ff:00:00:01 dev br-lan self permanent
+33:33:ff:36:b4:28 dev br-lan self permanent
+33:33:ff:00:00:00 dev br-lan self permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy0-ap0 self permanent
+33:33:00:00:00:02 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy1-ap0 self permanent
+-- br-lan
+rx_packets=46235 tx_packets=46238 rx_bytes=3612391 tx_bytes=3643115 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=43709 tx_packets=43228 rx_bytes=17879180053927180 tx_bytes=15118456680438928 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=3443 tx_packets=3259 rx_bytes=1502572833655348 tx_bytes=1430821110009108 rx_dropped=159 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+=== phase_set_checker_155_2aa ===
+reg 0x18030c = 0x00000155
+reg 0x180310 = 0x000002aa
+reg 0x180314 = 0x00000155
+reg 0x180318 = 0x000002aa
+reg 0x18031c = 0x00000155
+reg 0x180320 = 0x000002aa
+reg 0x180324 = 0x00000155
+reg 0x180328 = 0x000002aa
+reg 0x18032c = 0x00000155
+reg 0x180330 = 0x000002aa
+reg 0x180334 = 0x00000155
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+fdb_total=22
+fdb_target_matches=2
+fdb_target_lines:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+fdb_head:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+a4:a9:30:36:b4:28 dev lan1 vlan 1 master br-lan permanent
+a4:a9:30:36:b4:28 dev lan1 master br-lan permanent
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+84:47:09:2c:4e:01 dev lan3 master br-lan 
+84:47:09:2c:4e:01 dev lan3 vlan 4095 self 
+33:33:00:00:00:01 dev br-lan self permanent
+33:33:00:00:00:02 dev br-lan self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+33:33:ff:00:00:01 dev br-lan self permanent
+33:33:ff:36:b4:28 dev br-lan self permanent
+33:33:ff:00:00:00 dev br-lan self permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy0-ap0 self permanent
+33:33:00:00:00:02 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy1-ap0 self permanent
+-- br-lan
+rx_packets=46435 tx_packets=46448 rx_bytes=3622781 tx_bytes=3663209 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=43901 tx_packets=43435 rx_bytes=17935143477793292 tx_bytes=15207817769998676 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=3456 tx_packets=3290 rx_bytes=1508078981728768 tx_bytes=1444418976468120 rx_dropped=159 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+=== phase_restore_zero ===
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+fdb_total=22
+fdb_target_matches=2
+fdb_target_lines:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+fdb_head:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+a4:a9:30:36:b4:28 dev lan1 vlan 1 master br-lan permanent
+a4:a9:30:36:b4:28 dev lan1 master br-lan permanent
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+84:47:09:2c:4e:01 dev lan3 master br-lan 
+84:47:09:2c:4e:01 dev lan3 vlan 4095 self 
+33:33:00:00:00:01 dev br-lan self permanent
+33:33:00:00:00:02 dev br-lan self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+33:33:ff:00:00:01 dev br-lan self permanent
+33:33:ff:36:b4:28 dev br-lan self permanent
+33:33:ff:00:00:00 dev br-lan self permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy0-ap0 self permanent
+33:33:00:00:00:02 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy1-ap0 self permanent
+-- br-lan
+rx_packets=46619 tx_packets=46641 rx_bytes=3632342 tx_bytes=3682030 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=44071 tx_packets=43614 rx_bytes=17985085357510500 tx_bytes=15286003354654344 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=3464 tx_packets=3307 rx_bytes=1511536430402016 tx_bytes=1451655996361812 rx_dropped=159 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+workload_done_rc=0
+=== pcap_counts ===
+pcap_bytes=53968
+arp=14 icmp=125 syn=430 vlan=0
+=== final ===
+fdb_total=22
+fdb_target_matches=2
+fdb_target_lines:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+fdb_head:
+9c:6b:00:11:d3:f4 dev lan1 master br-lan 
+a4:a9:30:36:b4:28 dev lan1 vlan 1 master br-lan permanent
+a4:a9:30:36:b4:28 dev lan1 master br-lan permanent
+9c:6b:00:11:d3:f4 dev lan1 vlan 4095 self 
+84:47:09:2c:4e:01 dev lan3 master br-lan 
+84:47:09:2c:4e:01 dev lan3 vlan 4095 self 
+33:33:00:00:00:01 dev br-lan self permanent
+33:33:00:00:00:02 dev br-lan self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+33:33:ff:00:00:01 dev br-lan self permanent
+33:33:ff:36:b4:28 dev br-lan self permanent
+33:33:ff:00:00:00 dev br-lan self permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7b dev phy0-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy0-ap0 self permanent
+33:33:00:00:00:02 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 vlan 1 master br-lan permanent
+cc:d8:43:54:1c:7a dev phy1-ap0 master br-lan permanent
+33:33:00:00:00:01 dev phy1-ap0 self permanent
+-- br-lan
+rx_packets=46878 tx_packets=46915 rx_bytes=3645442 tx_bytes=3706454 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=44341 tx_packets=43900 rx_bytes=18063820697979692 tx_bytes=15401795672953360 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=3472 tx_packets=3334 rx_bytes=1514980994173376 tx_bytes=1462900220742632 rx_dropped=159 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+=== probe_end_utc 2026-03-19_13:36:26 ===

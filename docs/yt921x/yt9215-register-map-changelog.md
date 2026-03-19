@@ -1,5 +1,71 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-19: Post-build STP word verification (`0x18038c`) on flashed image
+
+Runtime context:
+- rebuilt + flashed image with updated STP mapping in `yt921x` driver patch
+- validation captures:
+  - `docs/yt921x/live/yt_18038c_stp_validate_20260319_092708.txt`
+  - `docs/yt921x/live/yt_18038c_stp_sysfs_probe_20260319_092809.txt`
+  - `docs/yt921x/live/yt_18038c_postbuild_test_20260319_094407.txt`
+
+What was confirmed:
+- active STP word remains `0x18038c` on this image; baseline observed:
+  - `0x003cfc0c` (before STP global enable)
+- bridge membership deltas were reproduced on the new build:
+  - `lan2` nomaster: `0x...0c -> 0x...00` (delta `-0x0c`, bits `[3:2]`)
+  - `lan3` master re-add: `0x...0c -> 0x...3c` (delta `+0x30`, bits `[5:4]`)
+  - `wan` add to bridge: `0x...3c -> 0x...fc` (delta `+0xc0`, bits `[7:6]`)
+- this confirms low-byte composition in one STP instance word with 2-bit stride
+  per port index, not separate per-port registers.
+- full rebuild + reflash pass reproduced the same deltas with the tightened STP
+  callback mapping code path.
+
+Notes:
+- `bridge` userspace command was absent post-sysupgrade in this test image, and
+  direct writes to `/sys/class/net/*/brport/state` were permission-rejected in
+  this runtime, so forced per-state transitions could not be scripted through
+  userspace in this pass.
+- despite that limitation, membership-driven deltas fully confirmed `lan3` and
+  `wan` placement inside the same `0x18038c` control word.
+
+## 2026-03-19: Post-flash runtime validation with `ip-full` + `bridge fdb`
+
+Runtime context:
+- flashed and validated on `ImmortalWrt SNAPSHOT r38281+4-dbb6c88688`
+- post-flash sanity capture:
+  - `docs/yt921x/live/yt_post_flash_sanity_busybox_20260319_082647.txt`
+- added offline tooling packages on-router for deeper probes:
+  - `ip-full`, `ip-bridge`, `tcpdump`, `ethtool`, `iperf3`
+
+New captures:
+- `docs/yt921x/live/yt_18030x_vlan_mcast_tcp_probe_20260319_084804.txt`
+- `docs/yt921x/live/yt_18030x_ipfull_neigh_probe_20260319_085513.txt`
+- `docs/yt921x/live/yt_18030x_bridge_fdb_probe_20260319_085923.txt`
+
+What was confirmed:
+- `0x18030c..0x180334` remains fully writable with stable per-word mask:
+  - write `0x7ff` -> read `0x7ff` on all 11 words
+  - checkerboard patterns (`0x155/0x2aa`) read back cleanly
+  - restore to zero read back cleanly
+- known active coupled words remained unchanged across all new phases:
+  - `0x180294=0x6f9`, `0x180298=0x6fa`, `0x18029c=0x6fc`
+  - `0x18038c=0x000300f3`
+  - `0x1803d0=0x00000000`, `0x1803d4=0x00020000`, `0x1803d8=0x00000000`
+- with `bridge` instrumentation, FDB state stayed phase-invariant:
+  - `fdb_total=22` at baseline and every toggle phase
+  - target host MAC `9c:6b:00:11:d3:f4` remained on `lan1` (`master br-lan`)
+    with stable `vlan 4095 self` entry
+- packet capture stayed active during all phases (no outage signature):
+  - probe counts: `arp=14`, `icmp=125`, `syn=430`, `vlan=0`
+- neighbor state churn (`DELAY -> REACHABLE`) occurred under traffic but did not
+  correlate to table-toggle phases.
+
+Interpretation update:
+- in current CR881x bridge runtime/workloads, `0x18030c..0x180334` continues to
+  look writable-but-not-coupled to the active forwarding/learning paths that are
+  visible through `PORTn_ISOLATION`, `PORTn_LEARN`, `STPn(0)`, and `bridge fdb`.
+
 ## 2026-03-19: Split `0x1803xx` gated vs readable sub-windows
 
 What was clarified from existing CR881x chunked dumps:
@@ -43,6 +109,75 @@ Follow-up composition probe (capture:
 - this strongly suggests two bridge-membership coupled bit groups:
   - bits `[3:2]` (lan2-related)
   - bits `[7:6]` (wan-related)
+
+Write-persistence probe (capture:
+`docs/yt921x/live/yt_18038c_write_persistence_20260319_060750.txt`):
+- direct write to `0x18038c` (`0x000300f3 -> 0x000300ff`) is accepted and
+  immediate readback matches the written value
+- subsequent bridge membership event (`lan2` nomaster/master cycle) rewrites
+  `0x18038c` back to membership-derived baseline (`0x000300f3`)
+- this confirms `0x18038c` is writable but owned by a higher-level switch
+  policy/state machine, not a stable standalone configuration register
+
+Follow-up range probe (captures:
+`docs/yt921x/live/yt_1803xx_membership_probe_20260319_061341.txt`,
+`docs/yt921x/live/yt_18028x_1803cx_membership_probe_20260319_061424.txt`,
+`docs/yt921x/live/yt_180390_write_probe_20260319_061654.txt`):
+- `0x180390..0x1803bc` now mapped to `YT921X_STPn(1..12)`:
+  - defaults stay zero in single-bridge runtime
+  - direct write/readback on `0x180390` verified (`0 -> 0x3 -> 0`)
+- `0x18038c` is `YT921X_STPn(0)` (active STP instance word), not a random latch
+- wider policy window mapping confirmed by membership deltas:
+  - `0x1802a0` (`PORTn_ISOLATION(3)`) changed on `wan` bridge membership
+  - `0x1803d8` (`PORTn_LEARN(2)`) toggled on `lan3` bridge membership
+- `0x18030c..0x180334` remained all-zero in all tested membership transitions;
+  still unresolved and lower immediate value than gated windows.
+
+Gated-window hardening probes (captures:
+`docs/yt921x/live/yt_gated_stock_map_probe_20260319_063619.txt`,
+`docs/yt921x/live/yt_gated_write_read_probe_20260319_063928.txt`,
+`docs/yt921x/live/yt_gated_write_side_effect_probe_20260319_063944.txt`,
+`docs/yt921x/live/yt_gated_admin_toggle_probe_20260319_064228.txt`):
+- sampled words in `0x1802c0..0x180308` and `0x180338..0x180388` stayed
+  `0xdeadbeef` across:
+  - direct write/read attempts
+  - `lan3` admin down/up state transitions
+- write attempts showed no side effects on nearby active control words.
+- stock-map translation resolves these words to page `0x001`, phy `0x13..0x16`,
+  but direct `ext` MDIO reads there returned zeros, so current debug paths do
+  not provide a bypass.
+
+Writable-table discovery for `0x18030c..0x180334` (captures:
+`docs/yt921x/live/yt_18030c_write_probe_20260319_064402.txt`,
+`docs/yt921x/live/yt_18030x_mask_probe_20260319_064433.txt`,
+`docs/yt921x/live/yt_18030c_334_full_mask_probe_20260319_064504.txt`,
+`docs/yt921x/live/yt_18030c_persistence_membership_probe_20260319_064550.txt`,
+`docs/yt921x/live/yt_18030c_bit_coupling_probe_20260319_065150.txt`,
+`docs/yt921x/live/yt_18030x_word_coupling_ping_probe_20260319_065753.txt`,
+`docs/yt921x/live/yt_18030x_all_ones_table_probe_20260319_065951.txt`,
+`docs/yt921x/live/yt_18030x_live_toggle_from_101_20260319_071411.txt`,
+`docs/yt921x/live/yt_18030x_live_toggle_from_101_warmfix_20260319_071530.txt`):
+- this range is not inert zero-space; all 11 words are writable with a stable
+  readback mask of `0x000007ff`.
+- full-mask writes (`0xffffffff`) read back as `0x000007ff` on every tested
+  word, then restore cleanly to zero.
+- one-bit value persistence test on `0x18030c` survived `lan2` nomaster/master
+  bridge transitions, indicating this table is not immediately rewritten by the
+  same membership state machine that drives `STPn(0)`.
+- one-bit sweep (`bit0..bit10`) on `0x18030c` showed no immediate coupling to
+  known active policy words (`0x180294/0x180298/0x18029c`, `0x18038c`,
+  `0x1803d0/0x1803d4/0x1803d8`) and no router->host ICMP loss during sweep.
+- per-word and all-words stress probes (`0x1` and `0x7ff`) also kept ICMP
+  connectivity intact in current single-host runtime, suggesting this table is
+  either inactive in this topology/mode or coupled to functions not exercised by
+  router<->host ping alone.
+- cross-host live toggle probe under active `192.168.2.101 -> 192.168.2.100`
+  traffic (warm-up fixed so all 11 writes apply) showed:
+  - verified readback transitions `0x000` -> `0x7ff` -> `0x000` on all words
+  - continuous receive-counter growth on host NIC during each phase, with no
+    obvious traffic collapse while table remained at `0x7ff`.
+- short-run side checks showed no immediate disturbance to active isolation,
+  STP0, or learn words, and host ping stayed healthy.
 
 ## 2026-03-18: PSCH shaper (`0xeb`) live calibration on CR881x
 

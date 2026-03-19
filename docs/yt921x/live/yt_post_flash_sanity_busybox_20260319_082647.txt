@@ -1,0 +1,49 @@
+=== UTC 2026-03-19_13:03:07 ===
+Linux ImmortalWrt 6.12.74 #0 SMP Thu Mar 19 12:59:01 2026 aarch64 GNU/Linux
+{
+	"kernel": "6.12.74",
+	"hostname": "ImmortalWrt",
+	"system": "ARMv8 Processor rev 4",
+	"model": "Xiaomi CR881x",
+	"board_name": "xiaomi,cr881x",
+	"rootfs_type": "squashfs",
+	"release": {
+		"distribution": "ImmortalWrt",
+		"version": "SNAPSHOT",
+		"firmware_url": "https://downloads.immortalwrt.org/",
+		"revision": "r38281+4-dbb6c88688",
+		"target": "qualcommax/ipq50xx",
+		"description": "ImmortalWrt SNAPSHOT r38281+4-dbb6c88688",
+		"builddate": "1773925141"
+	}
+}
+
+=== cmds ===
+/usr/bin/nc
+/sbin/ip
+
+=== debugfs smoke ===
+reg 0x18030c = 0x00000000
+
+=== link stats ===
+--- br-lan ---
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+--- lan1 ---
+4: lan1@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+--- lan2 ---
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+--- lan3 ---
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+--- wan ---
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state DOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+
+=== bridge link ===
+
+=== fdb (head) ===
+
+=== mdb ===

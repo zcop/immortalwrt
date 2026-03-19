@@ -1,0 +1,28 @@
+time_start=2026-03-19T12:11:01+00:00
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+stock map reg=0x180294 page=0x001 phy=0x12 w0=0x0a w1=0x0b
+ext[18].0x001e <= 0x0001
+ext[18].0x000a = 0x0000
+ext[18].0x000b = 0x0000
+reg 0x1802c4 = 0xdeadbeef
+stock map reg=0x1802c4 page=0x001 phy=0x13 w0=0x02 w1=0x03
+ext[19].0x001e <= 0x0001
+ext[19].0x0002 = 0x0000
+ext[19].0x0003 = 0x0000
+time_end=2026-03-19T12:11:01+00:00

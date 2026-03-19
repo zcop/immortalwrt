@@ -1,0 +1,128 @@
+time_start=2026-03-19T07:15:30-07:00
+phase=prep_zero
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x18030c <= 0x00000000
+reg 0x180310 <= 0x00000000
+reg 0x180314 <= 0x00000000
+reg 0x180318 <= 0x00000000
+reg 0x18031c <= 0x00000000
+reg 0x180320 <= 0x00000000
+reg 0x180324 <= 0x00000000
+reg 0x180328 <= 0x00000000
+reg 0x18032c <= 0x00000000
+reg 0x180330 <= 0x00000000
+reg 0x180334 <= 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+2026-03-19T07:15:31-07:00 local enp2s0 rx_packets=10683323 rx_bytes=15116570810 tx_packets=6751438 tx_bytes=9070476581
+2026-03-19T07:15:39-07:00 local enp2s0 rx_packets=10683331 rx_bytes=15116571402 tx_packets=6751446 tx_bytes=9070477173
+phase=set_all_7ff
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x18030c <= 0x000007ff
+reg 0x180310 <= 0x000007ff
+reg 0x180314 <= 0x000007ff
+reg 0x180318 <= 0x000007ff
+reg 0x18031c <= 0x000007ff
+reg 0x180320 <= 0x000007ff
+reg 0x180324 <= 0x000007ff
+reg 0x180328 <= 0x000007ff
+reg 0x18032c <= 0x000007ff
+reg 0x180330 <= 0x000007ff
+reg 0x180334 <= 0x000007ff
+reg 0x18030c = 0x000007ff
+reg 0x180310 = 0x000007ff
+reg 0x180314 = 0x000007ff
+reg 0x180318 = 0x000007ff
+reg 0x18031c = 0x000007ff
+reg 0x180320 = 0x000007ff
+reg 0x180324 = 0x000007ff
+reg 0x180328 = 0x000007ff
+reg 0x18032c = 0x000007ff
+reg 0x180330 = 0x000007ff
+reg 0x180334 = 0x000007ff
+2026-03-19T07:15:39-07:00 local enp2s0 rx_packets=10683369 rx_bytes=15116577908 tx_packets=6751476 tx_bytes=9070482710
+2026-03-19T07:15:47-07:00 local enp2s0 rx_packets=10683378 rx_bytes=15116578560 tx_packets=6751485 tx_bytes=9070483344
+phase=restore_zero
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x18030c <= 0x00000000
+reg 0x180310 <= 0x00000000
+reg 0x180314 <= 0x00000000
+reg 0x180318 <= 0x00000000
+reg 0x18031c <= 0x00000000
+reg 0x180320 <= 0x00000000
+reg 0x180324 <= 0x00000000
+reg 0x180328 <= 0x00000000
+reg 0x18032c <= 0x00000000
+reg 0x180330 <= 0x00000000
+reg 0x180334 <= 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+2026-03-19T07:15:47-07:00 local enp2s0 rx_packets=10683416 rx_bytes=15116585066 tx_packets=6751515 tx_bytes=9070488881
+2026-03-19T07:15:55-07:00 local enp2s0 rx_packets=10683424 rx_bytes=15116585658 tx_packets=6751523 tx_bytes=9070489473
+time_end=2026-03-19T07:15:55-07:00

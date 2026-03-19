@@ -1,0 +1,92 @@
+time_start=2026-03-19T07:14:11-07:00
+phase=prep_zero
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x180310 <= 0x00000000
+reg 0x180314 <= 0x00000000
+reg 0x180318 <= 0x00000000
+reg 0x18031c <= 0x00000000
+reg 0x180320 <= 0x00000000
+reg 0x180324 <= 0x00000000
+reg 0x180328 <= 0x00000000
+reg 0x18032c <= 0x00000000
+reg 0x180330 <= 0x00000000
+reg 0x180334 <= 0x00000000
+2026-03-19T07:14:11-07:00 local enp2s0 rx_packets=10683148 rx_bytes=15116548012 tx_packets=6751276 tx_bytes=9070455090
+2026-03-19T07:14:21-07:00 local enp2s0 rx_packets=10683158 rx_bytes=15116548852 tx_packets=6751285 tx_bytes=9070455756
+phase=set_all_7ff
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x180310 <= 0x000007ff
+reg 0x180314 <= 0x000007ff
+reg 0x180318 <= 0x000007ff
+reg 0x18031c <= 0x000007ff
+reg 0x180320 <= 0x000007ff
+reg 0x180324 <= 0x000007ff
+reg 0x180328 <= 0x000007ff
+reg 0x18032c <= 0x000007ff
+reg 0x180330 <= 0x000007ff
+reg 0x180334 <= 0x000007ff
+2026-03-19T07:14:21-07:00 local enp2s0 rx_packets=10683185 rx_bytes=15116553912 tx_packets=6751310 tx_bytes=9070460779
+2026-03-19T07:14:31-07:00 local enp2s0 rx_packets=10683197 rx_bytes=15116554772 tx_packets=6751322 tx_bytes=9070461603
+phase=restore_zero
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x180310 <= 0x00000000
+reg 0x180314 <= 0x00000000
+reg 0x180318 <= 0x00000000
+reg 0x18031c <= 0x00000000
+reg 0x180320 <= 0x00000000
+reg 0x180324 <= 0x00000000
+reg 0x180328 <= 0x00000000
+reg 0x18032c <= 0x00000000
+reg 0x180330 <= 0x00000000
+reg 0x180334 <= 0x00000000
+2026-03-19T07:14:31-07:00 local enp2s0 rx_packets=10683223 rx_bytes=15116559758 tx_packets=6751346 tx_bytes=9070466552
+2026-03-19T07:14:41-07:00 local enp2s0 rx_packets=10683233 rx_bytes=15116560498 tx_packets=6751356 tx_bytes=9070467292
+time_end=2026-03-19T07:14:41-07:00

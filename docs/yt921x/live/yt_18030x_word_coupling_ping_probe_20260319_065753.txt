@@ -1,0 +1,339 @@
+time_start=2026-03-19T12:31:58+00:00
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+### baseline
+lan1 rx=1522 tx=2172
+lan2 rx=0 tx=0
+lan3 rx=5144 tx=4747
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.531 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.705 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.818 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.531/0.684/0.818 ms
+lan1 rx=1541 tx=2194
+lan2 rx=0 tx=0
+lan3 rx=5144 tx=4747
+wan rx=0 tx=0
+### probe 0x18030c
+reg 0x18030c <= 0x00000001
+reg 0x18030c = 0x00000001
+lan1 rx=1541 tx=2194
+lan2 rx=0 tx=0
+lan3 rx=5144 tx=4747
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.617 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.444 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.444/0.530/0.617 ms
+lan1 rx=1541 tx=2194
+lan2 rx=0 tx=0
+lan3 rx=5147 tx=4750
+wan rx=0 tx=0
+reg 0x18030c <= 0x00000000
+reg 0x18030c = 0x00000000
+lan1 rx=1541 tx=2194
+lan2 rx=0 tx=0
+lan3 rx=5147 tx=4750
+wan rx=0 tx=0
+
+### probe 0x180310
+reg 0x180310 <= 0x00000001
+reg 0x180310 = 0x00000001
+lan1 rx=1541 tx=2194
+lan2 rx=0 tx=0
+lan3 rx=5147 tx=4750
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.805 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.450 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.450/0.627/0.805 ms
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5147 tx=4750
+wan rx=0 tx=0
+reg 0x180310 <= 0x00000000
+reg 0x180310 = 0x00000000
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5147 tx=4750
+wan rx=0 tx=0
+
+### probe 0x180314
+reg 0x180314 <= 0x00000001
+reg 0x180314 = 0x00000001
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5147 tx=4750
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.661 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.423 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.423/0.542/0.661 ms
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x180314 <= 0x00000000
+reg 0x180314 = 0x00000000
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x180318
+reg 0x180318 <= 0x00000001
+reg 0x180318 = 0x00000001
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.644 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.422 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.422/0.533/0.644 ms
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x180318 <= 0x00000000
+reg 0x180318 = 0x00000000
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x18031c
+reg 0x18031c <= 0x00000001
+reg 0x18031c = 0x00000001
+lan1 rx=1581 tx=2234
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.582 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.457 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.457/0.519/0.582 ms
+lan1 rx=1644 tx=2297
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x18031c <= 0x00000000
+reg 0x18031c = 0x00000000
+lan1 rx=1644 tx=2297
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x180320
+reg 0x180320 <= 0x00000001
+reg 0x180320 = 0x00000001
+lan1 rx=1644 tx=2297
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.634 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.457 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.457/0.545/0.634 ms
+lan1 rx=1644 tx=2297
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x180320 <= 0x00000000
+reg 0x180320 = 0x00000000
+lan1 rx=1644 tx=2297
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x180324
+reg 0x180324 <= 0x00000001
+reg 0x180324 = 0x00000001
+lan1 rx=1644 tx=2297
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.647 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.477 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.477/0.562/0.647 ms
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x180324 <= 0x00000000
+reg 0x180324 = 0x00000000
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x180328
+reg 0x180328 <= 0x00000001
+reg 0x180328 = 0x00000001
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.651 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.426 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.426/0.538/0.651 ms
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x180328 <= 0x00000000
+reg 0x180328 = 0x00000000
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x18032c
+reg 0x18032c <= 0x00000001
+reg 0x18032c = 0x00000001
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.576 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.459 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.459/0.517/0.576 ms
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x18032c <= 0x00000000
+reg 0x18032c = 0x00000000
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x180330
+reg 0x180330 <= 0x00000001
+reg 0x180330 = 0x00000001
+lan1 rx=1686 tx=2339
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.654 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.435 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.435/0.544/0.654 ms
+lan1 rx=1749 tx=2402
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+reg 0x180330 <= 0x00000000
+reg 0x180330 = 0x00000000
+lan1 rx=1749 tx=2402
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+
+### probe 0x180334
+reg 0x180334 <= 0x00000001
+reg 0x180334 = 0x00000001
+lan1 rx=1749 tx=2402
+lan2 rx=0 tx=0
+lan3 rx=5154 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.661 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.420 ms
+
+--- 192.168.2.100 ping statistics ---
+2 packets transmitted, 2 packets received, 0% packet loss
+round-trip min/avg/max = 0.420/0.540/0.661 ms
+lan1 rx=1749 tx=2402
+lan2 rx=0 tx=0
+lan3 rx=5164 tx=4757
+wan rx=0 tx=0
+reg 0x180334 <= 0x00000000
+reg 0x180334 = 0x00000000
+lan1 rx=1749 tx=2402
+lan2 rx=0 tx=0
+lan3 rx=5164 tx=4757
+wan rx=0 tx=0
+
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+### final
+lan1 rx=1749 tx=2402
+lan2 rx=0 tx=0
+lan3 rx=5164 tx=4757
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.894 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.429 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.675 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.429/0.666/0.894 ms
+lan1 rx=1802 tx=2466
+lan2 rx=0 tx=0
+lan3 rx=5164 tx=4757
+wan rx=0 tx=0
+time_end=2026-03-19T12:32:14+00:00

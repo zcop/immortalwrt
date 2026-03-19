@@ -1,0 +1,125 @@
+time_start=2026-03-19T12:33:55+00:00
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+### baseline
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+lan1 rx=1815 tx=2480
+lan2 rx=0 tx=0
+lan3 rx=5276 tx=4865
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.999 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.556 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.821 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.556/0.792/0.999 ms
+### set_all_0x7ff
+reg 0x18030c <= 0x000007ff
+reg 0x180310 <= 0x000007ff
+reg 0x180314 <= 0x000007ff
+reg 0x180318 <= 0x000007ff
+reg 0x18031c <= 0x000007ff
+reg 0x180320 <= 0x000007ff
+reg 0x180324 <= 0x000007ff
+reg 0x180328 <= 0x000007ff
+reg 0x18032c <= 0x000007ff
+reg 0x180330 <= 0x000007ff
+reg 0x180334 <= 0x000007ff
+reg 0x18030c = 0x000007ff
+reg 0x180310 = 0x000007ff
+reg 0x180314 = 0x000007ff
+reg 0x180318 = 0x000007ff
+reg 0x18031c = 0x000007ff
+reg 0x180320 = 0x000007ff
+reg 0x180324 = 0x000007ff
+reg 0x180328 = 0x000007ff
+reg 0x18032c = 0x000007ff
+reg 0x180330 = 0x000007ff
+reg 0x180334 = 0x000007ff
+lan1 rx=1842 tx=2514
+lan2 rx=0 tx=0
+lan3 rx=5276 tx=4865
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.573 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.708 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.455 ms
+64 bytes from 192.168.2.100: seq=3 ttl=64 time=0.652 ms
+64 bytes from 192.168.2.100: seq=4 ttl=64 time=0.458 ms
+
+--- 192.168.2.100 ping statistics ---
+5 packets transmitted, 5 packets received, 0% packet loss
+round-trip min/avg/max = 0.455/0.569/0.708 ms
+lan1 rx=1878 tx=2550
+lan2 rx=0 tx=0
+lan3 rx=5276 tx=4865
+wan rx=0 tx=0
+### restore_all_0
+reg 0x18030c <= 0x00000000
+reg 0x180310 <= 0x00000000
+reg 0x180314 <= 0x00000000
+reg 0x180318 <= 0x00000000
+reg 0x18031c <= 0x00000000
+reg 0x180320 <= 0x00000000
+reg 0x180324 <= 0x00000000
+reg 0x180328 <= 0x00000000
+reg 0x18032c <= 0x00000000
+reg 0x180330 <= 0x00000000
+reg 0x180334 <= 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+lan1 rx=1878 tx=2550
+lan2 rx=0 tx=0
+lan3 rx=5276 tx=4865
+wan rx=0 tx=0
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.635 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.430 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.760 ms
+64 bytes from 192.168.2.100: seq=3 ttl=64 time=0.449 ms
+64 bytes from 192.168.2.100: seq=4 ttl=64 time=0.439 ms
+
+--- 192.168.2.100 ping statistics ---
+5 packets transmitted, 5 packets received, 0% packet loss
+round-trip min/avg/max = 0.430/0.542/0.760 ms
+lan1 rx=1919 tx=2591
+lan2 rx=0 tx=0
+lan3 rx=5280 tx=4869
+wan rx=0 tx=0
+time_end=2026-03-19T12:34:06+00:00

@@ -1,0 +1,213 @@
+time_start=2026-03-19T12:25:55+00:00
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x18030c = 0x00000000
+### bit0 val=0x1
+reg 0x18030c <= 0x00000001
+reg 0x18030c = 0x00000001
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.763 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.763/0.763/0.763 ms
+### bit1 val=0x2
+reg 0x18030c <= 0x00000002
+reg 0x18030c = 0x00000002
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.776 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.776/0.776/0.776 ms
+### bit2 val=0x4
+reg 0x18030c <= 0x00000004
+reg 0x18030c = 0x00000004
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.886 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.886/0.886/0.886 ms
+### bit3 val=0x8
+reg 0x18030c <= 0x00000008
+reg 0x18030c = 0x00000008
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.808 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.808/0.808/0.808 ms
+### bit4 val=0x10
+reg 0x18030c <= 0x00000010
+reg 0x18030c = 0x00000010
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.791 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.791/0.791/0.791 ms
+### bit5 val=0x20
+reg 0x18030c <= 0x00000020
+reg 0x18030c = 0x00000020
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.915 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.915/0.915/0.915 ms
+### bit6 val=0x40
+reg 0x18030c <= 0x00000040
+reg 0x18030c = 0x00000040
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.790 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.790/0.790/0.790 ms
+### bit7 val=0x80
+reg 0x18030c <= 0x00000080
+reg 0x18030c = 0x00000080
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.880 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.880/0.880/0.880 ms
+### bit8 val=0x100
+reg 0x18030c <= 0x00000100
+reg 0x18030c = 0x00000100
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.696 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.696/0.696/0.696 ms
+### bit9 val=0x200
+reg 0x18030c <= 0x00000200
+reg 0x18030c = 0x00000200
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.775 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.775/0.775/0.775 ms
+### bit10 val=0x400
+reg 0x18030c <= 0x00000400
+reg 0x18030c = 0x00000400
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.884 ms
+
+--- 192.168.2.100 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.884/0.884/0.884 ms
+reg 0x18030c <= 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.961 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.437 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.816 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.437/0.738/0.961 ms
+time_end=2026-03-19T12:25:57+00:00

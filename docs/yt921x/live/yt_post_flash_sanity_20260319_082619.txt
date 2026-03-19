@@ -1,0 +1,50 @@
+=== UTC 2026-03-19_13:02:39 ===
+Linux ImmortalWrt 6.12.74 #0 SMP Thu Mar 19 12:59:01 2026 aarch64 GNU/Linux
+{
+	"kernel": "6.12.74",
+	"hostname": "ImmortalWrt",
+	"system": "ARMv8 Processor rev 4",
+	"model": "Xiaomi CR881x",
+	"board_name": "xiaomi,cr881x",
+	"rootfs_type": "squashfs",
+	"release": {
+		"distribution": "ImmortalWrt",
+		"version": "SNAPSHOT",
+		"firmware_url": "https://downloads.immortalwrt.org/",
+		"revision": "r38281+4-dbb6c88688",
+		"target": "qualcommax/ipq50xx",
+		"description": "ImmortalWrt SNAPSHOT r38281+4-dbb6c88688",
+		"builddate": "1773925141"
+	}
+}
+-rw-------    1 root     root             0 Jan  1  1970 /sys/kernel/debug/yt921x_cmd
+
+=== dmesg yt921x ===
+[    5.181942] yt921x 90000.mdio-1:1d: Motorcomm YT9215S ethernet switch, chipid: 0x90020001, chipmode: 0x2 0x0
+[    5.698975] yt921x 90000.mdio-1:1d: mdio-int responders: phyid_mask=0x01f placeholder_mask=0x300
+[    6.341684] yt921x 90000.mdio-1:1d: mdio-ext responders: none detected on ports 0..31
+[    6.354199] yt921x 90000.mdio-1:1d: configuring for fixed/sgmii link mode
+[    6.357218] yt921x 90000.mdio-1:1d: Link is Up - 1Gbps/Full - flow control rx/tx
+[    6.384923] yt921x 90000.mdio-1:1d lan1 (uninitialized): PHY [90000.mdio-1:1d:00] driver [Generic PHY] (irq=POLL)
+[    6.409163] yt921x 90000.mdio-1:1d lan2 (uninitialized): PHY [90000.mdio-1:1d:01] driver [Generic PHY] (irq=POLL)
+[    6.421074] yt921x 90000.mdio-1:1d lan1: configuring for phy/internal link mode
+[    6.427509] yt921x 90000.mdio-1:1d lan3 (uninitialized): PHY [90000.mdio-1:1d:02] driver [Generic PHY] (irq=POLL)
+[    6.456348] yt921x 90000.mdio-1:1d wan (uninitialized): PHY [90000.mdio-1:1d:03] driver [Generic PHY] (irq=POLL)
+[    6.473031] yt921x 90000.mdio-1:1d cpu (uninitialized): PHY [90000.mdio-1:1d:04] driver [Generic PHY] (irq=POLL)
+[    6.488598] DSA: tree 0 setup
+[    8.558056] yt921x 90000.mdio-1:1d lan1: Link is Up - 1Gbps/Full - flow control rx/tx
+[   11.321974] yt921x 90000.mdio-1:1d lan1: Link is Down
+[   23.861657] yt921x 90000.mdio-1:1d lan1: configuring for phy/internal link mode
+[   23.874807] yt921x 90000.mdio-1:1d lan1: entered allmulticast mode
+[   23.916980] yt921x 90000.mdio-1:1d lan1: entered promiscuous mode
+[   24.013985] yt921x 90000.mdio-1:1d lan2: configuring for phy/internal link mode
+[   24.025746] yt921x 90000.mdio-1:1d lan2: entered allmulticast mode
+[   24.063880] yt921x 90000.mdio-1:1d lan2: entered promiscuous mode
+[   24.137950] yt921x 90000.mdio-1:1d lan3: configuring for phy/internal link mode
+[   24.179682] yt921x 90000.mdio-1:1d lan3: entered allmulticast mode
+[   24.192437] yt921x 90000.mdio-1:1d lan3: entered promiscuous mode
+[   24.289586] yt921x 90000.mdio-1:1d wan: configuring for phy/internal link mode
+[   27.013595] yt921x 90000.mdio-1:1d lan1: Link is Up - 1Gbps/Full - flow control rx/tx
+[   27.295063] yt921x 90000.mdio-1:1d lan3: Link is Up - 1Gbps/Full - flow control off
+
+=== ip links ===
