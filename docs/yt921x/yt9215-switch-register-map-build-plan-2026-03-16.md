@@ -50,4 +50,11 @@ Build a reliable, test-backed register map for YT9215 switch core and MDIO-facin
   - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_182545.txt`
   - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_full_chunked_ssh.txt`
   - `docs/yt921x/yt9215-register-map-changelog.md`
-- Next: run link-transition deltas (LAN port plug/unplug and CPU-side stress traffic), then promote only stable bitfields into `yt9215-register-map.md`.
+- Next: run targeted `0x1803xx` delta probes to map currently unknown but readable
+  zero tables:
+  - `0x18030c-0x180334` (11-word table)
+  - `0x18038c-0x1803bc` (12-word table)
+- Keep `0x1802c0-0x180308` and `0x180338-0x180388` in gated/read-only status
+  until a deterministic gate-control coupling is confirmed.
+- After that, run link-transition deltas (LAN port plug/unplug and CPU-side
+  stress traffic), then promote only stable bitfields into `yt9215-register-map.md`.

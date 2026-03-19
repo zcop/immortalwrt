@@ -39,6 +39,10 @@ Confidence key:
 | `0x100000-0x100328` | egress TPID/profile area (`PORTn_EGR`,`TPID_EGRn`) | Medium |
 | `0x180000-0x18022c` | DSCP/PCP priority maps + per-port QoS/prio order | High |
 | `0x180280-0x180470` | VLAN/isolation/learning/ageing/FDB op | High |
+| `0x1802c0-0x180308` | gated sub-window (`0xdeadbeef`) | Low |
+| `0x18030c-0x180334` | readable zero table (11 words, port-count sized) | Low |
+| `0x180338-0x180388` | gated sub-window (`0xdeadbeef`) | Low |
+| `0x18038c-0x1803bc` | readable zero table (12 words) | Low |
 | `0x1804b0-0x1804b8` | FDB output/result payload window (`FDB_OUT*`) | Medium |
 | `0x180510-0x180514` | mcast/bcast filter masks | Medium |
 | `0x180598-0x1805cc` | VLAN egress filter + LAG group/member tables | Medium |
@@ -71,6 +75,8 @@ Confidence key:
 | `0x354004` | `YT921X_PSCH_SHPn_CTRL(0)` | write-proven | shaper control (`EN`,`DUAL_RATE`,`METER_ID`) | High |
 | `0x354008-0x354024` | `YT921X_PSCH_SHPn_* (1..4)` | write-proven | same layout for ports 1..4 (stride 8 bytes/port) | High |
 | `0x180280` | `YT921X_VLAN_IGR_FILTER` | `0x00000000` | no explicit bypass bits set | Medium |
+| `0x18028c` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
+| `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
 | `0x180454` | `YT921X_FDB_IN0` | `0xccd84354` | active FDB input/result window | Medium |
@@ -207,6 +213,36 @@ Contiguous ranges from chunked dump:
 - `0x18044c-0x180450`
 
 These should be treated as read-only unknowns until a specific functional test shows stable behavior.
+
+Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
+- `0x18030c-0x180334` reads as stable zeros (11 words; same cardinality as ports `0..10`).
+- `0x18038c-0x1803bc` reads as stable zeros (12 words).
+- Do not classify these as `0xdeadbeef` gated windows; they are accessible but currently unmapped.
+
+## Focused Probe Plan For Remaining `0x1803xx` Unknowns
+Goal: determine whether `0x18030c..0x180334` and `0x18038c..0x1803bc` are latent
+per-port policy tables and what gate controls expose `0x1802c0..0x180308` and
+`0x180338..0x180388`.
+
+Recommended sequence (debug build, UART shell):
+1. Snapshot baseline:
+   - `dump 0x180280 0x1803fc 4`
+2. Per-port bridge isolation toggles:
+   - move one port in/out of bridge and resnapshot `0x180280..0x1803fc`
+3. Learning toggles:
+   - `bridge link set dev lanX learning off/on`
+   - resnapshot and diff `0x18030c..0x1803bc`
+4. VLAN ingress filter toggles:
+   - `bridge vlan` add/del on one user port
+   - resnapshot and diff same window
+5. Global gate candidates:
+   - one-at-a-time masked toggles on `0x80004`, `0x80014`, `0x18028c`, `0x1803cc`
+   - after each toggle, read `0x1802c0..0x180388` and immediately restore
+6. Record strict pre/post dumps and reboot between hazardous toggles.
+
+Interpretation rule:
+- Promote only bitfields that show deterministic, single-variable coupling in
+  at least two independent runs.
 
 ## PSCH Shaper Window (Mapped)
 `0x354000..0x354024` controls per-port egress shaping for MAC ports `0..4`.

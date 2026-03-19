@@ -1,5 +1,22 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-19: Split `0x1803xx` gated vs readable sub-windows
+
+What was clarified from existing CR881x chunked dumps:
+- still gated (`0xdeadbeef`):
+  - `0x1802c0-0x180308`
+  - `0x180338-0x180388`
+- readable but currently unmapped (stable zero tables):
+  - `0x18030c-0x180334` (11 words, same cardinality as ports `0..10`)
+  - `0x18038c-0x1803bc` (12 words)
+
+Additional map refinements:
+- Added low-confidence portmask-like key-register notes:
+  - `0x18028c = 0x000007ff`
+  - `0x1803cc = 0x000007ff`
+- Added a focused UART/debugfs probe sequence for `0x1803xx` unknowns, centered
+  on bridge/learning/VLAN deltas and one-at-a-time gate-candidate toggles.
+
 ## 2026-03-18: PSCH shaper (`0xeb`) live calibration on CR881x
 
 Context:
