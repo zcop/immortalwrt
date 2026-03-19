@@ -1,0 +1,15 @@
+### baseline
+state: lan2-in 
+reg 0x18038c = 0x000300f3
+### lan2-out
+state:  
+reg 0x18038c = 0x000300ff
+### lan2-out-wan-in
+state:  wan-in
+reg 0x18038c = 0x0003003f
+### lan2-in-wan-in
+state: lan2-in wan-in
+reg 0x18038c = 0x00030033
+### restore
+state: lan2-in 
+reg 0x18038c = 0x000300f3

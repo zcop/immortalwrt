@@ -39,7 +39,7 @@ Classification:
 | `0x80100 + 4*p` vs `0x80200 + 4*p` | Direct control writes can mutate status domain in non-trivial ways. | Keep masked writes and preserve unknown bits. |
 | `0x080004` (`FUNC`) | Toggling bits can collapse `0x80044` state quickly. | Avoid exploratory writes in normal runtime. |
 | `0x080014` (`PVID_SEL`) | Also perturbs `0x80044` and nearby runtime signature. | Treat as high-impact global control. |
-| `0x18038c` (unknown dynamic latch) | Changed with `lan2` bridge membership (`0x000300f3 -> 0x000300ff -> 0x000300f3`). | Treat as coupled policy/state word; capture before/after bridge topology changes. |
+| `0x18038c` (unknown dynamic latch) | Changed with bridge membership (`lan2` out: `...f3 -> ...ff`, `wan` in: `...f3 -> ...33`, combined: `...3f`). | Treat as coupled policy/state word; capture before/after bridge topology changes. |
 | `0x220800..` (`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
 
 ## C. Writable But Low-Confidence Semantics
