@@ -1816,7 +1816,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		delay *= 4;
 +
-+	schedule_delayed_work(&pp->mib_read, delay);
++	if (READ_ONCE(pp->port_up))
++		schedule_delayed_work(&pp->mib_read, delay);
 +}
 +
 +static void
