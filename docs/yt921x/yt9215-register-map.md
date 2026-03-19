@@ -7,6 +7,7 @@ Primary data:
 - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_182545.txt`
 - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_full_chunked_ssh.txt`
 - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_195556_postfix_recovery.txt`
+- `docs/yt921x/live/yt_1803xx_probe_chunked_20260319_054624.txt`
 - `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
 - Driver symbols in `target/linux/generic/backport-6.12/830-02-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch`
 - UART transition run:
@@ -42,7 +43,8 @@ Confidence key:
 | `0x1802c0-0x180308` | gated sub-window (`0xdeadbeef`) | Low |
 | `0x18030c-0x180334` | readable zero table (11 words, port-count sized) | Low |
 | `0x180338-0x180388` | gated sub-window (`0xdeadbeef`) | Low |
-| `0x18038c-0x1803bc` | readable zero table (12 words) | Low |
+| `0x18038c` | readable dynamic latch (bridge-membership coupled) | Low |
+| `0x180390-0x1803bc` | readable zero table (11 words) | Low |
 | `0x1804b0-0x1804b8` | FDB output/result payload window (`FDB_OUT*`) | Medium |
 | `0x180510-0x180514` | mcast/bcast filter masks | Medium |
 | `0x180598-0x1805cc` | VLAN egress filter + LAG group/member tables | Medium |
@@ -77,6 +79,7 @@ Confidence key:
 | `0x180280` | `YT921X_VLAN_IGR_FILTER` | `0x00000000` | no explicit bypass bits set | Medium |
 | `0x18028c` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
 | `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
+| `0x18038c` | unknown (dynamic) | `0x000300f3` | changed to `0x000300ff` when `lan2` was detached from bridge | Low |
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
 | `0x180454` | `YT921X_FDB_IN0` | `0xccd84354` | active FDB input/result window | Medium |
@@ -216,13 +219,14 @@ These should be treated as read-only unknowns until a specific functional test s
 
 Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
 - `0x18030c-0x180334` reads as stable zeros (11 words; same cardinality as ports `0..10`).
-- `0x18038c-0x1803bc` reads as stable zeros (12 words).
+- `0x180390-0x1803bc` reads as stable zeros (11 words).
+- `0x18038c` is readable but dynamic (`0x000300f3` baseline, `0x000300ff` after `lan2` left bridge, restored after re-attach).
 - Do not classify these as `0xdeadbeef` gated windows; they are accessible but currently unmapped.
 
 ## Focused Probe Plan For Remaining `0x1803xx` Unknowns
-Goal: determine whether `0x18030c..0x180334` and `0x18038c..0x1803bc` are latent
-per-port policy tables and what gate controls expose `0x1802c0..0x180308` and
-`0x180338..0x180388`.
+Goal: determine whether `0x18030c..0x180334` and `0x180390..0x1803bc` are latent
+per-port policy tables, fully decode the dynamic word at `0x18038c`, and find
+what gate controls expose `0x1802c0..0x180308` and `0x180338..0x180388`.
 
 Recommended sequence (debug build, UART shell):
 1. Snapshot baseline:
