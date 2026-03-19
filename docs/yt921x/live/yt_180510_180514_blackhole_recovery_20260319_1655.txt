@@ -1,0 +1,33 @@
+# 0x180510/0x180514 blackhole recovery and post-fix validation
+# Date: 2026-03-19
+# Device: Xiaomi CR881x (YT9215)
+
+## Problem state (recovered slot runtime)
+- host->router (192.168.2.100 -> 192.168.2.1) failed
+- router->host ping succeeded (asymmetric path observed)
+- live register readback over /sys/kernel/debug/yt921x_cmd:
+  - reg 0x180510 = 0x000007ff
+  - reg 0x180514 = 0x000007ff
+
+## Recovery action (UART)
+- reg write 0x180510 0x00000400
+- reg write 0x180514 0x00000400
+- readback confirmed:
+  - reg 0x180510 = 0x00000400
+  - reg 0x180514 = 0x00000400
+
+## Immediate result
+- host->router ICMP restored (5/5 replies, 0% loss)
+- SSH became reachable again
+
+## Post-fix image validation (rootfs_1 after corrected flash)
+- cmdline confirms rootfs_1 boot
+- lan1/lan3 interfaces present and LOWER_UP
+- yt921x probe messages present in dmesg
+- filter register defaults after boot:
+  - reg 0x180510 = 0x00000400
+  - reg 0x180514 = 0x00000400
+
+Conclusion:
+- 0x7ff on both words is hazardous in this runtime and can blackhole host->router path.
+- 0x400 is a safe baseline for normal LAN operation on this board.
