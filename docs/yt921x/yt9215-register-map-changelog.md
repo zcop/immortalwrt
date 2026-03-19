@@ -1,5 +1,33 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-18: PSCH shaper (`0xeb`) live calibration on CR881x
+
+Context:
+- Tested on CR881x with the new debugfs helper (`/sys/kernel/debug/yt921x_cmd`)
+- Active lane under test was `0xeb[0]` (port scheduler shaping entry tied to the
+  host-facing test path)
+- Test method: `iperf3 -R` from host to router with per-step `field set`
+
+Observed rate model (with `en=1`, `ebs=1`, default slot/token settings):
+- `cap_mbps ~= 0.0006516 * EIR - 0.085`
+- inverse: `EIR ~= 1535 * target_mbps + 130`
+
+Calibration points (receiver rate):
+- `EIR=10000 -> ~6.47 Mbps`
+- `EIR=20000 -> ~12.9 Mbps`
+- `EIR=50000 -> ~32.5 Mbps`
+- `EIR=100000 -> ~65.2 Mbps`
+- `EIR=150000 -> ~97.9 Mbps`
+- `EIR=200000 -> ~130 Mbps`
+
+Low-rate behavior:
+- Very low `EIR` can starve management traffic on the same lane.
+- Stable non-zero region started around `EIR ~= 300` (`~175 Kbit/s` observed).
+
+Scope note:
+- This model is empirical for current CR881x runtime defaults; if global
+  scheduler slot/token registers are changed, recalibration is required.
+
 ## 2026-03-17: Port admin/speed mapping from live UART/debugfs
 
 New doc:
