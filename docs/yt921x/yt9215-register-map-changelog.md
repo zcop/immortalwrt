@@ -33,6 +33,17 @@ Live probe update (capture:
   router image (`ip: either "dev" is duplicate, or "type" is garbage`), so
   learning-specific deltas were validated via direct `0x1803d4` writes instead.
 
+Follow-up composition probe (capture:
+`docs/yt921x/live/yt_18038c_combo_probe_20260319_055738.txt`):
+- confirmed independent composition on `0x18038c` low byte:
+  - baseline (`lan2` in, `wan` out): `0x...f3`
+  - `lan2` out: `0x...ff` (`+0x0c`)
+  - `wan` in: `0x...33` (`-0xc0`)
+  - `lan2` out + `wan` in: `0x...3f`
+- this strongly suggests two bridge-membership coupled bit groups:
+  - bits `[3:2]` (lan2-related)
+  - bits `[7:6]` (wan-related)
+
 ## 2026-03-18: PSCH shaper (`0xeb`) live calibration on CR881x
 
 Context:
