@@ -3881,6 +3881,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	int port = dp->index;
 +	int res;
 +
++	WRITE_ONCE(priv->ports[port].port_up, false);
 +	cancel_delayed_work_sync(&priv->ports[port].mib_read);
 +
 +	mutex_lock(&priv->reg_lock);
@@ -3912,7 +3913,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		dev_err(dp->ds->dev, "Failed to %s port %d: %i\n", "bring up",
 +			port, res);
 +
-+	schedule_delayed_work(&priv->ports[port].mib_read, 0);
++	if (!res) {
++		WRITE_ONCE(priv->ports[port].port_up, true);
++		schedule_delayed_work(&priv->ports[port].mib_read, 0);
++	}
 +}
 +
 +static void
@@ -4088,6 +4092,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (!res && phydev)
 +		phy_support_asym_pause(phydev);
 +
++	if (!res)
++		WRITE_ONCE(priv->ports[port].port_up, true);
++
 +	return res;
 +}
 +
@@ -4099,6 +4106,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (!dsa_is_user_port(ds, port))
 +		return;
 +
++	WRITE_ONCE(priv->ports[port].port_up, false);
 +	cancel_delayed_work_sync(&priv->ports[port].mib_read);
 +
 +	mutex_lock(&priv->reg_lock);
@@ -5373,6 +5381,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	bool hairpin;
 +	bool isolated;
++	bool port_up;
 +
 +	struct delayed_work mib_read;
 +	struct yt921x_mib mib;
