@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,4727 @@
+@@ -0,0 +1,4746 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -2132,6 +2132,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
++	/* Some chips only latch EBS/EIR while shaper is disabled. */
++	res = yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_CTRL(port),
++				     YT921X_PSCH_SHP_EN |
++				     YT921X_PSCH_SHP_DUAL_RATE |
++				     YT921X_PSCH_SHP_METER_ID_M, 0);
++	if (res)
++		return res;
++
 +	res = yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_EBS_EIR(port),
 +				     YT921X_PSCH_SHP_EIR_M |
 +				     YT921X_PSCH_SHP_EBS_M,
@@ -2168,7 +2176,18 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	case TC_TBF_DESTROY:
 +		res = yt921x_tbf_del(priv, port);
 +		break;
++	case TC_TBF_GRAFT:
++		/* Child qdisc is software-only; detach tears down port shaper. */
++		if (!qopt->child_handle || qopt->child_handle == TC_H_UNSPEC)
++			res = yt921x_tbf_del(priv, port);
++		else
++			res = 0;
++		break;
++	case TC_TBF_STATS:
++		res = 0;
++		break;
 +	default:
++		res = -EOPNOTSUPP;
 +		break;
 +	}
 +	mutex_unlock(&priv->reg_lock);
