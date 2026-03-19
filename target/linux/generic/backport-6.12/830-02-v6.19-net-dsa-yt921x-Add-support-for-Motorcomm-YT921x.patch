@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,4746 @@
+@@ -0,0 +1,4818 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -247,6 +247,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_PSCH_EIR_MAX		GENMASK(17, 0)
 +#define YT921X_PSCH_EBS_UNIT_BYTES	64ULL
 +#define YT921X_PSCH_EBS_MAX		GENMASK(13, 0)
++#define YT921X_PSCH_SHP_PORTS		5U
 +
 +struct yt921x_reg_mdio {
 +	struct mii_bus *bus;
@@ -863,6 +864,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  field get <id> <index> <field>\n"
 +				 "  field set <id> <index> <field> <val>\n"
 +				 "  mirror\n"
++				 "  tbf [port]\n"
 +				 "  stock map <reg>\n"
 +				 "  dump <start> <end> [stride]\n");
 +}
@@ -901,6 +903,49 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	*phy = ((reg >> 6) & 0x7) | 0x10;
 +	*word0 = (reg >> 1) & 0x1e;
 +	*word1 = *word0 + 1;
++}
++
++static u32 yt921x_tbf_eir_to_rate_kbps(u32 eir)
++{
++	if (eir <= YT921X_PSCH_EIR_RATE_OFFSET)
++		return 0;
++
++	return DIV_ROUND_CLOSEST_ULL((u64)(eir - YT921X_PSCH_EIR_RATE_OFFSET) *
++				     YT921X_PSCH_EIR_RATE_SCALE_DEN,
++				     YT921X_PSCH_EIR_RATE_SCALE_NUM);
++}
++
++static int yt921x_proc_reply_tbf_port(struct yt921x_priv *priv, u32 port)
++{
++	u64 burst_bytes;
++	u32 rate_kbps;
++	u32 ebs_eir;
++	u32 ctrl;
++	u32 eir;
++	u32 ebs;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_CTRL(port), &ctrl);
++	if (res)
++		return res;
++
++	res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_EBS_EIR(port), &ebs_eir);
++	if (res)
++		return res;
++
++	eir = FIELD_GET(YT921X_PSCH_SHP_EIR_M, ebs_eir);
++	ebs = FIELD_GET(YT921X_PSCH_SHP_EBS_M, ebs_eir);
++	rate_kbps = yt921x_tbf_eir_to_rate_kbps(eir);
++	burst_bytes = (u64)ebs * YT921X_PSCH_EBS_UNIT_BYTES;
++
++	yt921x_proc_reply_append(priv,
++				 "tbf p%u: en=%u dual_rate=%u meter=%u eir=%u (~%u kbps) ebs=%u (~%llu bytes)\n",
++				 port, !!(ctrl & YT921X_PSCH_SHP_EN),
++				 !!(ctrl & YT921X_PSCH_SHP_DUAL_RATE),
++				 FIELD_GET(YT921X_PSCH_SHP_METER_ID_M, ctrl),
++				 eir, rate_kbps, ebs, burst_bytes);
++
++	return 0;
 +}
 +
 +#define YT921X_PROC_TBL_MAX_WORDS	4
@@ -1512,6 +1557,32 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		goto out;
 +	}
 +
++	if (!strcmp(argv[0], "tbf")) {
++		u32 start = 0;
++		u32 end = YT921X_PSCH_SHP_PORTS - 1;
++		u32 port;
++
++		if (argc >= 2) {
++			res = yt921x_proc_parse_u32(argv[1], &port);
++			if (res)
++				goto out;
++			if (port >= YT921X_PSCH_SHP_PORTS) {
++				res = -ERANGE;
++				goto out;
++			}
++			start = end = port;
++		}
++
++		mutex_lock(&priv->reg_lock);
++		for (port = start; port <= end; port++) {
++			res = yt921x_proc_reply_tbf_port(priv, port);
++			if (res)
++				break;
++		}
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
 +	if (!strcmp(argv[0], "stock") && argc >= 3) {
 +		u16 page;
 +		u16 phy;
@@ -2056,7 +2127,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static bool yt921x_tbf_supported_port(struct dsa_switch *ds, int port)
 +{
 +	/* PSCH table has 5 entries and maps to MAC0..MAC4 on YT9215. */
-+	return dsa_is_user_port(ds, port) && port >= 0 && port < 5;
++	return dsa_is_user_port(ds, port) && port >= 0 &&
++	       port < YT921X_PSCH_SHP_PORTS;
 +}
 +
 +static int yt921x_tbf_rate_to_eir(u64 rate_bytes_ps, u32 *eirp)
