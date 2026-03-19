@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,4829 @@
+@@ -0,0 +1,5327 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -70,6 +70,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 + * Copyright (c) 2025 David Yang
 + */
 +
++#include <linux/dcbnl.h>
 +#include <linux/etherdevice.h>
 +#include <linux/if_bridge.h>
 +#include <linux/if_hsr.h>
@@ -81,6 +82,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#include <linux/of.h>
 +#include <linux/of_mdio.h>
 +#include <linux/of_net.h>
++#include <linux/sort.h>
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 +#include <linux/debugfs.h>
 +#include <linux/fs.h>
@@ -88,6 +90,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#endif
 +
 +#include <net/dsa.h>
++#include <net/dscp.h>
++#include <net/ieee8021q.h>
 +#include <net/pkt_cls.h>
 +
 +#include "yt921x.h"
@@ -2381,6 +2385,188 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return res;
 +}
 +
++static int yt921x_lag_hash(struct yt921x_priv *priv, u32 ctrl, bool unique_lag,
++			   struct netlink_ext_ack *extack)
++{
++	u32 val;
++	int res;
++
++	/* Hash Mode is global. Make sure the same Hash Mode is set to all the
++	 * 2 possible lags.
++	 * If we are the unique LAG we can set whatever hash mode we want.
++	 * To change hash mode it's needed to remove all LAG and change the mode
++	 * with the latest.
++	 */
++	if (unique_lag) {
++		res = yt921x_reg_write(priv, YT921X_LAG_HASH, ctrl);
++		if (res)
++			return res;
++	} else {
++		res = yt921x_reg_read(priv, YT921X_LAG_HASH, &val);
++		if (res)
++			return res;
++
++		if (val != ctrl) {
++			NL_SET_ERR_MSG_MOD(extack,
++					   "Mismatched Hash Mode across different lags is not supported");
++			return -EOPNOTSUPP;
++		}
++	}
++
++	return 0;
++}
++
++static int yt921x_lag_set(struct yt921x_priv *priv, u8 index, u16 ports_mask)
++{
++	unsigned long targets_mask = ports_mask;
++	unsigned int cnt;
++	u32 ctrl;
++	int port;
++	int res;
++
++	cnt = 0;
++	for_each_set_bit(port, &targets_mask, YT921X_PORT_NUM) {
++		ctrl = YT921X_LAG_MEMBER_PORT(port);
++		res = yt921x_reg_write(priv, YT921X_LAG_MEMBERnm(index, cnt),
++				       ctrl);
++		if (res)
++			return res;
++
++		cnt++;
++	}
++
++	ctrl = YT921X_LAG_GROUP_PORTS(ports_mask) |
++	       YT921X_LAG_GROUP_MEMBER_NUM(cnt);
++	return yt921x_reg_write(priv, YT921X_LAG_GROUPn(index), ctrl);
++}
++
++static int
++yt921x_dsa_port_lag_leave(struct dsa_switch *ds, int port, struct dsa_lag lag)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct dsa_port *dp;
++	u32 ctrl;
++	int res;
++
++	if (!lag.id)
++		return -EINVAL;
++
++	ctrl = 0;
++	dsa_lag_foreach_port(dp, ds->dst, &lag)
++		ctrl |= BIT(dp->index);
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_lag_set(priv, lag.id - 1, ctrl);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static int
++yt921x_dsa_port_lag_check(struct dsa_switch *ds, struct dsa_lag lag,
++			  struct netdev_lag_upper_info *info,
++			  struct netlink_ext_ack *extack)
++{
++	unsigned int members;
++	struct dsa_port *dp;
++
++	if (!lag.id)
++		return -EINVAL;
++
++	members = 0;
++	dsa_lag_foreach_port(dp, ds->dst, &lag)
++		/* Includes the port joining the LAG */
++		members++;
++
++	if (members > YT921X_LAG_PORT_NUM) {
++		NL_SET_ERR_MSG_MOD(extack,
++				   "Cannot offload more than 4 LAG ports");
++		return -EOPNOTSUPP;
++	}
++
++	if (info->tx_type != NETDEV_LAG_TX_TYPE_HASH) {
++		NL_SET_ERR_MSG_MOD(extack,
++				   "Can only offload LAG using hash TX type");
++		return -EOPNOTSUPP;
++	}
++
++	if (info->hash_type != NETDEV_LAG_HASH_L2 &&
++	    info->hash_type != NETDEV_LAG_HASH_L23 &&
++	    info->hash_type != NETDEV_LAG_HASH_L34) {
++		NL_SET_ERR_MSG_MOD(extack,
++				   "Can only offload L2 or L2+L3 or L3+L4 TX hash");
++		return -EOPNOTSUPP;
++	}
++
++	return 0;
++}
++
++static int
++yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag,
++			 struct netdev_lag_upper_info *info,
++			 struct netlink_ext_ack *extack)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct dsa_port *dp;
++	bool unique_lag;
++	unsigned int i;
++	u32 ctrl;
++	int res;
++
++	res = yt921x_dsa_port_lag_check(ds, lag, info, extack);
++	if (res)
++		return res;
++
++	ctrl = 0;
++	switch (info->hash_type) {
++	case NETDEV_LAG_HASH_L34:
++		ctrl |= YT921X_LAG_HASH_IP_DST;
++		ctrl |= YT921X_LAG_HASH_IP_SRC;
++		ctrl |= YT921X_LAG_HASH_IP_PROTO;
++
++		ctrl |= YT921X_LAG_HASH_L4_DPORT;
++		ctrl |= YT921X_LAG_HASH_L4_SPORT;
++		break;
++	case NETDEV_LAG_HASH_L23:
++		ctrl |= YT921X_LAG_HASH_MAC_DA;
++		ctrl |= YT921X_LAG_HASH_MAC_SA;
++
++		ctrl |= YT921X_LAG_HASH_IP_DST;
++		ctrl |= YT921X_LAG_HASH_IP_SRC;
++		ctrl |= YT921X_LAG_HASH_IP_PROTO;
++		break;
++	case NETDEV_LAG_HASH_L2:
++		ctrl |= YT921X_LAG_HASH_MAC_DA;
++		ctrl |= YT921X_LAG_HASH_MAC_SA;
++		break;
++	default:
++		return -EOPNOTSUPP;
++	}
++
++	/* Check if we are the unique configured LAG */
++	unique_lag = true;
++	dsa_lags_foreach_id(i, ds->dst)
++		if (i != lag.id && dsa_lag_by_id(ds->dst, i)) {
++			unique_lag = false;
++			break;
++		}
++
++	mutex_lock(&priv->reg_lock);
++	do {
++		res = yt921x_lag_hash(priv, ctrl, unique_lag, extack);
++		if (res)
++			break;
++
++		ctrl = 0;
++		dsa_lag_foreach_port(dp, ds->dst, &lag)
++			ctrl |= BIT(dp->index);
++		res = yt921x_lag_set(priv, lag.id - 1, ctrl);
++	} while (0);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
 +static int yt921x_fdb_wait(struct yt921x_priv *priv, u32 *valp)
 +{
 +	struct device *dev = to_device(priv);
@@ -2863,6 +3049,21 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_vlan_aware_set(struct yt921x_priv *priv, int port, bool vlan_aware)
++{
++	u32 ctrl;
++
++	/* Abuse SVLAN for PCP parsing without polluting the FDB - it just works
++	 * despite YT921X_VLAN_CTRL_SVLAN_EN never being set
++	 */
++	if (!vlan_aware)
++		ctrl = YT921X_PORT_IGR_TPIDn_STAG(0);
++	else
++		ctrl = YT921X_PORT_IGR_TPIDn_CTAG(0);
++	return yt921x_reg_write(priv, YT921X_PORTn_IGR_TPID(port), ctrl);
++}
++
++static int
 +yt921x_port_set_pvid(struct yt921x_priv *priv, int port, u16 vid)
 +{
 +	u32 mask;
@@ -2911,14 +3112,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
-+	/* Turn on / off VLAN awareness */
-+	mask = YT921X_PORT_IGR_TPIDn_CTAG_M;
-+	if (!vlan_filtering)
-+		ctrl = 0;
-+	else
-+		ctrl = YT921X_PORT_IGR_TPIDn_CTAG(0);
-+	res = yt921x_reg_update_bits(priv, YT921X_PORTn_IGR_TPID(port),
-+				     mask, ctrl);
++	res = yt921x_vlan_aware_set(priv, port, vlan_filtering);
 +	if (res)
 +		return res;
 +
@@ -3114,54 +3308,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return res;
 +}
 +
-+static int yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port)
-+{
-+	struct yt921x_priv *priv = to_yt921x_priv(ds);
-+	u32 ctrl;
-+	int res;
-+
-+	if (dsa_is_cpu_port(ds, port))
-+		return -EOPNOTSUPP;
-+
-+	mutex_lock(&priv->reg_lock);
-+	res = yt921x_reg_read(priv, YT921X_PORTn_VLAN_CTRL(port), &ctrl);
-+	mutex_unlock(&priv->reg_lock);
-+	if (res)
-+		return res;
-+
-+	if (!(ctrl & YT921X_PORT_VLAN_CTRL_CVLAN_PRI_EN))
-+		return 0;
-+
-+	return FIELD_GET(YT921X_PORT_VLAN_CTRL_CVLAN_PRI_M, ctrl);
-+}
-+
-+static int
-+yt921x_dsa_port_set_default_prio(struct dsa_switch *ds, int port, u8 prio)
-+{
-+	struct yt921x_priv *priv = to_yt921x_priv(ds);
-+	u32 mask;
-+	u32 ctrl;
-+	int res;
-+
-+	if (dsa_is_cpu_port(ds, port))
-+		return -EOPNOTSUPP;
-+
-+	if (prio >= 8)
-+		return -EINVAL;
-+
-+	mask = YT921X_PORT_VLAN_CTRL_CVLAN_PRI_EN |
-+	       YT921X_PORT_VLAN_CTRL_CVLAN_PRI_M;
-+	ctrl = YT921X_PORT_VLAN_CTRL_CVLAN_PRI_EN |
-+	       FIELD_PREP(YT921X_PORT_VLAN_CTRL_CVLAN_PRI_M, prio);
-+
-+	mutex_lock(&priv->reg_lock);
-+	res = yt921x_reg_update_bits(priv, YT921X_PORTn_VLAN_CTRL(port),
-+				     mask, ctrl);
-+	mutex_unlock(&priv->reg_lock);
-+
-+	return res;
-+}
-+
 +static u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv)
 +{
 +	return GENMASK(YT921X_PORT_NUM - 1, 0) & ~priv->cpu_ports_mask;
@@ -3219,8 +3365,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +
 +	/* Turn off VLAN awareness */
-+	mask = YT921X_PORT_IGR_TPIDn_CTAG_M;
-+	res = yt921x_reg_clear_bits(priv, YT921X_PORTn_IGR_TPID(port), mask);
++	res = yt921x_vlan_aware_set(priv, port, false);
 +	if (res)
 +		return res;
 +
@@ -3541,6 +3686,233 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	}
 +
 +	return 0;
++}
++
++static int
++yt921x_dsa_port_mst_state_set(struct dsa_switch *ds, int port,
++			      const struct switchdev_mst_state *st)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 mask;
++	u32 ctrl;
++	int res;
++
++	mask = YT921X_STP_PORTn_M(port);
++	switch (st->state) {
++	case BR_STATE_DISABLED:
++		ctrl = YT921X_STP_PORTn_DISABLED(port);
++		break;
++	case BR_STATE_LISTENING:
++	case BR_STATE_LEARNING:
++		ctrl = YT921X_STP_PORTn_LEARNING(port);
++		break;
++	case BR_STATE_FORWARDING:
++	default:
++		ctrl = YT921X_STP_PORTn_FORWARD(port);
++		break;
++	case BR_STATE_BLOCKING:
++		ctrl = YT921X_STP_PORTn_BLOCKING(port);
++		break;
++	}
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_update_bits(priv, YT921X_STPn(st->msti), mask, ctrl);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static int
++yt921x_dsa_vlan_msti_set(struct dsa_switch *ds, struct dsa_bridge bridge,
++			 const struct switchdev_vlan_msti *msti)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u64 mask64;
++	u64 ctrl64;
++	int res;
++
++	if (!msti->vid)
++		return -EINVAL;
++	if (!msti->msti || msti->msti >= YT921X_MSTI_NUM)
++		return -EINVAL;
++
++	mask64 = YT921X_VLAN_CTRL_STP_ID_M;
++	ctrl64 = YT921X_VLAN_CTRL_STP_ID(msti->msti);
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg64_update_bits(priv, YT921X_VLANn_CTRL(msti->vid),
++				       mask64, ctrl64);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static void
++yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct dsa_port *dp = dsa_to_port(ds, port);
++	struct device *dev = to_device(priv);
++	bool learning;
++	u32 mask;
++	u32 ctrl;
++	int res;
++
++	mask = YT921X_STP_PORTn_M(port);
++	learning = false;
++	switch (state) {
++	case BR_STATE_DISABLED:
++		ctrl = YT921X_STP_PORTn_DISABLED(port);
++		break;
++	case BR_STATE_LISTENING:
++		ctrl = YT921X_STP_PORTn_LEARNING(port);
++		break;
++	case BR_STATE_LEARNING:
++		ctrl = YT921X_STP_PORTn_LEARNING(port);
++		learning = dp->learning;
++		break;
++	case BR_STATE_FORWARDING:
++	default:
++		ctrl = YT921X_STP_PORTn_FORWARD(port);
++		learning = dp->learning;
++		break;
++	case BR_STATE_BLOCKING:
++		ctrl = YT921X_STP_PORTn_BLOCKING(port);
++		break;
++	}
++
++	mutex_lock(&priv->reg_lock);
++	do {
++		res = yt921x_reg_update_bits(priv, YT921X_STPn(0), mask, ctrl);
++		if (res)
++			break;
++
++		mask = YT921X_PORT_LEARN_DIS;
++		ctrl = !learning ? YT921X_PORT_LEARN_DIS : 0;
++		res = yt921x_reg_update_bits(priv, YT921X_PORTn_LEARN(port),
++					     mask, ctrl);
++	} while (0);
++	mutex_unlock(&priv->reg_lock);
++
++	if (res)
++		dev_err(dev, "Failed to %s port %d: %i\n", "set STP state for",
++			port, res);
++}
++
++static int __maybe_unused
++yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 val;
++	int res;
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_read(priv, YT921X_PORTn_QOS(port), &val);
++	mutex_unlock(&priv->reg_lock);
++
++	if (res)
++		return res;
++
++	return FIELD_GET(YT921X_PORT_QOS_PRIO_M, val);
++}
++
++static int __maybe_unused
++yt921x_dsa_port_set_default_prio(struct dsa_switch *ds, int port, u8 prio)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 mask;
++	u32 ctrl;
++	int res;
++
++	if (prio >= YT921X_PRIO_NUM)
++		return -EINVAL;
++
++	mutex_lock(&priv->reg_lock);
++	mask = YT921X_PORT_QOS_PRIO_M | YT921X_PORT_QOS_PRIO_EN;
++	ctrl = YT921X_PORT_QOS_PRIO(prio) | YT921X_PORT_QOS_PRIO_EN;
++	res = yt921x_reg_update_bits(priv, YT921X_PORTn_QOS(port), mask, ctrl);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static int __maybe_unused appprios_cmp(const void *a, const void *b)
++{
++	return ((const u8 *)b)[1] - ((const u8 *)a)[1];
++}
++
++static int __maybe_unused
++yt921x_dsa_port_get_apptrust(struct dsa_switch *ds, int port, u8 *sel,
++			     int *nselp)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u8 appprios[2][2] = {};
++	int nsel;
++	u32 val;
++	int res;
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_read(priv, YT921X_PORTn_PRIO_ORD(port), &val);
++	mutex_unlock(&priv->reg_lock);
++
++	if (res)
++		return res;
++
++	appprios[0][0] = IEEE_8021QAZ_APP_SEL_DSCP;
++	appprios[0][1] = (val >> (3 * YT921X_APP_SEL_DSCP)) & 7;
++	appprios[1][0] = DCB_APP_SEL_PCP;
++	appprios[1][1] = (val >> (3 * YT921X_APP_SEL_CVLAN_PCP)) & 7;
++	sort(appprios, ARRAY_SIZE(appprios), sizeof(appprios[0]), appprios_cmp,
++	     NULL);
++
++	nsel = 0;
++	for (int i = 0; i < ARRAY_SIZE(appprios) && appprios[i][1]; i++) {
++		sel[nsel] = appprios[i][0];
++		nsel++;
++	}
++	*nselp = nsel;
++
++	return 0;
++}
++
++static int __maybe_unused
++yt921x_dsa_port_set_apptrust(struct dsa_switch *ds, int port, const u8 *sel,
++			     int nsel)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct device *dev = to_device(priv);
++	u32 ctrl;
++	int res;
++
++	if (nsel > YT921X_APP_SEL_NUM)
++		return -EINVAL;
++
++	ctrl = 0;
++	for (int i = 0; i < nsel; i++) {
++		switch (sel[i]) {
++		case IEEE_8021QAZ_APP_SEL_DSCP:
++			ctrl |= YT921X_PORT_PRIO_ORD_APPm(YT921X_APP_SEL_DSCP,
++							  7 - i);
++			break;
++		case DCB_APP_SEL_PCP:
++			ctrl |= YT921X_PORT_PRIO_ORD_APPm(YT921X_APP_SEL_CVLAN_PCP,
++							  7 - i);
++			ctrl |= YT921X_PORT_PRIO_ORD_APPm(YT921X_APP_SEL_SVLAN_PCP,
++							  7 - i);
++			break;
++		default:
++			dev_err(dev,
++				"Invalid apptrust selector (at %d-th). Supported: dscp, pcp\n",
++				i + 1);
++			return -EOPNOTSUPP;
++		}
++	}
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_write(priv, YT921X_PORTn_PRIO_ORD(port), ctrl);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
 +}
 +
 +static int yt921x_port_down(struct yt921x_priv *priv, int port)
@@ -4027,6 +4399,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
++	/* Clear prio order (even if DCB is not enabled) to avoid unsolicited
++	 * priorities
++	 */
++	res = yt921x_reg_write(priv, YT921X_PORTn_PRIO_ORD(port), 0);
++	if (res)
++		return res;
++
 +	if (dsa_is_cpu_port(ds, port)) {
 +		/* Egress of CPU port is supposed to be completely controlled
 +		 * via tagging, so set to oneway isolated (drop all packets
@@ -4117,6 +4496,66 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	if (res)
 +		dev_err(ds->dev, "Failed to disable port %d: %d\n", port, res);
++}
++
++/* Not "port" - DSCP mapping is global */
++static int __maybe_unused
++yt921x_dsa_port_get_dscp_prio(struct dsa_switch *ds, int port, u8 dscp)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 val;
++	int res;
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(dscp), &val);
++	mutex_unlock(&priv->reg_lock);
++
++	if (res)
++		return res;
++
++	return FIELD_GET(YT921X_IPM_PRIO_M, val);
++}
++
++static int __maybe_unused
++yt921x_dsa_port_del_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 val;
++	int res;
++
++	mutex_lock(&priv->reg_lock);
++	/* During a "dcb app replace" command, the new app table entry will be
++	 * added first, then the old one will be deleted. But the hardware only
++	 * supports one QoS class per DSCP value (duh), so if we blindly delete
++	 * the app table entry for this DSCP value, we end up deleting the
++	 * entry with the new priority. Avoid that by checking whether user
++	 * space wants to delete the priority which is currently configured, or
++	 * something else which is no longer current.
++	 */
++	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(dscp), &val);
++	if (!res && FIELD_GET(YT921X_IPM_PRIO_M, val) == prio)
++		res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp),
++				       YT921X_IPM_PRIO(IEEE8021Q_TT_BK));
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static int __maybe_unused
++yt921x_dsa_port_add_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	int res;
++
++	if (prio >= YT921X_PRIO_NUM)
++		return -EINVAL;
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp),
++			       YT921X_IPM_PRIO(prio));
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
 +}
 +
 +static int yt921x_edata_wait(struct yt921x_priv *priv, u32 *valp)
@@ -4533,7 +4972,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +#endif
 +
-+static int yt921x_chip_setup(struct yt921x_priv *priv)
++static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 +{
 +	struct dsa_switch *ds = &priv->ds;
 +	unsigned long cpu_ports_mask;
@@ -4559,32 +4998,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "ext-cpu-port");
-+#endif
-+
-+	/* Enable and clear MIB */
-+	res = yt921x_reg_set_bits(priv, YT921X_FUNC, YT921X_FUNC_MIB);
-+	if (res)
-+		return res;
-+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "func-mib");
-+#endif
-+
-+	ctrl = YT921X_MIB_CTRL_CLEAN | YT921X_MIB_CTRL_ALL_PORT;
-+	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, ctrl);
-+	if (res)
-+		return res;
-+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mib-clean");
-+#endif
-+
-+	/* CLEAN is edge/latched on some runtimes; settle to steady all-port
-+	 * accounting mode to avoid keeping high bits asserted.
-+	 */
-+	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, YT921X_MIB_CTRL_ALL_PORT);
-+	if (res)
-+		return res;
-+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mib-steady");
 +#endif
 +
 +	/* Setup software switch */
@@ -4651,14 +5064,80 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "vlan0");
 +#endif
 +
++	return 0;
++}
++
++static int __maybe_unused yt921x_chip_setup_qos(struct yt921x_priv *priv)
++{
++	u32 ctrl;
++	int res;
++
++	/* DSCP to internal priorities */
++	for (u8 dscp = 0; dscp < DSCP_MAX; dscp++) {
++		int prio = ietf_dscp_to_ieee8021q_tt(dscp);
++
++		if (prio < 0)
++			return prio;
++
++		res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp),
++				       YT921X_IPM_PRIO(prio));
++		if (res)
++			return res;
++	}
++
++	/* 802.1Q QoS to internal priorities */
++	for (u8 pcp = 0; pcp < 8; pcp++)
++		for (u8 dei = 0; dei < 2; dei++) {
++			ctrl = YT921X_IPM_PRIO(pcp);
++			if (dei)
++				/* "Red" almost means drop, so it's not that
++				 * useful. Note that tc police does not support
++				 * Three-Color very well
++				 */
++				ctrl |= YT921X_IPM_COLOR_YELLOW;
++
++			for (u8 svlan = 0; svlan < 2; svlan++) {
++				u32 reg = YT921X_IPM_PCPn(svlan, dei, pcp);
++
++				res = yt921x_reg_write(priv, reg, ctrl);
++				if (res)
++					return res;
++			}
++		}
++
++	return 0;
++}
++
++static int yt921x_chip_setup(struct yt921x_priv *priv)
++{
++	u32 ctrl;
++	int res;
++
++	ctrl = YT921X_FUNC_MIB;
++	res = yt921x_reg_set_bits(priv, YT921X_FUNC, ctrl);
++	if (res)
++		return res;
++
++	res = yt921x_chip_setup_dsa(priv);
++	if (res)
++		return res;
++
++#if IS_ENABLED(CONFIG_DCB)
++	res = yt921x_chip_setup_qos(priv);
++	if (res)
++		return res;
++#endif
++
++	/* Clear MIB */
++	ctrl = YT921X_MIB_CTRL_CLEAN | YT921X_MIB_CTRL_ALL_PORT;
++	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, ctrl);
++	if (res)
++		return res;
++
 +	/* Miscellaneous */
 +	res = yt921x_reg_set_bits(priv, YT921X_SENSOR, YT921X_SENSOR_TEMP);
 +	if (res)
 +		return res;
-+
-+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-+	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "sensor");
-+#endif
 +
 +	res = yt921x_validate_setup_locked(priv);
 +	if (res)
@@ -4734,9 +5213,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* eee */
 +	.support_eee		= dsa_supports_eee,
 +	.set_mac_eee		= yt921x_dsa_set_mac_eee,
++#if IS_ENABLED(CONFIG_DCB)
 +	/* dcb */
 +	.port_get_default_prio	= yt921x_dsa_port_get_default_prio,
 +	.port_set_default_prio	= yt921x_dsa_port_set_default_prio,
++	.port_get_apptrust	= yt921x_dsa_port_get_apptrust,
++	.port_set_apptrust	= yt921x_dsa_port_set_apptrust,
++#endif
 +	/* tc */
 +	.port_setup_tc		= yt921x_dsa_port_setup_tc,
 +	/* mtu */
@@ -4745,6 +5228,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* mirror */
 +	.port_mirror_del	= yt921x_dsa_port_mirror_del,
 +	.port_mirror_add	= yt921x_dsa_port_mirror_add,
++	/* lag */
++	.port_lag_leave		= yt921x_dsa_port_lag_leave,
++	.port_lag_join		= yt921x_dsa_port_lag_join,
 +	/* fdb */
 +	.port_fdb_dump		= yt921x_dsa_port_fdb_dump,
 +	.port_fast_age		= yt921x_dsa_port_fast_age,
@@ -4762,10 +5248,20 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	.port_bridge_flags	= yt921x_dsa_port_bridge_flags,
 +	.port_bridge_leave	= yt921x_dsa_port_bridge_leave,
 +	.port_bridge_join	= yt921x_dsa_port_bridge_join,
++	/* mst */
++	.port_mst_state_set	= yt921x_dsa_port_mst_state_set,
++	.vlan_msti_set		= yt921x_dsa_vlan_msti_set,
++	.port_stp_state_set	= yt921x_dsa_port_stp_state_set,
 +	/* port */
 +	.get_tag_protocol	= yt921x_dsa_get_tag_protocol,
 +	.phylink_get_caps	= yt921x_dsa_phylink_get_caps,
 +	.port_setup		= yt921x_dsa_port_setup,
++#if IS_ENABLED(CONFIG_DCB)
++	/* dscp */
++	.port_get_dscp_prio	= yt921x_dsa_port_get_dscp_prio,
++	.port_del_dscp_prio	= yt921x_dsa_port_del_dscp_prio,
++	.port_add_dscp_prio	= yt921x_dsa_port_add_dscp_prio,
++#endif
 +	.port_enable		= yt921x_dsa_port_enable,
 +	.port_disable		= yt921x_dsa_port_disable,
 +	/* chip */
@@ -4851,11 +5347,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	ds = &priv->ds;
 +	ds->dev = dev;
 +	ds->assisted_learning_on_cpu_port = true;
++	ds->dscp_prio_mapping_is_global = true;
 +	ds->priv = priv;
 +	ds->ops = &yt921x_dsa_switch_ops;
 +	ds->ageing_time_min = 1 * 5000;
 +	ds->ageing_time_max = U16_MAX * 5000;
 +	ds->phylink_mac_ops = &yt921x_phylink_mac_ops;
++	ds->num_lag_ids = YT921X_LAG_NUM;
 +	ds->num_ports = YT921X_PORT_NUM;
 +
 +	mdiodev_set_drvdata(mdiodev, priv);
@@ -4889,10 +5387,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +MODULE_AUTHOR("David Yang <mmyangfl@gmail.com>");
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
-+MODULE_LICENSE("GPL");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,534 @@
+@@ -0,0 +1,652 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -5081,6 +5578,60 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_MIB_CTRL_ALL_PORT		BIT(0)
 +#define YT921X_MIBn_DATA0(port)		(0xc0100 + 0x100 * (port))
 +#define YT921X_MIBn_DATAm(port, x)	(YT921X_MIBn_DATA0(port) + 4 * (x))
++#define  YT921X_MIB_DATA_RX_BROADCAST		0x00
++#define  YT921X_MIB_DATA_RX_PAUSE		0x04
++#define  YT921X_MIB_DATA_RX_MULTICAST		0x08
++#define  YT921X_MIB_DATA_RX_CRC_ERR		0x0c
++
++#define  YT921X_MIB_DATA_RX_ALIGN_ERR		0x10
++#define  YT921X_MIB_DATA_RX_UNDERSIZE_ERR	0x14
++#define  YT921X_MIB_DATA_RX_FRAG_ERR		0x18
++#define  YT921X_MIB_DATA_RX_PKT_SZ_64		0x1c
++
++#define  YT921X_MIB_DATA_RX_PKT_SZ_65_TO_127	0x20
++#define  YT921X_MIB_DATA_RX_PKT_SZ_128_TO_255	0x24
++#define  YT921X_MIB_DATA_RX_PKT_SZ_256_TO_511	0x28
++#define  YT921X_MIB_DATA_RX_PKT_SZ_512_TO_1023	0x2c
++
++#define  YT921X_MIB_DATA_RX_PKT_SZ_1024_TO_1518	0x30
++#define  YT921X_MIB_DATA_RX_PKT_SZ_1519_TO_MAX	0x34
++/* 0x38: unused */
++#define  YT921X_MIB_DATA_RX_GOOD_BYTES		0x3c
++
++/* 0x40: 64 bytes */
++#define  YT921X_MIB_DATA_RX_BAD_BYTES		0x44
++/* 0x48: 64 bytes */
++#define  YT921X_MIB_DATA_RX_OVERSIZE_ERR	0x4c
++
++#define  YT921X_MIB_DATA_RX_DROPPED		0x50
++#define  YT921X_MIB_DATA_TX_BROADCAST		0x54
++#define  YT921X_MIB_DATA_TX_PAUSE		0x58
++#define  YT921X_MIB_DATA_TX_MULTICAST		0x5c
++
++#define  YT921X_MIB_DATA_TX_UNDERSIZE_ERR	0x60
++#define  YT921X_MIB_DATA_TX_PKT_SZ_64		0x64
++#define  YT921X_MIB_DATA_TX_PKT_SZ_65_TO_127	0x68
++#define  YT921X_MIB_DATA_TX_PKT_SZ_128_TO_255	0x6c
++
++#define  YT921X_MIB_DATA_TX_PKT_SZ_256_TO_511	0x70
++#define  YT921X_MIB_DATA_TX_PKT_SZ_512_TO_1023	0x74
++#define  YT921X_MIB_DATA_TX_PKT_SZ_1024_TO_1518	0x78
++#define  YT921X_MIB_DATA_TX_PKT_SZ_1519_TO_MAX	0x7c
++
++/* 0x80: unused */
++#define  YT921X_MIB_DATA_TX_GOOD_BYTES		0x84
++/* 0x88: 64 bytes */
++#define  YT921X_MIB_DATA_TX_COLLISION		0x8c
++
++#define  YT921X_MIB_DATA_TX_EXCESSIVE_COLLISION	0x90
++#define  YT921X_MIB_DATA_TX_MULTIPLE_COLLISION	0x94
++#define  YT921X_MIB_DATA_TX_SINGLE_COLLISION	0x98
++#define  YT921X_MIB_DATA_TX_PKT			0x9c
++
++#define  YT921X_MIB_DATA_TX_DEFERRED		0xa0
++#define  YT921X_MIB_DATA_TX_LATE_COLLISION	0xa4
++#define  YT921X_MIB_DATA_RX_OAM			0xa8
++#define  YT921X_MIB_DATA_TX_OAM			0xac
 +
 +#define YT921X_EDATA_CTRL		0xe0000
 +#define  YT921X_EDATA_CTRL_ADDR_M		GENMASK(15, 8)
@@ -5134,11 +5685,50 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_PSCH_SHP_METER_ID_M		GENMASK(2, 0)
 +#define   YT921X_PSCH_SHP_METER_ID(x)			FIELD_PREP(YT921X_PSCH_SHP_METER_ID_M, (x))
 +
++#define YT921X_IPM_DSCPn(n)		(0x180000 + 4 * (n))	/* Internal Priority Map */
++#define YT921X_IPM_PCPn(map, dei, pcp)	(0x180100 + 4 * (16 * (map) + 8 * (dei) + (pcp)))
++#define  YT921X_IPM_PRIO_M			GENMASK(4, 2)
++#define   YT921X_IPM_PRIO(x)				FIELD_PREP(YT921X_IPM_PRIO_M, (x))
++#define  YT921X_IPM_COLOR_M			GENMASK(1, 0)
++#define   YT921X_IPM_COLOR(x)				FIELD_PREP(YT921X_IPM_COLOR_M, (x))
++#define   YT921X_IPM_COLOR_GREEN			YT921X_IPM_COLOR(0)
++#define   YT921X_IPM_COLOR_YELLOW			YT921X_IPM_COLOR(1)
++#define   YT921X_IPM_COLOR_RED				YT921X_IPM_COLOR(2)
++#define YT921X_PORTn_QOS(port)		(0x180180 + 4 * (port))
++#define  YT921X_PORT_QOS_CVLAN_PRIO_MAP_ID	BIT(5)
++#define  YT921X_PORT_QOS_SVLAN_PRIO_MAP_ID	BIT(4)
++#define  YT921X_PORT_QOS_PRIO_M			GENMASK(3, 1)
++#define   YT921X_PORT_QOS_PRIO(x)			FIELD_PREP(YT921X_PORT_QOS_PRIO_M, (x))
++#define  YT921X_PORT_QOS_PRIO_EN		BIT(0)
++#define YT921X_PORTn_PRIO_ORD(port)	(0x180200 + 4 * (port))
++#define  YT921X_PORT_PRIO_ORD_APPm_M(m)		GENMASK(3 * (m) + 2, 3 * (m))
++#define   YT921X_PORT_PRIO_ORD_APPm(m, x)		((x) << (3 * (m)))	/* 0: disabled, except PORT_QOS_PRIO */
++
++enum yt921x_app_selector {
++	YT921X_APP_SEL_MAC_SA,
++	YT921X_APP_SEL_MAC_DA,
++	YT921X_APP_SEL_VID,
++	YT921X_APP_SEL_ACL,
++	YT921X_APP_SEL_DSCP,
++	YT921X_APP_SEL_CVLAN_PCP,
++	YT921X_APP_SEL_SVLAN_PCP,
++	/* The physical port, i.e. YT921X_PORT_QOS_PRIO */
++	YT921X_APP_SEL_PORT,
++	YT921X_APP_SEL_NUM
++};
++
 +#define YT921X_VLAN_IGR_FILTER		0x180280
 +#define  YT921X_VLAN_IGR_FILTER_PORTn_BYPASS_IGMP(port)	BIT((port) + 11)
 +#define  YT921X_VLAN_IGR_FILTER_PORTn(port)	BIT(port)
 +#define YT921X_PORTn_ISOLATION(port)	(0x180294 + 4 * (port))
 +#define  YT921X_PORT_ISOLATION_BLOCKn(port)	BIT(port)
++#define YT921X_STPn(n)			(0x18038c + 4 * (n))
++#define  YT921X_STP_PORTn_M(port)		GENMASK(2 * (port) + 1, 2 * (port))
++#define   YT921X_STP_PORTn(port, x)			((x) << (2 * (port)))
++#define   YT921X_STP_PORTn_DISABLED(port)		YT921X_STP_PORTn(port, 0)
++#define   YT921X_STP_PORTn_LEARNING(port)		YT921X_STP_PORTn(port, 1)
++#define   YT921X_STP_PORTn_BLOCKING(port)		YT921X_STP_PORTn(port, 2)
++#define   YT921X_STP_PORTn_FORWARD(port)		YT921X_STP_PORTn(port, 3)
 +#define YT921X_PORTn_LEARN(port)	(0x1803d0 + 4 * (port))
 +#define  YT921X_PORT_LEARN_VID_LEARN_MULTI_EN	BIT(22)
 +#define  YT921X_PORT_LEARN_VID_LEARN_MODE	BIT(21)
@@ -5195,7 +5785,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_FDB_OUT0			0x1804b0
 +#define  YT921X_FDB_IO0_ADDR_HI4_M		GENMASK(31, 0)
 +#define YT921X_FDB_OUT1			0x1804b4
-+#define  YT921X_FDB_IO1_EGR_INT_PRI_EN		BIT(31)
++#define  YT921X_FDB_IO1_EGR_PRIO_EN		BIT(31)
 +#define  YT921X_FDB_IO1_STATUS_M		GENMASK(30, 28)
 +#define   YT921X_FDB_IO1_STATUS(x)			FIELD_PREP(YT921X_FDB_IO1_STATUS_M, (x))
 +#define   YT921X_FDB_IO1_STATUS_INVALID			YT921X_FDB_IO1_STATUS(0)
@@ -5214,9 +5804,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define   YT921X_FDB_IO2_EGR_PORTS(x)			FIELD_PREP(YT921X_FDB_IO2_EGR_PORTS_M, (x))
 +#define  YT921X_FDB_IO2_EGR_DROP		BIT(17)
 +#define  YT921X_FDB_IO2_COPY_TO_CPU		BIT(16)
-+#define  YT921X_FDB_IO2_IGR_INT_PRI_EN		BIT(15)
-+#define  YT921X_FDB_IO2_INT_PRI_M		GENMASK(14, 12)
-+#define   YT921X_FDB_IO2_INT_PRI(x)			FIELD_PREP(YT921X_FDB_IO2_INT_PRI_M, (x))
++#define  YT921X_FDB_IO2_IGR_PRIO_EN		BIT(15)
++#define  YT921X_FDB_IO2_PRIO_M			GENMASK(14, 12)
++#define   YT921X_FDB_IO2_PRIO(x)			FIELD_PREP(YT921X_FDB_IO2_PRIO_M, (x))
 +#define  YT921X_FDB_IO2_NEW_VID_M		GENMASK(11, 0)
 +#define   YT921X_FDB_IO2_NEW_VID(x)			FIELD_PREP(YT921X_FDB_IO2_NEW_VID_M, (x))
 +#define YT921X_FILTER_UNK_UCAST		0x180508
@@ -5228,6 +5818,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_FILTER_PORTn(port)		BIT(port)
 +#define YT921X_VLAN_EGR_FILTER		0x180598
 +#define  YT921X_VLAN_EGR_FILTER_PORTn(port)	BIT(port)
++#define YT921X_LAG_GROUPn(n)		(0x1805a8 + 4 * (n))
++#define  YT921X_LAG_GROUP_PORTS_M		GENMASK(13, 3)
++#define   YT921X_LAG_GROUP_PORTS(x)			FIELD_PREP(YT921X_LAG_GROUP_PORTS_M, (x))
++#define  YT921X_LAG_GROUP_MEMBER_NUM_M		GENMASK(2, 0)
++#define   YT921X_LAG_GROUP_MEMBER_NUM(x)		FIELD_PREP(YT921X_LAG_GROUP_MEMBER_NUM_M, (x))
++#define YT921X_LAG_MEMBERnm(n, m)	(0x1805b0 + 4 * (4 * (n) + (m)))
++#define  YT921X_LAG_MEMBER_PORT_M		GENMASK(3, 0)
++#define   YT921X_LAG_MEMBER_PORT(x)			FIELD_PREP(YT921X_LAG_MEMBER_PORT_M, (x))
 +#define YT921X_CPU_COPY			0x180690
 +#define  YT921X_CPU_COPY_FORCE_INT_PORT		BIT(2)
 +#define  YT921X_CPU_COPY_TO_INT_CPU		BIT(1)
@@ -5256,8 +5854,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_VLAN_CTRL_FID_M			GENMASK_ULL(34, 23)
 +#define   YT921X_VLAN_CTRL_FID(x)			FIELD_PREP(YT921X_VLAN_CTRL_FID_M, (x))
 +#define  YT921X_VLAN_CTRL_LEARN_DIS		BIT_ULL(22)
-+#define  YT921X_VLAN_CTRL_INT_PRI_EN		BIT_ULL(21)
-+#define  YT921X_VLAN_CTRL_INT_PRI_M		GENMASK_ULL(20, 18)
++#define  YT921X_VLAN_CTRL_PRIO_EN		BIT_ULL(21)
++#define  YT921X_VLAN_CTRL_PRIO_M		GENMASK_ULL(20, 18)
++#define   YT921X_VLAN_CTRL_PRIO(x)			FIELD_PREP(YT921X_VLAN_CTRL_PRIO_M, (x))
 +#define  YT921X_VLAN_CTRL_PORTS_M		GENMASK_ULL(17, 7)
 +#define   YT921X_VLAN_CTRL_PORTS(x)			FIELD_PREP(YT921X_VLAN_CTRL_PORTS_M, (x))
 +#define  YT921X_VLAN_CTRL_PORTn(port)		BIT_ULL((port) + 7)
@@ -5272,16 +5871,25 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_PORT_IGR_TPIDn_STAG(x)		BIT((x) + 4)
 +#define  YT921X_PORT_IGR_TPIDn_CTAG_M		GENMASK(3, 0)
 +#define  YT921X_PORT_IGR_TPIDn_CTAG(x)		BIT(x)
++#define YT921X_LAG_HASH			0x210090
++#define  YT921X_LAG_HASH_L4_SPORT		BIT(7)
++#define  YT921X_LAG_HASH_L4_DPORT		BIT(6)
++#define  YT921X_LAG_HASH_IP_PROTO		BIT(5)
++#define  YT921X_LAG_HASH_IP_SRC			BIT(4)
++#define  YT921X_LAG_HASH_IP_DST			BIT(3)
++#define  YT921X_LAG_HASH_MAC_SA			BIT(2)
++#define  YT921X_LAG_HASH_MAC_DA			BIT(1)
++#define  YT921X_LAG_HASH_SRC_PORT		BIT(0)
 +
 +#define YT921X_PORTn_VLAN_CTRL(port)	(0x230010 + 4 * (port))
-+#define  YT921X_PORT_VLAN_CTRL_SVLAN_PRI_EN	BIT(31)
-+#define  YT921X_PORT_VLAN_CTRL_CVLAN_PRI_EN	BIT(30)
++#define  YT921X_PORT_VLAN_CTRL_SVLAN_PRIO_EN	BIT(31)
++#define  YT921X_PORT_VLAN_CTRL_CVLAN_PRIO_EN	BIT(30)
 +#define  YT921X_PORT_VLAN_CTRL_SVID_M		GENMASK(29, 18)
 +#define   YT921X_PORT_VLAN_CTRL_SVID(x)			FIELD_PREP(YT921X_PORT_VLAN_CTRL_SVID_M, (x))
 +#define  YT921X_PORT_VLAN_CTRL_CVID_M		GENMASK(17, 6)
 +#define   YT921X_PORT_VLAN_CTRL_CVID(x)			FIELD_PREP(YT921X_PORT_VLAN_CTRL_CVID_M, (x))
-+#define  YT921X_PORT_VLAN_CTRL_SVLAN_PRI_M	GENMASK(5, 3)
-+#define  YT921X_PORT_VLAN_CTRL_CVLAN_PRI_M	GENMASK(2, 0)
++#define  YT921X_PORT_VLAN_CTRL_SVLAN_PRIO_M	GENMASK(5, 3)
++#define  YT921X_PORT_VLAN_CTRL_CVLAN_PRIO_M	GENMASK(2, 0)
 +#define YT921X_PORTn_VLAN_CTRL1(port)	(0x230080 + 4 * (port))
 +#define  YT921X_PORT_VLAN_CTRL1_VLAN_RANGE_EN	BIT(8)
 +#define  YT921X_PORT_VLAN_CTRL1_VLAN_RANGE_PROFILE_ID_M	GENMASK(7, 4)
@@ -5313,6 +5921,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	YT921X_FDB_ENTRY_STATUS_PENDING = 6,
 +	YT921X_FDB_ENTRY_STATUS_STATIC = 7,
 +};
++
++#define YT921X_MSTI_NUM		16
++
++#define YT921X_LAG_NUM		2
++#define YT921X_LAG_PORT_NUM	4
++
++#define YT921X_PRIO_NUM	8
 +
 +#define YT9215_MAJOR	0x9002
 +#define YT9218_MAJOR	0x9001
