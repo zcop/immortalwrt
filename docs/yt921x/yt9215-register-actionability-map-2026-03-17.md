@@ -31,6 +31,7 @@ Classification:
 | `0x180440..0x180464` (`AGEING/FDB_*`) | Consistent with FDB/ageing ops in current driver. |
 | `0x080400/0x080408` (`XMIIn`) | Stable programmed XMII lane config, strong board-path relevance. |
 | MBUS `int` (`0x0f0000` command path) | Reliable per-port PHY/runtime read access for `0..4`. |
+| `0x354000..0x354024` (`PSCH_SHAPER[0..4]`) | Live-tested writable shaping control (`en/ebs/eir`) with reproducible bandwidth caps on CR881x. |
 
 ## B. Writable And Coupled (Use Masked Updates)
 | Range / register | Observed behavior | Driver guidance |
@@ -38,6 +39,7 @@ Classification:
 | `0x80100 + 4*p` vs `0x80200 + 4*p` | Direct control writes can mutate status domain in non-trivial ways. | Keep masked writes and preserve unknown bits. |
 | `0x080004` (`FUNC`) | Toggling bits can collapse `0x80044` state quickly. | Avoid exploratory writes in normal runtime. |
 | `0x080014` (`PVID_SEL`) | Also perturbs `0x80044` and nearby runtime signature. | Treat as high-impact global control. |
+| `0x220800..` (`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
 
 ## C. Writable But Low-Confidence Semantics
 | Range / register | Notes |
