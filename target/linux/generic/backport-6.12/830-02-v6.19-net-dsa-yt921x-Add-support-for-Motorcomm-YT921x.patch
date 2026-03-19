@@ -2763,7 +2763,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
 +	struct net_device *bdev;
-+	u16 pvid;
++	u16 pvid = 0;
 +	u32 mask;
 +	u32 ctrl;
 +	int res;
@@ -2772,8 +2772,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	if (!bdev || !vlan_filtering)
 +		pvid = YT921X_VID_UNWARE;
-+	else
-+		br_vlan_get_pvid(bdev, &pvid);
++	else if (br_vlan_get_pvid(bdev, &pvid))
++		pvid = 0;
 +	res = yt921x_port_set_pvid(priv, port, pvid);
 +	if (res)
 +		return res;
@@ -2929,7 +2929,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
 +	u16 vid = vlan->vid;
-+	u16 pvid;
++	u16 pvid = 0;
 +	int res;
 +
 +	if (dsa_is_cpu_port(ds, port))
@@ -2946,8 +2946,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +		bdev = dsa_port_bridge_dev_get(dp);
 +		if (bdev) {
-+			br_vlan_get_pvid(bdev, &pvid);
-+			if (pvid == vid)
++			if (!br_vlan_get_pvid(bdev, &pvid) &&
++			    pvid == vid)
 +				res = yt921x_pvid_clear(priv, port);
 +		}
 +	} while (0);
@@ -2963,7 +2963,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
 +	u16 vid = vlan->vid;
-+	u16 pvid;
++	u16 pvid = 0;
 +	int res;
 +
 +	/* CPU port is supposed to be a member of every VLAN; see
@@ -2987,8 +2987,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			if (vlan->flags & BRIDGE_VLAN_INFO_PVID) {
 +				res = yt921x_pvid_set(priv, port, vid);
 +			} else {
-+				br_vlan_get_pvid(bdev, &pvid);
-+				if (pvid == vid)
++				if (!br_vlan_get_pvid(bdev, &pvid) &&
++				    pvid == vid)
 +					res = yt921x_pvid_clear(priv, port);
 +			}
 +		}
