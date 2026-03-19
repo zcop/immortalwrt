@@ -3689,6 +3689,30 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_stp_encode_state(int port, u8 state, u32 *ctrl)
++{
++	switch (state) {
++	case BR_STATE_DISABLED:
++		*ctrl = YT921X_STP_PORTn_DISABLED(port);
++		break;
++	case BR_STATE_BLOCKING:
++	case BR_STATE_LISTENING:
++		*ctrl = YT921X_STP_PORTn_BLOCKING(port);
++		break;
++	case BR_STATE_LEARNING:
++		*ctrl = YT921X_STP_PORTn_LEARNING(port);
++		break;
++	case BR_STATE_FORWARDING:
++		*ctrl = YT921X_STP_PORTn_FORWARD(port);
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int
 +yt921x_dsa_port_mst_state_set(struct dsa_switch *ds, int port,
 +			      const struct switchdev_mst_state *st)
 +{
@@ -3697,24 +3721,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 ctrl;
 +	int res;
 +
-+	mask = YT921X_STP_PORTn_M(port);
-+	switch (st->state) {
-+	case BR_STATE_DISABLED:
-+		ctrl = YT921X_STP_PORTn_DISABLED(port);
-+		break;
-+	case BR_STATE_LISTENING:
-+	case BR_STATE_LEARNING:
-+		ctrl = YT921X_STP_PORTn_LEARNING(port);
-+		break;
-+	case BR_STATE_FORWARDING:
-+	default:
-+		ctrl = YT921X_STP_PORTn_FORWARD(port);
-+		break;
-+	case BR_STATE_BLOCKING:
-+		ctrl = YT921X_STP_PORTn_BLOCKING(port);
-+		break;
-+	}
++	if (st->msti >= YT921X_MSTI_NUM)
++		return -EINVAL;
 +
++	res = yt921x_stp_encode_state(port, st->state, &ctrl);
++	if (res)
++		return res;
++
++	mask = YT921X_STP_PORTn_M(port);
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_reg_update_bits(priv, YT921X_STPn(st->msti), mask, ctrl);
 +	mutex_unlock(&priv->reg_lock);
@@ -3759,27 +3773,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	int res;
 +
 +	mask = YT921X_STP_PORTn_M(port);
-+	learning = false;
-+	switch (state) {
-+	case BR_STATE_DISABLED:
-+		ctrl = YT921X_STP_PORTn_DISABLED(port);
-+		break;
-+	case BR_STATE_LISTENING:
-+		ctrl = YT921X_STP_PORTn_LEARNING(port);
-+		break;
-+	case BR_STATE_LEARNING:
-+		ctrl = YT921X_STP_PORTn_LEARNING(port);
-+		learning = dp->learning;
-+		break;
-+	case BR_STATE_FORWARDING:
-+	default:
-+		ctrl = YT921X_STP_PORTn_FORWARD(port);
-+		learning = dp->learning;
-+		break;
-+	case BR_STATE_BLOCKING:
-+		ctrl = YT921X_STP_PORTn_BLOCKING(port);
-+		break;
++	res = yt921x_stp_encode_state(port, state, &ctrl);
++	if (res) {
++		dev_warn(dev, "Ignore unsupported STP state %u on port %d\n",
++			 state, port);
++		return;
 +	}
++
++	learning = (state == BR_STATE_LEARNING || state == BR_STATE_FORWARDING) &&
++		   dp && dp->learning;
 +
 +	mutex_lock(&priv->reg_lock);
 +	do {
@@ -5719,10 +5721,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STPn(n)			(0x18038c + 4 * (n))
 +#define  YT921X_STP_PORTn_M(port)		GENMASK(2 * (port) + 1, 2 * (port))
 +#define   YT921X_STP_PORTn(port, x)			((x) << (2 * (port)))
-+#define   YT921X_STP_PORTn_DISABLED(port)		YT921X_STP_PORTn(port, 0)
++#define   YT921X_STP_PORTn_DISABLED(port)		YT921X_STP_PORTn(port, 3)
 +#define   YT921X_STP_PORTn_LEARNING(port)		YT921X_STP_PORTn(port, 1)
-+#define   YT921X_STP_PORTn_BLOCKING(port)		YT921X_STP_PORTn(port, 2)
-+#define   YT921X_STP_PORTn_FORWARD(port)		YT921X_STP_PORTn(port, 3)
++#define   YT921X_STP_PORTn_BLOCKING(port)		YT921X_STP_PORTn(port, 3)
++#define   YT921X_STP_PORTn_FORWARD(port)		YT921X_STP_PORTn(port, 0)
 +#define YT921X_PORTn_LEARN(port)	(0x1803d0 + 4 * (port))
 +#define  YT921X_PORT_LEARN_VID_LEARN_MULTI_EN	BIT(22)
 +#define  YT921X_PORT_LEARN_VID_LEARN_MODE	BIT(21)
