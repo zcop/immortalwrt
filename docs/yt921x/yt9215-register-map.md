@@ -26,12 +26,29 @@ Confidence key:
 | `0x080200-0x08022b` | per-port MAC status (`PORTn_STATUS`) | High |
 | `0x080320-0x080328` | strap function/value/capture | Medium |
 | `0x080364-0x080368` | serdes MDIO polling summary | Medium |
+| `0x08036c-0x080374` | sensor + temperature registers | Medium |
 | `0x080388-0x080394` | chip mode + XMII global control | High |
 | `0x080400+` | per-XMII port config (`XMIIn`) | High |
+| `0x081008+` | per-port frame-size control (`MACn_FRAME`) | Medium |
+| `0x0a0000+` | per-port EEE value latch (`EEEn_VAL`) | Medium |
+| `0x0b0000` | global EEE control (`EEE_CTRL`) | Medium |
 | `0x06a000-0x06a00c` | external MBUS command window | High |
 | `0x0f0000-0x0f000c` | internal MBUS command window | High |
-| `0x100000+` | egress/TPID area, partially gated | Medium |
+| `0x354000-0x354024` | PSCH per-port shaper window (`SHP[0..4]`) | High |
+| `0x0c0100+` | per-port MIB data window (`MIBn_DATA*`) | High |
+| `0x100000-0x100328` | egress TPID/profile area (`PORTn_EGR`,`TPID_EGRn`) | Medium |
+| `0x180000-0x18022c` | DSCP/PCP priority maps + per-port QoS/prio order | High |
 | `0x180280-0x180470` | VLAN/isolation/learning/ageing/FDB op | High |
+| `0x1804b0-0x1804b8` | FDB output/result payload window (`FDB_OUT*`) | Medium |
+| `0x180510-0x180514` | mcast/bcast filter masks | Medium |
+| `0x180598-0x1805cc` | VLAN egress filter + LAG group/member tables | Medium |
+| `0x180690` | CPU copy policy (`CPU_COPY`) | High |
+| `0x180734-0x180738` | unknown L2 action profile (`ACT_UNK_*`) | High |
+| `0x180958` | FDB HW flush policy | Medium |
+| `0x188000+` | VID-indexed VLAN table (`VLANn_CTRL`) | High |
+| `0x210000-0x210090` | ingress TPID and LAG hash selector | High |
+| `0x230010-0x230080` | per-port VLAN default/drop control | High |
+| `0x300300` | mirror control register | High |
 | `0x0c0004` | MIB control | Medium |
 | `0x0e0000-0x0e0004` | EDATA control/status | Medium |
 
@@ -50,6 +67,9 @@ Confidence key:
 | `0x080368` | `YT921X_MDIO_POLLINGn(9)` | `0x00000012` | link=`0`, full duplex=`1`, speed code=`2` | High |
 | `0x06a004` | `YT921X_EXT_MBUS_CTRL` | `0x00000900` | ext MBUS last command encoding (volatile latch) | High |
 | `0x0f0004` | `YT921X_INT_MBUS_CTRL` | `0x006a0908` | int MBUS last command encoding (volatile latch) | High |
+| `0x354000` | `YT921X_PSCH_SHPn_EBS_EIR(0)` | write-proven | shaper tuple for port 0 (`EIR[17:0]`, `EBS[31:18]`) | High |
+| `0x354004` | `YT921X_PSCH_SHPn_CTRL(0)` | write-proven | shaper control (`EN`,`DUAL_RATE`,`METER_ID`) | High |
+| `0x354008-0x354024` | `YT921X_PSCH_SHPn_* (1..4)` | write-proven | same layout for ports 1..4 (stride 8 bytes/port) | High |
 | `0x180280` | `YT921X_VLAN_IGR_FILTER` | `0x00000000` | no explicit bypass bits set | Medium |
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
@@ -59,6 +79,62 @@ Confidence key:
 | `0x180464` | `YT921X_FDB_RESULT` | `0x00008f05` | `DONE=1`, `INDEX=0x0f05` | Medium |
 | `0x0c0004` | `YT921X_MIB_CTRL` | `0x00000001` | MIB logic enabled/running (`bit31` seen as transient latch) | Medium |
 | `0x0e0004` | `YT921X_EDATA_DATA` | `0x00000003` | EDATA status idle | Medium |
+
+## Driver Symbol Coverage Added (was missing in map)
+These addresses are explicitly defined and used by the current driver, and are now
+tracked here even where we do not yet have a stable board baseline value dump.
+
+| Address / range | Driver symbol(s) | Purpose |
+|---|---|---|
+| `0x08036c` | `YT921X_SENSOR` | sensor global control bits |
+| `0x080374` | `YT921X_TEMP` | temperature readout register |
+| `0x81008 + 0x1000*n` | `YT921X_MACn_FRAME` | per-port max frame size control |
+| `0x0a0000 + 0x40*n` | `YT921X_EEEn_VAL` | per-port EEE status/value latch |
+| `0x0b0000` | `YT921X_EEE_CTRL` | global EEE enable bitmap |
+| `0x1804b0..0x1804b8` | `YT921X_FDB_OUT0/1/2` | FDB entry payload decode window |
+| `0x180510`, `0x180514` | `YT921X_FILTER_MCAST`, `YT921X_FILTER_BCAST` | unknown/mcast/bcast filtering |
+| `0x180598..0x1805cc` | `YT921X_VLAN_EGR_FILTER`, `YT921X_LAG_GROUP*`, `YT921X_LAG_MEMBER*` | VLAN egress and LAG tables |
+| `0x180690` | `YT921X_CPU_COPY` | trap/copy routing toward CPU ports |
+| `0x180958` | `YT921X_FDB_HW_FLUSH` | link-down automatic flush policy |
+| `0x188000 + 8*VID` | `YT921X_VLANn_CTRL` | hardware VLAN membership/attributes |
+| `0x210000..0x210090` | `YT921X_TPID_IGRn`, `YT921X_PORTn_IGR_TPID`, `YT921X_LAG_HASH` | ingress TPID selection and LAG hash keys |
+| `0x230010..0x230080` | `YT921X_PORTn_VLAN_CTRL*` | per-port default VID/PCP and ingress drop policy |
+| `0x300300` | `YT921X_MIRROR` | ingress/egress mirroring source+destination |
+
+### Bitfield Notes For Newly Added Blocks
+- `0x08036c` (`YT921X_SENSOR`)
+  - `bit18` => `YT921X_SENSOR_TEMP` (temperature/sensor logic enable path).
+- `0x81008 + 0x1000*n` (`YT921X_MACn_FRAME`)
+  - `bits[21:8]` => `YT921X_MAC_FRAME_SIZE_M` (max frame size field).
+- `0x0a0000 + 0x40*n` (`YT921X_EEEn_VAL`)
+  - `bit1` => `YT921X_EEE_VAL_DATA`.
+- `0x0b0000` (`YT921X_EEE_CTRL`)
+  - `bit n` => `YT921X_EEE_CTRL_ENn(n)` per-port EEE enable bitmap.
+- `0x1804b0..0x1804b8` (`YT921X_FDB_OUT0/1/2`)
+  - `OUT1 bits[30:28]` => entry status.
+  - `OUT1 bits[27:16]` => `FID`/VID.
+  - `OUT2 bits[28:18]` => egress port mask.
+  - `OUT2 bit16` => copy-to-CPU flag.
+  - `OUT2 bits[14:12]` => entry priority.
+- `0x180598..0x1805cc` (`VLAN_EGR_FILTER`, `LAG_GROUP*`, `LAG_MEMBER*`)
+  - `VLAN_EGR_FILTER bit n` => per-port egress VLAN filter enable.
+  - `LAG_GROUP ports[13:3]` + member count `[2:0]`.
+  - `LAG_MEMBER` low nibble => physical port id.
+- `0x180690` (`YT921X_CPU_COPY`)
+  - `bit2` => force internal CPU port path.
+  - `bit1` => copy to internal CPU.
+  - `bit0` => copy to external CPU.
+- `0x180958` (`YT921X_FDB_HW_FLUSH`)
+  - `bit0` => flush behavior on link-down.
+- `0x210000..0x210090`
+  - `TPID_IGRn` and `PORTn_IGR_TPID` select TPID profiles for ingress tag parsing.
+  - `0x210090` (`YT921X_LAG_HASH`) controls hash key include bits:
+    - MAC SA/DA, IP src/dst, L4 sport/dport, IP protocol, source port.
+- `0x230010..0x230080` (`PORTn_VLAN_CTRL`, `PORTn_VLAN_CTRL1`)
+  - `PORTn_VLAN_CTRL` carries default `SVID/CVID` and default PCP fields.
+  - `PORTn_VLAN_CTRL1` carries tagged/untagged drop controls and VLAN-range profile.
+- `0x300300` (`YT921X_MIRROR`)
+  - ingress source mask in `[26:16]`, egress source mask in `[14:4]`, mirror destination in `[3:0]`.
 
 ## Port Control/Status Snapshot
 `PORTn_CTRL` (`0x80100 + 4*n`), ports `0..10`:
@@ -131,3 +207,19 @@ Contiguous ranges from chunked dump:
 - `0x18044c-0x180450`
 
 These should be treated as read-only unknowns until a specific functional test shows stable behavior.
+
+## PSCH Shaper Window (Mapped)
+`0x354000..0x354024` controls per-port egress shaping for MAC ports `0..4`.
+
+Layout (per port `p`, stride `0x8`):
+- `0x354000 + 8*p` => `YT921X_PSCH_SHPn_EBS_EIR(p)`
+  - `EIR` bits `[17:0]`
+  - `EBS` bits `[31:18]`
+- `0x354004 + 8*p` => `YT921X_PSCH_SHPn_CTRL(p)`
+  - `EN` bit `[4]`
+  - `DUAL_RATE` bit `[3]`
+  - `METER_ID` bits `[2:0]`
+
+Status:
+- This block is not just symbolic: it is live write/readback verified on CR881x.
+- Driver `port_setup_tc(TBF)` currently programs this window for hardware rate-limit offload.
