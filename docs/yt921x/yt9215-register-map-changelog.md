@@ -77,6 +77,37 @@ Driver follow-up:
   `YT921X_FILTER_BCAST` alongside unknown unicast/multicast filter masks, so
   all mapped filter words are explicitly programmed during switch setup.
 
+## 2026-03-19: `0x180510`/`0x180514` blackhole recovery + post-fix validation
+
+Capture:
+- `docs/yt921x/live/yt_180510_180514_blackhole_recovery_20260319_1655.txt`
+
+What was observed:
+- during recovery on a bad runtime slot, both words were read as:
+  - `0x180510 = 0x000007ff`
+  - `0x180514 = 0x000007ff`
+- in that state, host->router (`192.168.2.100 -> 192.168.2.1`) was down while
+  router->host ping remained working (asymmetric reachability).
+
+Recovery action:
+- wrote both words back to stock-safe baseline:
+  - `0x180510 = 0x00000400`
+  - `0x180514 = 0x00000400`
+- host->router ICMP recovered immediately after write.
+
+Post-fix image validation:
+- corrected image booted into `rootfs_1`
+- `yt921x` probe path was present (`lan1/lan2/lan3/wan` created)
+- post-boot readback remained:
+  - `0x180510 = 0x00000400`
+  - `0x180514 = 0x00000400`
+
+Interpretation update:
+- these words should be treated as high-impact flood/filter policy controls.
+- `0x00000400` is confirmed safe baseline on CR881x runtime.
+- broad all-port mask (`0x000007ff`) is hazardous and can blackhole host->router
+  control-plane reachability.
+
 ## 2026-03-19: Post-build STP word verification (`0x18038c`) on flashed image
 
 Runtime context:

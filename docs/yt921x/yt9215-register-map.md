@@ -116,8 +116,8 @@ Confidence key:
 | `0x18038c` | `YT921X_STPn(0)` | `0x000300f3` (earlier), `0x003cfc0c` (post-build flash) | active STP instance 0 per-port state word; bridge membership/state changes update low-byte fields in-place: `lan2` `[3:2]` (`0x...0c -> 0x...00` when removed), `lan3` `[5:4]` (`0x...0c -> 0x...3c` on re-add), `wan` `[7:6]` (`0x...3c -> 0x...fc` on add) | High |
 | `0x180390` | `YT921X_STPn(1)` | `0x00000000` | inactive STP instance bank default; direct write/readback verified (`0 -> 0x3 -> 0`) | High |
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
-| `0x180510` | `YT921X_FILTER_MCAST` | `0x00000400` | writable filter/forwarding mask word; `0x400 -> 0 -> 0x400` readback verified without immediate host->router ICMP impact | Medium |
-| `0x180514` | `YT921X_FILTER_BCAST` | `0x00000400` | writable filter/forwarding mask word; `0x400 -> 0 -> 0x400` readback verified without immediate host->router ICMP impact | Medium |
+| `0x180510` | `YT921X_FILTER_MCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400` | High |
+| `0x180514` | `YT921X_FILTER_BCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400` | High |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
 | `0x180454` | `YT921X_FDB_IN0` | `0xccd84354` | active FDB input/result window | Medium |
 | `0x180458` | `YT921X_FDB_IN1` | `0x70011c7a` | active FDB input/result window | Medium |
@@ -138,7 +138,7 @@ tracked here even where we do not yet have a stable board baseline value dump.
 | `0x0a0000 + 0x40*n` | `YT921X_EEEn_VAL` | per-port EEE status/value latch |
 | `0x0b0000` | `YT921X_EEE_CTRL` | global EEE enable bitmap |
 | `0x1804b0..0x1804b8` | `YT921X_FDB_OUT0/1/2` | FDB entry payload decode window |
-| `0x180510`, `0x180514` | `YT921X_FILTER_MCAST`, `YT921X_FILTER_BCAST` | unknown/mcast/bcast filtering |
+| `0x180510`, `0x180514` | `YT921X_FILTER_MCAST`, `YT921X_FILTER_BCAST` | per-port multicast/broadcast filter masks (`bit10` stock-safe baseline) |
 | `0x180598..0x1805cc` | `YT921X_VLAN_EGR_FILTER`, `YT921X_LAG_GROUP*`, `YT921X_LAG_MEMBER*` | VLAN egress and LAG tables |
 | `0x180690` | `YT921X_CPU_COPY` | trap/copy routing toward CPU ports |
 | `0x180958` | `YT921X_FDB_HW_FLUSH` | link-down automatic flush policy |
@@ -317,9 +317,14 @@ Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
 - In the wider policy windows:
   - `0x18028c` tolerated `0x7ff -> 0x000 -> 0x7ff` while host->router ICMP
     (`192.168.2.100 -> 192.168.2.1`) stayed at `0%` loss in this runtime.
-  - `0x180510`/`0x180514` both read baseline `0x00000400` and accepted
-    `->0->baseline` writes with stable readback; host->router ICMP stayed
-    `0%` loss during the toggle window.
+  - initial probe: `0x180510`/`0x180514` both read baseline `0x00000400` and
+    accepted `->0->baseline` writes with stable readback; host->router ICMP
+    stayed `0%` loss during that toggle window.
+  - later recovery session: both words were found at `0x000007ff` in a bad
+    runtime and host->router path was down while router->host ping still
+    worked; restoring both to `0x00000400` immediately restored host->router
+    reachability. See:
+    `docs/yt921x/live/yt_180510_180514_blackhole_recovery_20260319_1655.txt`.
   - `0x1802a0` (`PORTn_ISOLATION(3)`) changed with `wan` bridge membership (`0x6ff -> 0x6f8` when `wan` joined bridge).
   - `0x1803d8` (`PORTn_LEARN(2)`) toggled with `lan3` bridge membership (`0x00000000 <-> 0x00020000`).
 - Do not classify these as `0xdeadbeef` gated windows; they are accessible and mostly policy/state coupled.

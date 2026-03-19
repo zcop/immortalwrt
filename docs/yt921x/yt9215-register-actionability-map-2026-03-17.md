@@ -41,6 +41,7 @@ Classification:
 | `0x080004` (`FUNC`) | Low-bit sweep showed mixed latch behavior and a destructive trigger: bit `5` (`trial=0x0000082b`) causes `0xdeaddead` readback across core/gated words and drops SSH until reboot. | Treat as hazardous global control; no exploratory writes in normal runtime. |
 | `0x080014` (`PVID_SEL`) | Low-bit sweep: bits `15..11` ignored; bits `10..0` latch/restore. No gate-open observed, but still high-impact global domain. | Keep writes gated to controlled debug runs; always restore baseline. |
 | `0x18038c` (`STPn(0)` runtime word) | Changed with bridge membership (`lan2` out: `...f3 -> ...ff`, `wan` in: `...f3 -> ...33`, combined: `...3f`). Direct write/readback works, but bridge events rewrite it to derived value. | Treat as coupled policy/state word; do not use as persistent config source. Capture before/after topology changes only. |
+| `0x180510` (`FILTER_MCAST`), `0x180514` (`FILTER_BCAST`) | `0x00000400` is a safe runtime baseline on tested boots; a bad runtime was observed with both words at `0x000007ff`, correlating with host->router blackhole/asymmetric reachability until reset to `0x00000400`. | Treat as high-impact policy words. Initialize to `0x00000400` and avoid broad all-port masks in normal runtime (`docs/yt921x/live/yt_180510_180514_blackhole_recovery_20260319_1655.txt`). |
 | `0x220800..` (`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
 
 ## C. Writable But Low-Confidence Semantics
@@ -51,7 +52,6 @@ Classification:
 | `0x08008c` (`SERDESn(8)`) | Writable and stable; safe for controlled uplink experiments only. |
 | `0x080394` (`XMII_CTRL`) | Writable (`0->1->0`), no immediate externally visible effect in test. |
 | `0x18028c` (11-bit mask before `PORTn_ISOLATION`) | Writable (`0x7ff <-> 0x0`), but host->router blackhole probe showed 0% ICMP loss in current topology (`docs/yt921x/live/yt_18028c_blackhole_probe_20260319_110516.txt`). |
-| `0x180510` (`FILTER_MCAST`), `0x180514` (`FILTER_BCAST`) | Baseline readback `0x00000400`; both accepted `->0->baseline` writes without immediate host->router ICMP loss in probe (`docs/yt921x/live/yt_180510_180514_probe_20260319_111723.txt`). |
 | `0x18030c..0x180334` (11-word mask table) | Writable with stable `0x000007ff` readback mask per word; values persist across bridge membership toggles. Single-bit, per-word, all-words, cross-host live-toggle, post-flash TCP/ARP/multicast, and bridge-FDB probes still showed no immediate coupling to known active control words in current CR881x bridge runtime. |
 
 ## D. Coerced / Non-Plain Runtime Control
