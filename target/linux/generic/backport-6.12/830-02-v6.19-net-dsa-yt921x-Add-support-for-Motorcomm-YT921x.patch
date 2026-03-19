@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,4704 @@
+@@ -0,0 +1,4727 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -244,6 +244,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_PSCH_EIR_RATE_SCALE_DEN	1000ULL
 +#define YT921X_PSCH_EIR_RATE_OFFSET	130ULL
 +#define YT921X_PSCH_EIR_MIN_SAFE	300ULL
++#define YT921X_PSCH_EIR_MAX		GENMASK(17, 0)
++#define YT921X_PSCH_EBS_UNIT_BYTES	64ULL
++#define YT921X_PSCH_EBS_MAX		GENMASK(13, 0)
 +
 +struct yt921x_reg_mdio {
 +	struct mii_bus *bus;
@@ -2071,10 +2074,26 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	eir += YT921X_PSCH_EIR_RATE_OFFSET;
 +	eir = max(eir, YT921X_PSCH_EIR_MIN_SAFE);
 +
-+	if (eir > YT921X_PSCH_SHP_EIR_M)
++	if (eir > YT921X_PSCH_EIR_MAX)
 +		return -EOPNOTSUPP;
 +
 +	*eirp = (u32)eir;
++	return 0;
++}
++
++static int yt921x_tbf_burst_to_ebs(u32 max_size, u32 *ebsp)
++{
++	u64 ebs;
++
++	if (!max_size)
++		return -EINVAL;
++
++	/* TBF burst (bytes) -> PSCH EBS cells (64B each). */
++	ebs = DIV_ROUND_UP_ULL((u64)max_size, YT921X_PSCH_EBS_UNIT_BYTES);
++	if (ebs > YT921X_PSCH_EBS_MAX)
++		return -EOPNOTSUPP;
++
++	*ebsp = (u32)ebs;
 +	return 0;
 +}
 +
@@ -2099,6 +2118,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
 +	u32 eir;
++	u32 ebs;
 +	int res;
 +
 +	if (qopt->parent != TC_H_ROOT)
@@ -2108,12 +2128,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
-+	/* Keep burst conservative until EBS unit mapping is fully decoded. */
++	res = yt921x_tbf_burst_to_ebs(params->max_size, &ebs);
++	if (res)
++		return res;
++
 +	res = yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_EBS_EIR(port),
 +				     YT921X_PSCH_SHP_EIR_M |
 +				     YT921X_PSCH_SHP_EBS_M,
 +				     YT921X_PSCH_SHP_EIR(eir) |
-+				     YT921X_PSCH_SHP_EBS(1));
++				     YT921X_PSCH_SHP_EBS(ebs));
 +	if (res)
 +		return res;
 +
