@@ -1,0 +1,40 @@
+### context
+Thu Mar 19 10:30:11 PDT 2026
+signal expected: continuous 192.168.2.101 -> 192.168.2.100
+4: lan1@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+  3	84:47:09:2c:4e:01	no		   1.30
+  1	9c:6b:00:11:d3:f4	no		   0.01
+
+### wait-for-signal
+probe1 rx_packets: 10732016 -> 10732018 (delta=2)
+signal_detected=1
+
+### phase0_joined_row0_row2_7ff
+reg 0x18030c = 0x000007ff
+reg 0x180314 = 0x000007ff
+reg 0x18038c = 0x003cfc0c
+joined_rows_7ff rx_packets: 10732037 -> 10732042 (delta=5)
+
+### phase1_joined_row0_row2_zero
+reg 0x18030c = 0x00000000
+reg 0x180314 = 0x00000000
+joined_rows_zero rx_packets: 10732060 -> 10732063 (delta=3)
+
+### phase2_joined_row0_row2_back_7ff
+reg 0x18030c = 0x000007ff
+reg 0x180314 = 0x000007ff
+joined_rows_back_7ff rx_packets: 10732080 -> 10732083 (delta=3)
+
+### phase3_joined_all_zero
+reg 0x18030c = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180334 = 0x00000000
+joined_all_zero rx_packets: 10732102 -> 10732105 (delta=3)
+
+### restore
+reg 0x18030c = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180334 = 0x00000000
+reg 0x18038c = 0x003cfc0c
+restored rx_packets: 10732126 -> 10732129 (delta=3)

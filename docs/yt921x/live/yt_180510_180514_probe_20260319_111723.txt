@@ -1,0 +1,83 @@
+# 0x180510/0x180514 live probe
+start=2026-03-19T11:17:23-07:00
+ping_pid=4091051
+ssh_phase:
+baseline_510=reg 0x180510 = 0x00000400
+baseline_514=reg 0x180514 = 0x00000400
+reg 0x180510 <= 0x00000000
+reg 0x180510 = 0x00000000
+reg 0x180514 = 0x00000400
+reg 0x180514 <= 0x00000000
+reg 0x180510 = 0x00000000
+reg 0x180514 = 0x00000000
+reg 0x180510 <= 0x00000400
+reg 0x180514 <= 0x00000400
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+ping_phase:
+PING 192.168.2.1 (192.168.2.1) 56(84) bytes of data.
+64 bytes from 192.168.2.1: icmp_seq=1 ttl=64 time=0.399 ms
+64 bytes from 192.168.2.1: icmp_seq=2 ttl=64 time=0.561 ms
+64 bytes from 192.168.2.1: icmp_seq=3 ttl=64 time=0.329 ms
+64 bytes from 192.168.2.1: icmp_seq=4 ttl=64 time=0.546 ms
+64 bytes from 192.168.2.1: icmp_seq=5 ttl=64 time=0.475 ms
+64 bytes from 192.168.2.1: icmp_seq=6 ttl=64 time=0.853 ms
+64 bytes from 192.168.2.1: icmp_seq=7 ttl=64 time=0.601 ms
+64 bytes from 192.168.2.1: icmp_seq=8 ttl=64 time=0.473 ms
+64 bytes from 192.168.2.1: icmp_seq=9 ttl=64 time=0.525 ms
+64 bytes from 192.168.2.1: icmp_seq=10 ttl=64 time=0.472 ms
+64 bytes from 192.168.2.1: icmp_seq=11 ttl=64 time=0.295 ms
+64 bytes from 192.168.2.1: icmp_seq=12 ttl=64 time=0.578 ms
+64 bytes from 192.168.2.1: icmp_seq=13 ttl=64 time=0.476 ms
+64 bytes from 192.168.2.1: icmp_seq=14 ttl=64 time=0.502 ms
+64 bytes from 192.168.2.1: icmp_seq=15 ttl=64 time=0.483 ms
+64 bytes from 192.168.2.1: icmp_seq=16 ttl=64 time=0.710 ms
+64 bytes from 192.168.2.1: icmp_seq=17 ttl=64 time=0.527 ms
+64 bytes from 192.168.2.1: icmp_seq=18 ttl=64 time=0.481 ms
+64 bytes from 192.168.2.1: icmp_seq=19 ttl=64 time=0.493 ms
+64 bytes from 192.168.2.1: icmp_seq=20 ttl=64 time=0.495 ms
+64 bytes from 192.168.2.1: icmp_seq=21 ttl=64 time=0.520 ms
+64 bytes from 192.168.2.1: icmp_seq=22 ttl=64 time=0.523 ms
+64 bytes from 192.168.2.1: icmp_seq=23 ttl=64 time=0.492 ms
+64 bytes from 192.168.2.1: icmp_seq=24 ttl=64 time=0.535 ms
+64 bytes from 192.168.2.1: icmp_seq=25 ttl=64 time=0.310 ms
+64 bytes from 192.168.2.1: icmp_seq=26 ttl=64 time=0.637 ms
+64 bytes from 192.168.2.1: icmp_seq=27 ttl=64 time=0.529 ms
+64 bytes from 192.168.2.1: icmp_seq=28 ttl=64 time=0.471 ms
+64 bytes from 192.168.2.1: icmp_seq=29 ttl=64 time=0.510 ms
+64 bytes from 192.168.2.1: icmp_seq=30 ttl=64 time=0.389 ms
+64 bytes from 192.168.2.1: icmp_seq=31 ttl=64 time=0.484 ms
+64 bytes from 192.168.2.1: icmp_seq=32 ttl=64 time=0.523 ms
+64 bytes from 192.168.2.1: icmp_seq=33 ttl=64 time=0.478 ms
+64 bytes from 192.168.2.1: icmp_seq=34 ttl=64 time=0.753 ms
+64 bytes from 192.168.2.1: icmp_seq=35 ttl=64 time=0.295 ms
+64 bytes from 192.168.2.1: icmp_seq=36 ttl=64 time=0.487 ms
+64 bytes from 192.168.2.1: icmp_seq=37 ttl=64 time=0.304 ms
+64 bytes from 192.168.2.1: icmp_seq=38 ttl=64 time=0.295 ms
+64 bytes from 192.168.2.1: icmp_seq=39 ttl=64 time=0.732 ms
+64 bytes from 192.168.2.1: icmp_seq=40 ttl=64 time=0.511 ms
+64 bytes from 192.168.2.1: icmp_seq=41 ttl=64 time=0.545 ms
+64 bytes from 192.168.2.1: icmp_seq=42 ttl=64 time=0.533 ms
+64 bytes from 192.168.2.1: icmp_seq=43 ttl=64 time=0.300 ms
+64 bytes from 192.168.2.1: icmp_seq=44 ttl=64 time=0.501 ms
+64 bytes from 192.168.2.1: icmp_seq=45 ttl=64 time=0.315 ms
+64 bytes from 192.168.2.1: icmp_seq=46 ttl=64 time=0.479 ms
+64 bytes from 192.168.2.1: icmp_seq=47 ttl=64 time=0.312 ms
+64 bytes from 192.168.2.1: icmp_seq=48 ttl=64 time=0.286 ms
+64 bytes from 192.168.2.1: icmp_seq=49 ttl=64 time=0.486 ms
+64 bytes from 192.168.2.1: icmp_seq=50 ttl=64 time=0.529 ms
+64 bytes from 192.168.2.1: icmp_seq=51 ttl=64 time=0.297 ms
+64 bytes from 192.168.2.1: icmp_seq=52 ttl=64 time=0.483 ms
+64 bytes from 192.168.2.1: icmp_seq=53 ttl=64 time=0.494 ms
+64 bytes from 192.168.2.1: icmp_seq=54 ttl=64 time=0.497 ms
+64 bytes from 192.168.2.1: icmp_seq=55 ttl=64 time=0.528 ms
+64 bytes from 192.168.2.1: icmp_seq=56 ttl=64 time=0.481 ms
+64 bytes from 192.168.2.1: icmp_seq=57 ttl=64 time=0.738 ms
+64 bytes from 192.168.2.1: icmp_seq=58 ttl=64 time=0.302 ms
+64 bytes from 192.168.2.1: icmp_seq=59 ttl=64 time=0.297 ms
+64 bytes from 192.168.2.1: icmp_seq=60 ttl=64 time=0.295 ms
+
+--- 192.168.2.1 ping statistics ---
+60 packets transmitted, 60 received, 0% packet loss, time 12034ms
+rtt min/avg/max/mdev = 0.286/0.479/0.853/0.125 ms
+finish=2026-03-19T11:17:35-07:00

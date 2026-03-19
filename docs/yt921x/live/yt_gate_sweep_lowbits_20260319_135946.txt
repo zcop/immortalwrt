@@ -1,0 +1,728 @@
+start 2026-03-19T13:59:46+00:00
+cmd_path=/sys/kernel/debug/yt921x_cmd
+
+=== FUNC_LOW reg=0x080004 bits=23..2 ===
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+orig=0x00000000
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+
+-- bit=23 mask=0x00800000 trial=0x00800000
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=22 mask=0x00400000 trial=0x00400000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=21 mask=0x00200000 trial=0x00200000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=20 mask=0x00100000 trial=0x00100000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=19 mask=0x00080000 trial=0x00080000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=18 mask=0x00040000 trial=0x00040000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=17 mask=0x00020000 trial=0x00020000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=16 mask=0x00010000 trial=0x00010000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=15 mask=0x00008000 trial=0x00008000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=14 mask=0x00004000 trial=0x00004000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=13 mask=0x00002000 trial=0x00002000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=12 mask=0x00001000 trial=0x00001000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=11 mask=0x00000800 trial=0x00000800
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=10 mask=0x00000400 trial=0x00000400
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=9 mask=0x00000200 trial=0x00000200
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=8 mask=0x00000100 trial=0x00000100
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=7 mask=0x00000080 trial=0x00000080
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=6 mask=0x00000040 trial=0x00000040
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=5 mask=0x00000020 trial=0x00000020
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=4 mask=0x00000010 trial=0x00000010
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=3 mask=0x00000008 trial=0x00000008
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=2 mask=0x00000004 trial=0x00000004
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+=== done FUNC_LOW ===
+
+=== PVID_SEL_LOW reg=0x080014 bits=15..0 ===
+err=-22
+orig=0x00000000
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=15 mask=0x00008000 trial=0x00008000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=14 mask=0x00004000 trial=0x00004000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=13 mask=0x00002000 trial=0x00002000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=12 mask=0x00001000 trial=0x00001000
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=11 mask=0x00000800 trial=0x00000800
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=10 mask=0x00000400 trial=0x00000400
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=9 mask=0x00000200 trial=0x00000200
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=8 mask=0x00000100 trial=0x00000100
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=7 mask=0x00000080 trial=0x00000080
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=6 mask=0x00000040 trial=0x00000040
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=5 mask=0x00000020 trial=0x00000020
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=4 mask=0x00000010 trial=0x00000010
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=3 mask=0x00000008 trial=0x00000008
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=2 mask=0x00000004 trial=0x00000004
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=1 mask=0x00000002 trial=0x00000002
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+-- bit=0 mask=0x00000001 trial=0x00000001
+err=-22
+after-trial
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+after-restore
+err=-22
+err=-22
+err=-22
+err=-22
+err=-22
+
+=== done PVID_SEL_LOW ===
+finish 2026-03-19T14:01:08+00:00
+OUT=/tmp/yt_gate_sweep_lowbits_20260319_135946.txt

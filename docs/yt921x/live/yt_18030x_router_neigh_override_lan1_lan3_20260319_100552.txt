@@ -1,0 +1,78 @@
+### context
+Thu Mar 19 13:21:41 GMT 2026
+4: lan1@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+bridge name	bridge id		STP enabled	interfaces
+br-lan		7fff.a4a93036b428	no		phy1-ap0
+							lan2
+							lan3
+							lan1
+							phy0-ap0
+reg 0x18030c = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x18038c = 0x003cfc0c
+
+### pre-restore-table-zero
+reg 0x18030c = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180334 = 0x00000000
+
+### phase0-baseline
+--- baseline ---
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
+192.168.2.101 lladdr 84:47:09:2c:4e:01 ref 1 used 0/0/0 probes 1 DELAY
+  3	84:47:09:2c:4e:01	no		   4.44
+  1	9c:6b:00:11:d3:f4	no		   0.01
+
+### phase1-lan3-nomaster-no-matrix
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+reg 0x18038c = 0x003cfc0c
+--- nomaster_zero ---
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
+192.168.2.101 lladdr 84:47:09:2c:4e:01 ref 1 used 0/0/0 probes 1 DELAY
+  1	9c:6b:00:11:d3:f4	no		   0.00
+
+### phase2-lan3-nomaster-min-crosslink
+reg 0x18030c <= 0x00000004
+reg 0x180314 <= 0x00000001
+reg 0x18030c = 0x00000004
+reg 0x180314 = 0x00000001
+--- nomaster_min_crosslink ---
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
+192.168.2.101 lladdr 84:47:09:2c:4e:01 ref 1 used 0/0/0 probes 1 DELAY
+  1	9c:6b:00:11:d3:f4	no		   0.00
+
+### phase3-lan3-nomaster-all-rows-0x7ff
+reg 0x18030c = 0x000007ff
+reg 0x180314 = 0x000007ff
+reg 0x180334 = 0x000007ff
+--- nomaster_all_rows ---
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
+192.168.2.101 lladdr 84:47:09:2c:4e:01 ref 1 used 0/0/0 probes 1 PROBE
+  1	9c:6b:00:11:d3:f4	no		   0.00
+
+### restore
+reg 0x18030c = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180334 = 0x00000000
+reg 0x18038c = 0x003cfc0c
+--- restored ---
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
+192.168.2.101 lladdr 84:47:09:2c:4e:01 ref 1 used 0/0/0 probes 2 REACHABLE
+  3	84:47:09:2c:4e:01	no		   1.27
+  1	9c:6b:00:11:d3:f4	no		   0.01

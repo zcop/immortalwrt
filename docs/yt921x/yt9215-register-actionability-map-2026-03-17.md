@@ -15,7 +15,7 @@ Classification:
 - `A`: safe and useful now (driver can rely on it)
 - `B`: writable and coupled, but needs masked handling / care
 - `C`: writable but semantics unclear (low immediate value)
-- `D`: coerced or effectively non-writable at runtime
+- `D`: coerced or effectively non-writable at runtime (including likely fused/gated windows)
 - `E`: backend/window reliability problem (do not trust yet)
 - `F`: data/counter window (not control)
 
@@ -38,8 +38,8 @@ Classification:
 | Range / register | Observed behavior | Driver guidance |
 |---|---|---|
 | `0x80100 + 4*p` vs `0x80200 + 4*p` | Direct control writes can mutate status domain in non-trivial ways. | Keep masked writes and preserve unknown bits. |
-| `0x080004` (`FUNC`) | Toggling bits can collapse `0x80044` state quickly. | Avoid exploratory writes in normal runtime. |
-| `0x080014` (`PVID_SEL`) | Also perturbs `0x80044` and nearby runtime signature. | Treat as high-impact global control. |
+| `0x080004` (`FUNC`) | Low-bit sweep showed mixed latch behavior and a destructive trigger: bit `5` (`trial=0x0000082b`) causes `0xdeaddead` readback across core/gated words and drops SSH until reboot. | Treat as hazardous global control; no exploratory writes in normal runtime. |
+| `0x080014` (`PVID_SEL`) | Low-bit sweep: bits `15..11` ignored; bits `10..0` latch/restore. No gate-open observed, but still high-impact global domain. | Keep writes gated to controlled debug runs; always restore baseline. |
 | `0x18038c` (`STPn(0)` runtime word) | Changed with bridge membership (`lan2` out: `...f3 -> ...ff`, `wan` in: `...f3 -> ...33`, combined: `...3f`). Direct write/readback works, but bridge events rewrite it to derived value. | Treat as coupled policy/state word; do not use as persistent config source. Capture before/after topology changes only. |
 | `0x220800..` (`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
 
@@ -50,6 +50,8 @@ Classification:
 | `0x08002c`, `0x080030`, `0x080040` | Writable in tests; no strong immediate side-effects mapped yet. |
 | `0x08008c` (`SERDESn(8)`) | Writable and stable; safe for controlled uplink experiments only. |
 | `0x080394` (`XMII_CTRL`) | Writable (`0->1->0`), no immediate externally visible effect in test. |
+| `0x18028c` (11-bit mask before `PORTn_ISOLATION`) | Writable (`0x7ff <-> 0x0`), but host->router blackhole probe showed 0% ICMP loss in current topology (`docs/yt921x/live/yt_18028c_blackhole_probe_20260319_110516.txt`). |
+| `0x180510` (`FILTER_MCAST`), `0x180514` (`FILTER_BCAST`) | Baseline readback `0x00000400`; both accepted `->0->baseline` writes without immediate host->router ICMP loss in probe (`docs/yt921x/live/yt_180510_180514_probe_20260319_111723.txt`). |
 | `0x18030c..0x180334` (11-word mask table) | Writable with stable `0x000007ff` readback mask per word; values persist across bridge membership toggles. Single-bit, per-word, all-words, cross-host live-toggle, post-flash TCP/ARP/multicast, and bridge-FDB probes still showed no immediate coupling to known active control words in current CR881x bridge runtime. |
 
 ## D. Coerced / Non-Plain Runtime Control
@@ -57,7 +59,7 @@ Classification:
 |---|---|
 | `0x080044` | Strongly runtime/gated; writes read back coerced or unchanged. |
 | `0x080018`, `0x080038`, `0x080388` | Writes observed as ignored/coerced in runtime probe. |
-| `0x1802c0..0x180308`, `0x180338..0x180388` | Reads stay `0xdeadbeef` across bridge and port admin transitions; direct writes are acknowledged but do not change readback and show no side effects on active nearby words. |
+| `0x1802c0..0x180308`, `0x180338..0x180388` | Reads stay `0xdeadbeef` across bridge/admin and staged `0x80004/0x80014` gate sweeps; no discovered unlock path. Classify as effectively hardware fused/gated on tested CR881x runtime. |
 | MBUS reg `int[p].0x0` / `int[p].0x11` (selected ports) | Writes may report success but revert immediately; state-machine owned. |
 | External MBUS reads on CR881x baseline | No discovered responders (all zeros in scans). |
 
@@ -90,5 +92,6 @@ Confirmed in archived dumps:
 ## Immediate Driver-Oriented Use
 1. Keep current strategy: preserve unknown `PORTn_CTRL` bits.
 2. Treat `0x31c0xx` as init-programmed state; diff pre/post setup before writing.
-3. Keep `0x2c01xx` out of functional logic until backend validity is proven.
-4. Use MBUS (`int`) primarily for observation and PHY diagnostics, not forced persistent state.
+3. Treat `0x80004` bit `5` as forbidden in normal test loops unless UART + reboot budget are in place.
+4. Keep `0x2c01xx` out of functional logic until backend validity is proven.
+5. Use MBUS (`int`) primarily for observation and PHY diagnostics, not forced persistent state.
