@@ -1,0 +1,87 @@
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x18030c = 0x00000000
+reg 0x18030c <= 0xffffffff
+reg 0x18030c = 0x000007ff
+reg 0x18030c <= 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180310 <= 0xffffffff
+reg 0x180310 = 0x000007ff
+reg 0x180310 <= 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180314 <= 0xffffffff
+reg 0x180314 = 0x000007ff
+reg 0x180314 <= 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x180318 <= 0xffffffff
+reg 0x180318 = 0x000007ff
+reg 0x180318 <= 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x18031c <= 0xffffffff
+reg 0x18031c = 0x000007ff
+reg 0x18031c <= 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180320 <= 0xffffffff
+reg 0x180320 = 0x000007ff
+reg 0x180320 <= 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180324 <= 0xffffffff
+reg 0x180324 = 0x000007ff
+reg 0x180324 <= 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x180328 <= 0xffffffff
+reg 0x180328 = 0x000007ff
+reg 0x180328 <= 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x18032c <= 0xffffffff
+reg 0x18032c = 0x000007ff
+reg 0x18032c <= 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180330 <= 0xffffffff
+reg 0x180330 = 0x000007ff
+reg 0x180330 <= 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+reg 0x180334 <= 0xffffffff
+reg 0x180334 = 0x000007ff
+reg 0x180334 <= 0x00000000
+reg 0x180334 = 0x00000000
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.772 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.701 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.703 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.701/0.725/0.772 ms

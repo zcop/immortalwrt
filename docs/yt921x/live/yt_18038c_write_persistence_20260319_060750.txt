@@ -1,0 +1,83 @@
+### baseline
+baseline=0x000300f3 test=0x000300ff
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+PING 192.168.2.100
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.767 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.596 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.447 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.447/0.603/0.767 ms
+PING 192.168.2.101
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+3 packets transmitted, 0 packets received, 100% packet loss
+### write-test
+reg 0x18038c <= 0x000300ff
+reg 0x18038c = 0x000300ff
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+PING 192.168.2.100
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.630 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.439 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.683 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.439/0.584/0.683 ms
+PING 192.168.2.101
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+3 packets transmitted, 0 packets received, 100% packet loss
+### lan2-event
+reg 0x18038c = 0x000300ff
+reg 0x180294 = 0x000006fb
+reg 0x180298 = 0x000006ff
+reg 0x18029c = 0x000006fe
+reg 0x18038c = 0x000300f3
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+PING 192.168.2.100
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.821 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.461 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.457 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.457/0.579/0.821 ms
+PING 192.168.2.101
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+3 packets transmitted, 0 packets received, 100% packet loss
+### explicit-restore
+reg 0x18038c <= 0x000300f3
+reg 0x18038c = 0x000300f3
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+PING 192.168.2.100
+PING 192.168.2.100 (192.168.2.100): 56 data bytes
+64 bytes from 192.168.2.100: seq=0 ttl=64 time=0.785 ms
+64 bytes from 192.168.2.100: seq=1 ttl=64 time=0.451 ms
+64 bytes from 192.168.2.100: seq=2 ttl=64 time=0.714 ms
+
+--- 192.168.2.100 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.451/0.650/0.785 ms
+PING 192.168.2.101
+PING 192.168.2.101 (192.168.2.101): 56 data bytes
+
+--- 192.168.2.101 ping statistics ---
+3 packets transmitted, 0 packets received, 100% packet loss

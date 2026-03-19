@@ -1,0 +1,319 @@
+time_start=2026-03-19T11:47:46+00:00
+### baseline
+-- links --
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+-- refs --
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- block 18030c..180334 --
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+-- block 180390..1803bc --
+reg 0x180390 = 0x00000000
+reg 0x180394 = 0x00000000
+reg 0x180398 = 0x00000000
+reg 0x18039c = 0x00000000
+reg 0x1803a0 = 0x00000000
+reg 0x1803a4 = 0x00000000
+reg 0x1803a8 = 0x00000000
+reg 0x1803ac = 0x00000000
+reg 0x1803b0 = 0x00000000
+reg 0x1803b4 = 0x00000000
+reg 0x1803b8 = 0x00000000
+reg 0x1803bc = 0x00000000
+### lan2_nomaster
+-- links --
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+-- refs --
+reg 0x180294 = 0x000006fb
+reg 0x180298 = 0x000006ff
+reg 0x18029c = 0x000006fe
+reg 0x18038c = 0x000300ff
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- block 18030c..180334 --
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+-- block 180390..1803bc --
+reg 0x180390 = 0x00000000
+reg 0x180394 = 0x00000000
+reg 0x180398 = 0x00000000
+reg 0x18039c = 0x00000000
+reg 0x1803a0 = 0x00000000
+reg 0x1803a4 = 0x00000000
+reg 0x1803a8 = 0x00000000
+reg 0x1803ac = 0x00000000
+reg 0x1803b0 = 0x00000000
+reg 0x1803b4 = 0x00000000
+reg 0x1803b8 = 0x00000000
+reg 0x1803bc = 0x00000000
+### lan2_master
+-- links --
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+-- refs --
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- block 18030c..180334 --
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+-- block 180390..1803bc --
+reg 0x180390 = 0x00000000
+reg 0x180394 = 0x00000000
+reg 0x180398 = 0x00000000
+reg 0x18039c = 0x00000000
+reg 0x1803a0 = 0x00000000
+reg 0x1803a4 = 0x00000000
+reg 0x1803a8 = 0x00000000
+reg 0x1803ac = 0x00000000
+reg 0x1803b0 = 0x00000000
+reg 0x1803b4 = 0x00000000
+reg 0x1803b8 = 0x00000000
+reg 0x1803bc = 0x00000000
+### lan3_nomaster
+-- links --
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+-- refs --
+reg 0x180294 = 0x000006fd
+reg 0x180298 = 0x000006fe
+reg 0x18029c = 0x000006ff
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00020000
+-- block 18030c..180334 --
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+-- block 180390..1803bc --
+reg 0x180390 = 0x00000000
+reg 0x180394 = 0x00000000
+reg 0x180398 = 0x00000000
+reg 0x18039c = 0x00000000
+reg 0x1803a0 = 0x00000000
+reg 0x1803a4 = 0x00000000
+reg 0x1803a8 = 0x00000000
+reg 0x1803ac = 0x00000000
+reg 0x1803b0 = 0x00000000
+reg 0x1803b4 = 0x00000000
+reg 0x1803b8 = 0x00000000
+reg 0x1803bc = 0x00000000
+### lan3_master
+-- links --
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+-- refs --
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- block 18030c..180334 --
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+-- block 180390..1803bc --
+reg 0x180390 = 0x00000000
+reg 0x180394 = 0x00000000
+reg 0x180398 = 0x00000000
+reg 0x18039c = 0x00000000
+reg 0x1803a0 = 0x00000000
+reg 0x1803a4 = 0x00000000
+reg 0x1803a8 = 0x00000000
+reg 0x1803ac = 0x00000000
+reg 0x1803b0 = 0x00000000
+reg 0x1803b4 = 0x00000000
+reg 0x1803b8 = 0x00000000
+reg 0x1803bc = 0x00000000
+### wan_master
+-- links --
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+-- refs --
+reg 0x180294 = 0x000006f1
+reg 0x180298 = 0x000006f2
+reg 0x18029c = 0x000006f4
+reg 0x18038c = 0x00030033
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- block 18030c..180334 --
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+-- block 180390..1803bc --
+reg 0x180390 = 0x00000000
+reg 0x180394 = 0x00000000
+reg 0x180398 = 0x00000000
+reg 0x18039c = 0x00000000
+reg 0x1803a0 = 0x00000000
+reg 0x1803a4 = 0x00000000
+reg 0x1803a8 = 0x00000000
+reg 0x1803ac = 0x00000000
+reg 0x1803b0 = 0x00000000
+reg 0x1803b4 = 0x00000000
+reg 0x1803b8 = 0x00000000
+reg 0x1803bc = 0x00000000
+### wan_nomaster
+-- links --
+9: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+-- refs --
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- block 18030c..180334 --
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+-- block 180390..1803bc --
+reg 0x180390 = 0x00000000
+reg 0x180394 = 0x00000000
+reg 0x180398 = 0x00000000
+reg 0x18039c = 0x00000000
+reg 0x1803a0 = 0x00000000
+reg 0x1803a4 = 0x00000000
+reg 0x1803a8 = 0x00000000
+reg 0x1803ac = 0x00000000
+reg 0x1803b0 = 0x00000000
+reg 0x1803b4 = 0x00000000
+reg 0x1803b8 = 0x00000000
+reg 0x1803bc = 0x00000000
+time_end=2026-03-19T11:47:53+00:00

@@ -1,0 +1,76 @@
+
+### context
+Thu Mar 19 13:04:09 GMT 2026
+DISTRIB_ID='ImmortalWrt'
+DISTRIB_RELEASE='SNAPSHOT'
+DISTRIB_REVISION='r38281+4-dbb6c88688'
+DISTRIB_TARGET='qualcommax/ipq50xx'
+DISTRIB_ARCH='aarch64_cortex-a53'
+DISTRIB_DESCRIPTION='ImmortalWrt SNAPSHOT r38281+4-dbb6c88688'
+DISTRIB_TAINTS='no-all'
+6.12.74
+
+### baseline
+reg 0x18038c = 0x003cfc0c
+
+### stp-global
+stp_before=0
+stp_after=1
+reg 0x18038c = 0x003cfc0c
+
+### membership-lan2
+port=lan2 action=nomaster
+reg 0x18038c = 0x003cfc00
+port=lan2 action=master br-lan
+reg 0x18038c = 0x003cfc0c
+
+### membership-lan3
+port=lan3 action=nomaster
+reg 0x18038c = 0x003cfc0c
+port=lan3 action=master br-lan
+reg 0x18038c = 0x003cfc3c
+
+### membership-wan
+wan not in br-lan, add then remove
+reg 0x18038c = 0x003cfcfc
+reg 0x18038c = 0x003cfc3c
+
+### stp-seq-lan2
+lan2 orig_state=0
+warn: write state 0 failed for lan2
+lan2 state_set=0 state_now=0
+reg 0x18038c = 0x003cfc3c
+warn: write state 1 failed for lan2
+lan2 state_set=1 state_now=0
+reg 0x18038c = 0x003cfc3c
+warn: write state 2 failed for lan2
+lan2 state_set=2 state_now=0
+reg 0x18038c = 0x003cfc3c
+warn: write state 3 failed for lan2
+lan2 state_set=3 state_now=0
+reg 0x18038c = 0x003cfc3c
+lan2 restored_state=0
+reg 0x18038c = 0x003cfc3c
+
+### stp-seq-lan3
+lan3 orig_state=1
+warn: write state 0 failed for lan3
+lan3 state_set=0 state_now=2
+reg 0x18038c = 0x003cfc1c
+warn: write state 1 failed for lan3
+lan3 state_set=1 state_now=2
+reg 0x18038c = 0x003cfc1c
+warn: write state 2 failed for lan3
+lan3 state_set=2 state_now=2
+reg 0x18038c = 0x003cfc1c
+warn: write state 3 failed for lan3
+lan3 state_set=3 state_now=2
+reg 0x18038c = 0x003cfc1c
+lan3 restored_state=2
+reg 0x18038c = 0x003cfc1c
+
+### final
+5: lan2@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue master br-lan state LOWERLAYERDOWN qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+7: wan@eth1: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc noqueue state LOWERLAYERDOWN qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+reg 0x18038c = 0x003cfc1c

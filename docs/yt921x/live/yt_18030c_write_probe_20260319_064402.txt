@@ -1,0 +1,25 @@
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x18030c = 0x00000000
+reg 0x180294 = 0x000006f9
+reg 0x18030c <= 0xaaaaaaaa
+reg 0x18030c = 0x000002aa
+reg 0x180294 = 0x000006f9
+reg 0x18030c <= 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180294 = 0x000006f9

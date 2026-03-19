@@ -1,0 +1,37 @@
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x1802c4 = 0xdeadbeef
+reg 0x1802c4 <= 0x12345678
+reg 0x1802c4 = 0xdeadbeef
+reg 0x1802c4 <= 0xdeadbeef
+reg 0x1802c4 = 0xdeadbeef
+reg 0x1802f0 = 0xdeadbeef
+reg 0x1802f0 <= 0x12345678
+reg 0x1802f0 = 0xdeadbeef
+reg 0x1802f0 <= 0xdeadbeef
+reg 0x1802f0 = 0xdeadbeef
+reg 0x180338 = 0xdeadbeef
+reg 0x180338 <= 0x12345678
+reg 0x180338 = 0xdeadbeef
+reg 0x180338 <= 0xdeadbeef
+reg 0x180338 = 0xdeadbeef
+reg 0x18036c = 0xdeadbeef
+reg 0x18036c <= 0x12345678
+reg 0x18036c = 0xdeadbeef
+reg 0x18036c <= 0xdeadbeef
+reg 0x18036c = 0xdeadbeef

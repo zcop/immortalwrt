@@ -26,8 +26,9 @@ Classification:
 | `0x080010` (`CPU_TAG_TPID`) | Stable fixed-function control (`0x9988`). |
 | `0x80100 + 4*p` (`PORTn_CTRL`) | Per-port MAC control domain used by working driver path. |
 | `0x80200 + 4*p` (`PORTn_STATUS`) | Deterministic link signature (`0x1fa` up vs `0x0e2` down style). |
-| `0x180294 + 4*p` (`PORTn_ISOLATION`) | Active in bridge emulation; behavior observed and reproducible. |
-| `0x1803d0 + 4*p` (`PORTn_LEARN`) | Active in learning control path; used by DSA logic. |
+| `0x180294 + 4*p` (`PORTn_ISOLATION`, ports `0..10`) | Active in bridge emulation; behavior observed and reproducible (including `0x1802a0` on `wan` membership changes). |
+| `0x1803d0 + 4*p` (`PORTn_LEARN`, ports `0..10`) | Active in learning control path; used by DSA logic (`0x1803d8` toggled with `lan3` membership). |
+| `0x18038c + 4*n` (`STPn`, instances `0..12`) | STP instance state words; `STPn(0)` is active runtime word, `STPn(1..12)` are writable and default zero in single-bridge runtime. |
 | `0x180440..0x180464` (`AGEING/FDB_*`) | Consistent with FDB/ageing ops in current driver. |
 | `0x080400/0x080408` (`XMIIn`) | Stable programmed XMII lane config, strong board-path relevance. |
 | MBUS `int` (`0x0f0000` command path) | Reliable per-port PHY/runtime read access for `0..4`. |
@@ -39,7 +40,7 @@ Classification:
 | `0x80100 + 4*p` vs `0x80200 + 4*p` | Direct control writes can mutate status domain in non-trivial ways. | Keep masked writes and preserve unknown bits. |
 | `0x080004` (`FUNC`) | Toggling bits can collapse `0x80044` state quickly. | Avoid exploratory writes in normal runtime. |
 | `0x080014` (`PVID_SEL`) | Also perturbs `0x80044` and nearby runtime signature. | Treat as high-impact global control. |
-| `0x18038c` (unknown dynamic latch) | Changed with bridge membership (`lan2` out: `...f3 -> ...ff`, `wan` in: `...f3 -> ...33`, combined: `...3f`). | Treat as coupled policy/state word; capture before/after bridge topology changes. |
+| `0x18038c` (`STPn(0)` runtime word) | Changed with bridge membership (`lan2` out: `...f3 -> ...ff`, `wan` in: `...f3 -> ...33`, combined: `...3f`). Direct write/readback works, but bridge events rewrite it to derived value. | Treat as coupled policy/state word; do not use as persistent config source. Capture before/after topology changes only. |
 | `0x220800..` (`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
 
 ## C. Writable But Low-Confidence Semantics
@@ -49,12 +50,14 @@ Classification:
 | `0x08002c`, `0x080030`, `0x080040` | Writable in tests; no strong immediate side-effects mapped yet. |
 | `0x08008c` (`SERDESn(8)`) | Writable and stable; safe for controlled uplink experiments only. |
 | `0x080394` (`XMII_CTRL`) | Writable (`0->1->0`), no immediate externally visible effect in test. |
+| `0x18030c..0x180334` (11-word mask table) | Writable with stable `0x000007ff` readback mask per word; values persist across bridge membership toggles. Single-bit, per-word, all-words, cross-host live-toggle, post-flash TCP/ARP/multicast, and bridge-FDB probes still showed no immediate coupling to known active control words in current CR881x bridge runtime. |
 
 ## D. Coerced / Non-Plain Runtime Control
 | Range / register | Notes |
 |---|---|
 | `0x080044` | Strongly runtime/gated; writes read back coerced or unchanged. |
 | `0x080018`, `0x080038`, `0x080388` | Writes observed as ignored/coerced in runtime probe. |
+| `0x1802c0..0x180308`, `0x180338..0x180388` | Reads stay `0xdeadbeef` across bridge and port admin transitions; direct writes are acknowledged but do not change readback and show no side effects on active nearby words. |
 | MBUS reg `int[p].0x0` / `int[p].0x11` (selected ports) | Writes may report success but revert immediately; state-machine owned. |
 | External MBUS reads on CR881x baseline | No discovered responders (all zeros in scans). |
 

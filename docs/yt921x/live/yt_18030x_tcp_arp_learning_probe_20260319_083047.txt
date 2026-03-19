@@ -1,0 +1,173 @@
+=== probe_start_utc 2026-03-19_13:07:08 ===
+Linux ImmortalWrt 6.12.74 #0 SMP Thu Mar 19 12:59:01 2026 aarch64 GNU/Linux
+{
+	"kernel": "6.12.74",
+	"hostname": "ImmortalWrt",
+	"system": "ARMv8 Processor rev 4",
+	"model": "Xiaomi CR881x",
+	"board_name": "xiaomi,cr881x",
+	"rootfs_type": "squashfs",
+	"release": {
+		"distribution": "ImmortalWrt",
+		"version": "SNAPSHOT",
+		"firmware_url": "https://downloads.immortalwrt.org/",
+		"revision": "r38281+4-dbb6c88688",
+		"target": "qualcommax/ipq50xx",
+		"description": "ImmortalWrt SNAPSHOT r38281+4-dbb6c88688",
+		"builddate": "1773925141"
+	}
+}
+=== baseline ===
+192.168.2.100 lladdr 9c:6b:00:11:d3:f4 ref 1 used 0/0/0 probes 0 DELAY
+-- br-lan
+rx_packets=884 tx_packets=812 rx_bytes=97670 tx_bytes=102361 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=161 tx_packets=318 rx_bytes=151754079468924 tx_bytes=232486579731208 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=885 tx_packets=626 rx_bytes=378287834526252 tx_bytes=271351738791480 rx_dropped=157 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+=== launch_nonicmp_tcp_arp_workload ===
+workload_pid=3762
+=== phase_set_all_7ff ===
+reg 0x18030c = 0x000007ff
+reg 0x180310 = 0x000007ff
+reg 0x180314 = 0x000007ff
+reg 0x180318 = 0x000007ff
+reg 0x18031c = 0x000007ff
+reg 0x180320 = 0x000007ff
+reg 0x180324 = 0x000007ff
+reg 0x180328 = 0x000007ff
+reg 0x18032c = 0x000007ff
+reg 0x180330 = 0x000007ff
+reg 0x180334 = 0x000007ff
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- br-lan
+rx_packets=1376 tx_packets=1329 rx_bytes=120662 tx_bytes=144151 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=564 tx_packets=746 rx_bytes=286963944912688 tx_bytes=399577987413080 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=885 tx_packets=626 rx_bytes=378287834526252 tx_bytes=271351738791480 rx_dropped=157 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+192.168.2.100 lladdr 9c:6b:00:11:d3:f4 ref 1 used 0/0/0 probes 0 DELAY
+=== phase_set_checker_155_2aa ===
+reg 0x18030c = 0x00000155
+reg 0x180310 = 0x000002aa
+reg 0x180314 = 0x00000155
+reg 0x180318 = 0x000002aa
+reg 0x18031c = 0x00000155
+reg 0x180320 = 0x000002aa
+reg 0x180324 = 0x00000155
+reg 0x180328 = 0x000002aa
+reg 0x18032c = 0x00000155
+reg 0x180330 = 0x000002aa
+reg 0x180334 = 0x00000155
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- br-lan
+rx_packets=3232 tx_packets=3185 rx_bytes=206568 tx_bytes=284359 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=1906 tx_packets=2088 rx_bytes=657241665430072 tx_bytes=861080813297504 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=891 tx_packets=632 rx_bytes=380907764576788 tx_bytes=273971668842016 rx_dropped=157 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+192.168.2.100 lladdr 9c:6b:00:11:d3:f4 ref 1 used 0/0/0 probes 0 REACHABLE
+=== phase_restore_zero ===
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+-- br-lan
+rx_packets=5070 tx_packets=5023 rx_bytes=291630 tx_bytes=423413 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=3901 tx_packets=4083 rx_bytes=1206988889375500 tx_bytes=1540956956377140 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=893 tx_packets=634 rx_bytes=381680858690060 tx_bytes=274710403216920 rx_dropped=157 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+192.168.2.100 lladdr 9c:6b:00:11:d3:f4 ref 1 used 0/0/0 probes 0 REACHABLE
+workload_done_rc=0
+=== final ===
+-- br-lan
+rx_packets=41209 tx_packets=41162 rx_bytes=1961040 tx_bytes=3103616 rx_dropped=0 tx_dropped=2 rx_errors=0 tx_errors=0 
+-- lan1
+rx_packets=40017 tx_packets=40199 rx_bytes=11150289151037116 tx_bytes=13661998910639076 rx_dropped=0 tx_dropped=3 rx_errors=0 tx_errors=0 
+-- lan2
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- lan3
+rx_packets=997 tx_packets=739 rx_bytes=425777287917676 tx_bytes=319090300286068 rx_dropped=157 tx_dropped=0 rx_errors=0 tx_errors=0 
+-- wan
+rx_packets=0 tx_packets=0 rx_bytes=0 tx_bytes=0 rx_dropped=0 tx_dropped=0 rx_errors=0 tx_errors=0 
+reg 0x180294 = 0x000006f9
+reg 0x180298 = 0x000006fa
+reg 0x18029c = 0x000006fc
+reg 0x18038c = 0x000300f3
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00020000
+reg 0x1803d8 = 0x00000000
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+192.168.2.100 lladdr 9c:6b:00:11:d3:f4 ref 1 used 0/0/0 probes 1 REACHABLE
+=== probe_end_utc 2026-03-19_13:10:47 ===

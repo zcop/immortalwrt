@@ -1,0 +1,24 @@
+time_start=2026-03-19T11:50:58+00:00
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+reg 0x180390 <= 0x00000003
+reg 0x180390 = 0x00000003
+reg 0x180390 <= 0x00000000
+reg 0x180390 = 0x00000000
+reg 0x18038c = 0x000300f3
+time_end=2026-03-19T11:50:59+00:00

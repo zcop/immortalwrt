@@ -9,6 +9,29 @@ Primary data:
 - `docs/yt921x/live/yt_regmap_live_cr881x_20260316_195556_postfix_recovery.txt`
 - `docs/yt921x/live/yt_1803xx_probe_chunked_20260319_054624.txt`
 - `docs/yt921x/live/yt_18038c_combo_probe_20260319_055738.txt`
+- `docs/yt921x/live/yt_1803xx_membership_probe_20260319_061341.txt`
+- `docs/yt921x/live/yt_18028x_1803cx_membership_probe_20260319_061424.txt`
+- `docs/yt921x/live/yt_180390_write_probe_20260319_061654.txt`
+- `docs/yt921x/live/yt_gated_stock_map_probe_20260319_063619.txt`
+- `docs/yt921x/live/yt_gated_write_read_probe_20260319_063928.txt`
+- `docs/yt921x/live/yt_gated_write_side_effect_probe_20260319_063944.txt`
+- `docs/yt921x/live/yt_gated_admin_toggle_probe_20260319_064228.txt`
+- `docs/yt921x/live/yt_18030c_write_probe_20260319_064402.txt`
+- `docs/yt921x/live/yt_18030x_mask_probe_20260319_064433.txt`
+- `docs/yt921x/live/yt_18030c_334_full_mask_probe_20260319_064504.txt`
+- `docs/yt921x/live/yt_18030c_persistence_membership_probe_20260319_064550.txt`
+- `docs/yt921x/live/yt_18030c_bit_coupling_probe_20260319_065150.txt`
+- `docs/yt921x/live/yt_18030x_word_coupling_ping_probe_20260319_065753.txt`
+- `docs/yt921x/live/yt_18030x_all_ones_table_probe_20260319_065951.txt`
+- `docs/yt921x/live/yt_18030x_live_toggle_from_101_20260319_071411.txt`
+- `docs/yt921x/live/yt_18030x_live_toggle_from_101_warmfix_20260319_071530.txt`
+- `docs/yt921x/live/yt_post_flash_sanity_busybox_20260319_082647.txt`
+- `docs/yt921x/live/yt_18030x_vlan_mcast_tcp_probe_20260319_084804.txt`
+- `docs/yt921x/live/yt_18030x_ipfull_neigh_probe_20260319_085513.txt`
+- `docs/yt921x/live/yt_18030x_bridge_fdb_probe_20260319_085923.txt`
+- `docs/yt921x/live/yt_18038c_stp_validate_20260319_092708.txt`
+- `docs/yt921x/live/yt_18038c_stp_sysfs_probe_20260319_092809.txt`
+- `docs/yt921x/live/yt_18038c_postbuild_test_20260319_094407.txt`
 - `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
 - Driver symbols in `target/linux/generic/backport-6.12/830-02-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch`
 - UART transition run:
@@ -42,10 +65,10 @@ Confidence key:
 | `0x180000-0x18022c` | DSCP/PCP priority maps + per-port QoS/prio order | High |
 | `0x180280-0x180470` | VLAN/isolation/learning/ageing/FDB op | High |
 | `0x1802c0-0x180308` | gated sub-window (`0xdeadbeef`) | Low |
-| `0x18030c-0x180334` | readable zero table (11 words, port-count sized) | Low |
+| `0x18030c-0x180334` | writable 11-word table with per-word `0x7ff` mask | Medium |
 | `0x180338-0x180388` | gated sub-window (`0xdeadbeef`) | Low |
-| `0x18038c` | readable dynamic latch (bridge-membership coupled) | Low |
-| `0x180390-0x1803bc` | readable zero table (11 words) | Low |
+| `0x18038c` | `YT921X_STPn(0)` active STP-instance control word | High |
+| `0x180390-0x1803bc` | `YT921X_STPn(1..12)` inactive STP-instance bank (defaults zero) | High |
 | `0x1804b0-0x1804b8` | FDB output/result payload window (`FDB_OUT*`) | Medium |
 | `0x180510-0x180514` | mcast/bcast filter masks | Medium |
 | `0x180598-0x1805cc` | VLAN egress filter + LAG group/member tables | Medium |
@@ -79,8 +102,10 @@ Confidence key:
 | `0x354008-0x354024` | `YT921X_PSCH_SHPn_* (1..4)` | write-proven | same layout for ports 1..4 (stride 8 bytes/port) | High |
 | `0x180280` | `YT921X_VLAN_IGR_FILTER` | `0x00000000` | no explicit bypass bits set | Medium |
 | `0x18028c` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
+| `0x18030c-0x180334` | unknown writable table (11 words) | baseline `0x00000000` | each word is writable with mask `0x000007ff`; values persist across bridge-membership toggles; post-flash TCP/ARP/multicast + FDB snapshots stayed stable across phase toggles | Medium |
 | `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
-| `0x18038c` | unknown (dynamic) | `0x000300f3` | bridge-membership coupled: `lan2` out => `0x000300ff`; `wan` in => `0x00030033`; combined => `0x0003003f` | Low |
+| `0x18038c` | `YT921X_STPn(0)` | `0x000300f3` (earlier), `0x003cfc0c` (post-build flash) | active STP instance 0 per-port state word; bridge membership/state changes update low-byte fields in-place: `lan2` `[3:2]` (`0x...0c -> 0x...00` when removed), `lan3` `[5:4]` (`0x...0c -> 0x...3c` on re-add), `wan` `[7:6]` (`0x...3c -> 0x...fc` on add) | High |
+| `0x180390` | `YT921X_STPn(1)` | `0x00000000` | inactive STP instance bank default; direct write/readback verified (`0 -> 0x3 -> 0`) | High |
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
 | `0x180454` | `YT921X_FDB_IN0` | `0xccd84354` | active FDB input/result window | Medium |
@@ -218,23 +243,60 @@ Contiguous ranges from chunked dump:
 
 These should be treated as read-only unknowns until a specific functional test shows stable behavior.
 
+Additional gated-window behavior (live probes):
+- direct writes to representative addresses in both gated windows are accepted
+  by command path but readback remains `0xdeadbeef` immediately.
+- writing gated words caused no observable side effects on nearby active policy
+  registers (`0x180294/0x180298/0x18029c`, `0x18038c`, `0x1803d0/0x1803d8`).
+- `lan3` admin down/up transition did not change any word in the gated windows;
+  all sampled words remained `0xdeadbeef`.
+- stock-map translation places sampled gated words on page `0x001`, phy
+  `0x13..0x16`, but direct `ext` MDIO reads there returned zeros; this access
+  path does not bypass the gated behavior.
+
 Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
-- `0x18030c-0x180334` reads as stable zeros (11 words; same cardinality as ports `0..10`).
-- `0x180390-0x1803bc` reads as stable zeros (11 words).
-- `0x18038c` is readable but dynamic:
+- `0x18030c-0x180334` is writable and masked:
+  - each of 11 words accepts writes but readback is masked to `0x000007ff`
+    (write `0xffffffff` => read `0x000007ff`)
+  - values persist across `lan2` bridge membership toggles (not immediately
+    state-machine overwritten in this path)
+  - single-bit sweep on `0x18030c` (`bit0..bit10`) produced stable readback for
+    each bit but no immediate deltas in known active policy words
+    (`0x180294/0x180298/0x18029c`, `0x18038c`, `0x1803d0/0x1803d4/0x1803d8`)
+    and no router->host ping loss during the sweep.
+  - per-word probe (`0x1` on each of 11 words) and all-words=`0x7ff` probe both
+    preserved router->host connectivity (0% ICMP loss) and showed no immediate
+    control-register coupling in this single-host topology.
+  - live toggle test under host `192.168.2.101 -> 192.168.2.100` traffic with
+    warm-up-fixed writes/readbacks showed all 11 words cleanly switching between
+    `0x000` and `0x7ff`; `enp2s0` receive counters on `192.168.2.100` continued
+    at similar pace in `prep_zero`, `set_all_7ff`, and `restore_zero` windows,
+    with no observable outage in this workload.
+  - post-flash mixed workload probes (`tcp+arp+icmp+mcast` and neighbor churn)
+    still showed no phase-correlated deltas in known active control words.
+  - bridge-FDB instrumentation showed stable learning state across all phases:
+    `fdb_total=22`, target host MAC remained on `lan1` (master `br-lan`) with
+    unchanged `self` entry, while table words toggled `0x000 <-> 0x7ff`.
+- `0x180390-0x1803bc` is `YT921X_STPn(1..12)` and remains zero in normal single-bridge runtime.
+- `0x18038c` is `YT921X_STPn(0)` and dynamic with bridge membership/state:
   - baseline (`lan2` in, `wan` out): `0x000300f3`
   - `lan2` out: `0x000300ff`
   - `wan` in: `0x00030033`
   - `lan2` out + `wan` in: `0x0003003f`
+  - direct write test (`0x000300f3 -> 0x000300ff`) sticks immediately, but a
+    subsequent `lan2` nomaster/master cycle rewrites it to membership-derived
+    values (`0x000300ff -> 0x000300f3`).
   - restored baseline after reverting membership.
-- low-byte interpretation candidate:
+- low-byte interpretation candidate for `STPn(0)`:
   - `lan2` removed from bridge sets bits `[3:2]` (`+0x0c`)
   - `wan` added to bridge clears bits `[7:6]` (`-0xc0`)
-- Do not classify these as `0xdeadbeef` gated windows; they are accessible but currently unmapped.
+- In the wider policy windows:
+  - `0x1802a0` (`PORTn_ISOLATION(3)`) changed with `wan` bridge membership (`0x6ff -> 0x6f8` when `wan` joined bridge).
+  - `0x1803d8` (`PORTn_LEARN(2)`) toggled with `lan3` bridge membership (`0x00000000 <-> 0x00020000`).
+- Do not classify these as `0xdeadbeef` gated windows; they are accessible and mostly policy/state coupled.
 
-## Focused Probe Plan For Remaining `0x1803xx` Unknowns
-Goal: determine whether `0x18030c..0x180334` and `0x180390..0x1803bc` are latent
-per-port policy tables, fully decode the dynamic word at `0x18038c`, and find
+## Focused Probe Plan For Remaining Unknowns
+Goal: decode semantics of the writable `0x18030c..0x180334` mask table and find
 what gate controls expose `0x1802c0..0x180308` and `0x180338..0x180388`.
 
 Recommended sequence (debug build, UART shell):
@@ -242,9 +304,10 @@ Recommended sequence (debug build, UART shell):
    - `dump 0x180280 0x1803fc 4`
 2. Per-port bridge isolation toggles:
    - move one port in/out of bridge and resnapshot `0x180280..0x1803fc`
-3. Learning toggles:
-   - `bridge link set dev lanX learning off/on`
-   - resnapshot and diff `0x18030c..0x1803bc`
+3. Bit-coupling probes on `0x18030c..0x180334`:
+   - set single-bit masks (`0x1`, `0x2`, `0x4`...) per word and watch known
+     policy/FDB/forwarding behavior deltas.
+   - keep one-word-at-a-time mutation and immediate restore snapshots.
 4. VLAN ingress filter toggles:
    - `bridge vlan` add/del on one user port
    - resnapshot and diff same window
