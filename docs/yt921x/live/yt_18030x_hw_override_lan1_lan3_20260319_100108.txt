@@ -1,0 +1,94 @@
+### context
+Thu Mar 19 10:01:08 PDT 2026
+local_ip=192.168.2.100 target=192.168.2.101
+router_date=Thu Mar 19 13:16:58 GMT 2026
+4: lan1@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+  3	84:47:09:2c:4e:01	no		  10.48
+  1	9c:6b:00:11:d3:f4	no		   0.01
+
+### baseline-regs
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x180320 = 0x00000000
+reg 0x180324 = 0x00000000
+reg 0x180328 = 0x00000000
+reg 0x18032c = 0x00000000
+reg 0x180330 = 0x00000000
+reg 0x180334 = 0x00000000
+reg 0x18038c = 0x003cfc0c
+
+### phase0-baseline-ping
+PING 192.168.2.101 (192.168.2.101) 56(84) bytes of data.
+
+--- 192.168.2.101 ping statistics ---
+6 packets transmitted, 0 received, 100% packet loss, time 5119ms
+
+
+### phase1-lan3-nomaster-no-matrix
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+reg 0x18038c = 0x003cfc0c
+PING 192.168.2.101 (192.168.2.101) 56(84) bytes of data.
+
+--- 192.168.2.101 ping statistics ---
+6 packets transmitted, 0 received, 100% packet loss, time 5125ms
+
+
+### phase2-lan3-nomaster-min-crosslink
+reg 0x18030c <= 0x00000004
+reg 0x180314 <= 0x00000001
+reg 0x18030c = 0x00000004
+reg 0x180314 = 0x00000001
+PING 192.168.2.101 (192.168.2.101) 56(84) bytes of data.
+
+--- 192.168.2.101 ping statistics ---
+8 packets transmitted, 0 received, 100% packet loss, time 7173ms
+
+
+### phase3-lan3-nomaster-all-rows-0x7ff
+reg 0x18030c <= 0x000007ff
+reg 0x180310 <= 0x000007ff
+reg 0x180314 <= 0x000007ff
+reg 0x180318 <= 0x000007ff
+reg 0x18031c <= 0x000007ff
+reg 0x180320 <= 0x000007ff
+reg 0x180324 <= 0x000007ff
+reg 0x180328 <= 0x000007ff
+reg 0x18032c <= 0x000007ff
+reg 0x180330 <= 0x000007ff
+reg 0x180334 <= 0x000007ff
+reg 0x18030c = 0x000007ff
+reg 0x180314 = 0x000007ff
+reg 0x180334 = 0x000007ff
+PING 192.168.2.101 (192.168.2.101) 56(84) bytes of data.
+
+--- 192.168.2.101 ping statistics ---
+8 packets transmitted, 0 received, 100% packet loss, time 7171ms
+
+
+### restore
+reg 0x18030c <= 0x00000000
+reg 0x180310 <= 0x00000000
+reg 0x180314 <= 0x00000000
+reg 0x180318 <= 0x00000000
+reg 0x18031c <= 0x00000000
+reg 0x180320 <= 0x00000000
+reg 0x180324 <= 0x00000000
+reg 0x180328 <= 0x00000000
+reg 0x18032c <= 0x00000000
+reg 0x180330 <= 0x00000000
+reg 0x180334 <= 0x00000000
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+reg 0x18038c = 0x003cfc0c
+  3	84:47:09:2c:4e:01	no		   1.33
+  1	9c:6b:00:11:d3:f4	no		   0.00
+
+### phase4-restored-ping
+PING 192.168.2.101 (192.168.2.101) 56(84) bytes of data.
+
+--- 192.168.2.101 ping statistics ---
+6 packets transmitted, 0 received, 100% packet loss, time 5109ms
+

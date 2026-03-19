@@ -1,0 +1,36 @@
+### context
+Thu Mar 19 10:32:39 PDT 2026
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+bridge name	bridge id		STP enabled	interfaces
+br-lan		7fff.a4a93036b428	no		phy1-ap0
+							lan2
+							lan3
+							lan1
+							phy0-ap0
+  3	84:47:09:2c:4e:01	no		   8.77
+  1	9c:6b:00:11:d3:f4	no		   0.00
+
+### baseline-regs
+reg 0x1803cc = 0x000007ff
+reg 0x1803d8 = 0x00000000
+reg 0x18038c = 0x003cfc0c
+
+### phase1-1803cc-zero
+reg 0x1803cc <= 0x00000000
+reg 0x1803cc = 0x00000000
+  1	9c:6b:00:11:d3:f4	no		   1.00
+  1	9c:6b:00:11:d3:f4	no		   3.01
+
+### phase2-1803cc-7ff
+reg 0x1803cc <= 0x000007ff
+reg 0x1803cc = 0x000007ff
+  1	9c:6b:00:11:d3:f4	no		   1.01
+  3	84:47:09:2c:4e:01	no		   1.54
+  1	9c:6b:00:11:d3:f4	no		   3.00
+
+### final-restore
+reg 0x1803cc <= 0x000007ff
+reg 0x1803cc = 0x000007ff
+reg 0x1803d8 = 0x00000000
+reg 0x18038c = 0x003cfc0c
+6: lan3@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master br-lan state UP qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff

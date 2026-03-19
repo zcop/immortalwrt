@@ -32,6 +32,13 @@ Primary data:
 - `docs/yt921x/live/yt_18038c_stp_validate_20260319_092708.txt`
 - `docs/yt921x/live/yt_18038c_stp_sysfs_probe_20260319_092809.txt`
 - `docs/yt921x/live/yt_18038c_postbuild_test_20260319_094407.txt`
+- `docs/yt921x/live/yt_gate_sweep_lowbits_20260319_135946.txt` (parser-syntax mismatch run; superseded)
+- `docs/yt921x/live/yt_80014_lowbit_stage1_20260319_130039.txt`
+- `docs/yt921x/live/yt_80014_lowbit_stage2_20260319_130132.txt`
+- `docs/yt921x/live/yt_80004_lowbit_stage1_20260319_130230.txt`
+- `docs/yt921x/live/yt_80004_lowbit_stage2_20260319_130318.txt`
+- `docs/yt921x/live/yt_18028c_blackhole_probe_20260319_110516.txt`
+- `docs/yt921x/live/yt_180510_180514_probe_20260319_111723.txt`
 - `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
 - Driver symbols in `target/linux/generic/backport-6.12/830-02-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch`
 - UART transition run:
@@ -88,6 +95,8 @@ Confidence key:
 | `0x080008` | `YT921X_CHIP_ID` | `0x90020001` | chip ID register valid | High |
 | `0x08000c` | `YT921X_EXT_CPU_PORT` | `0x0000c008` | `TAG_EN=1`, `PORT_EN=1`, CPU port=`8` | High |
 | `0x080010` | `YT921X_CPU_TAG_TPID` | `0x00009988` | default Motorcomm CPU tag TPID | High |
+| `0x080004` | `YT921X_FUNC` | `0x0000080b` (baseline) | low-bit sweep: bits `23..13` ignored, bit `12` latches, bits `11/10/8` latch, bits `9/7/6` ignored; toggling bit `5` drives `0xdeaddead` readback and management-plane collapse until reboot | High |
+| `0x080014` | `YT921X_PVID_SEL` | `0x00000000` (baseline) | low-bit sweep: bits `15..11` ignored; bits `10..0` latch and restore; no gated-window opening observed | High |
 | `0x080028` | `YT921X_SERDES_CTRL` | `0x00000041` | serdes global control bits set | Medium |
 | `0x080388` | `YT921X_CHIP_MODE` | `0x00000002` | chip mode profile is non-zero active mode | High |
 | `0x080394` | `YT921X_XMII_CTRL` | `0x00000000` | no extra global XMII override bits | Medium |
@@ -101,12 +110,14 @@ Confidence key:
 | `0x354004` | `YT921X_PSCH_SHPn_CTRL(0)` | write-proven | shaper control (`EN`,`DUAL_RATE`,`METER_ID`) | High |
 | `0x354008-0x354024` | `YT921X_PSCH_SHPn_* (1..4)` | write-proven | same layout for ports 1..4 (stride 8 bytes/port) | High |
 | `0x180280` | `YT921X_VLAN_IGR_FILTER` | `0x00000000` | no explicit bypass bits set | Medium |
-| `0x18028c` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
+| `0x18028c` | unknown (portmask-like, pre-`PORTn_ISOLATION`) | `0x000007ff` | writable (`0x7ff <-> 0x0`) but host->router blackhole probe showed 0% ICMP loss in this topology | Medium |
 | `0x18030c-0x180334` | unknown writable table (11 words) | baseline `0x00000000` | each word is writable with mask `0x000007ff`; values persist across bridge-membership toggles; post-flash TCP/ARP/multicast + FDB snapshots stayed stable across phase toggles | Medium |
 | `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
 | `0x18038c` | `YT921X_STPn(0)` | `0x000300f3` (earlier), `0x003cfc0c` (post-build flash) | active STP instance 0 per-port state word; bridge membership/state changes update low-byte fields in-place: `lan2` `[3:2]` (`0x...0c -> 0x...00` when removed), `lan3` `[5:4]` (`0x...0c -> 0x...3c` on re-add), `wan` `[7:6]` (`0x...3c -> 0x...fc` on add) | High |
 | `0x180390` | `YT921X_STPn(1)` | `0x00000000` | inactive STP instance bank default; direct write/readback verified (`0 -> 0x3 -> 0`) | High |
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
+| `0x180510` | `YT921X_FILTER_MCAST` | `0x00000400` | writable filter/forwarding mask word; `0x400 -> 0 -> 0x400` readback verified without immediate host->router ICMP impact | Medium |
+| `0x180514` | `YT921X_FILTER_BCAST` | `0x00000400` | writable filter/forwarding mask word; `0x400 -> 0 -> 0x400` readback verified without immediate host->router ICMP impact | Medium |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
 | `0x180454` | `YT921X_FDB_IN0` | `0xccd84354` | active FDB input/result window | Medium |
 | `0x180458` | `YT921X_FDB_IN1` | `0x70011c7a` | active FDB input/result window | Medium |
@@ -253,6 +264,19 @@ Additional gated-window behavior (live probes):
 - stock-map translation places sampled gated words on page `0x001`, phy
   `0x13..0x16`, but direct `ext` MDIO reads there returned zeros; this access
   path does not bypass the gated behavior.
+- UART-safe low-bit sweeps on global gate candidates:
+  - `0x80014` staged sweep (`bit15..0`) completed without link loss; bits
+    `15..11` read back as ignored, bits `10..0` latched and restored; sampled
+    gated windows stayed `0xdeadbeef` throughout.
+  - `0x80004` staged sweep (`bit23..2`) found mixed latch behavior and one
+    hazardous trigger: bit `5` (`trial=0x0000082b`) flipped `0x80004`,
+    `0x80014`, `0x1802c0`, and `0x180338` readback to `0xdeaddead`, dropped
+    SSH/LAN, and required reboot for full recovery.
+  - captures:
+    - `docs/yt921x/live/yt_80014_lowbit_stage1_20260319_130039.txt`
+    - `docs/yt921x/live/yt_80014_lowbit_stage2_20260319_130132.txt`
+    - `docs/yt921x/live/yt_80004_lowbit_stage1_20260319_130230.txt`
+    - `docs/yt921x/live/yt_80004_lowbit_stage2_20260319_130318.txt`
 
 Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
 - `0x18030c-0x180334` is writable and masked:
@@ -291,6 +315,11 @@ Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
   - `lan2` removed from bridge sets bits `[3:2]` (`+0x0c`)
   - `wan` added to bridge clears bits `[7:6]` (`-0xc0`)
 - In the wider policy windows:
+  - `0x18028c` tolerated `0x7ff -> 0x000 -> 0x7ff` while host->router ICMP
+    (`192.168.2.100 -> 192.168.2.1`) stayed at `0%` loss in this runtime.
+  - `0x180510`/`0x180514` both read baseline `0x00000400` and accepted
+    `->0->baseline` writes with stable readback; host->router ICMP stayed
+    `0%` loss during the toggle window.
   - `0x1802a0` (`PORTn_ISOLATION(3)`) changed with `wan` bridge membership (`0x6ff -> 0x6f8` when `wan` joined bridge).
   - `0x1803d8` (`PORTn_LEARN(2)`) toggled with `lan3` bridge membership (`0x00000000 <-> 0x00020000`).
 - Do not classify these as `0xdeadbeef` gated windows; they are accessible and mostly policy/state coupled.
@@ -314,6 +343,8 @@ Recommended sequence (debug build, UART shell):
 5. Global gate candidates:
    - one-at-a-time masked toggles on `0x80004`, `0x80014`, `0x18028c`, `0x1803cc`
    - after each toggle, read `0x1802c0..0x180388` and immediately restore
+   - safety: `0x80004` bit `5` is now confirmed hazardous on CR881x test
+     runtime; only probe with UART attached and reboot budgeted
 6. Record strict pre/post dumps and reboot between hazardous toggles.
 
 Interpretation rule:

@@ -1,5 +1,82 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-19: UART-safe low-bit sweeps on `0x80014`/`0x80004`
+
+Captures:
+- `docs/yt921x/live/yt_gate_sweep_lowbits_20260319_135946.txt`
+  - first attempt used old debugfs syntax (`reg <addr>`), produced parser help
+    output and was superseded by staged UART sweeps
+- `docs/yt921x/live/yt_80014_lowbit_stage1_20260319_130039.txt`
+- `docs/yt921x/live/yt_80014_lowbit_stage2_20260319_130132.txt`
+- `docs/yt921x/live/yt_80004_lowbit_stage1_20260319_130230.txt`
+- `docs/yt921x/live/yt_80004_lowbit_stage2_20260319_130318.txt`
+
+What was confirmed:
+- `0x80014` (`PVID_SEL` path) low bits:
+  - bits `15..11`: write-ignored (readback stayed `0x00000000`)
+  - bits `10..0`: latched and restored deterministically
+  - sampled gated windows (`0x1802c0`, `0x180338`) remained `0xdeadbeef`
+  - no SSH/LAN outage during staged sweep
+- `0x80004` (`FUNC` path) low bits:
+  - bits `23..13`: write-ignored
+  - bit `12`: latched (`0x0000180b`) and restored
+  - bits `11`, `10`, `8`: latched and restored
+  - bits `9`, `7`, `6`: write-ignored in this runtime
+  - bit `5` (`trial=0x0000082b`): destructive in-runtime transition:
+    - `0x80004`, `0x80014`, `0x1802c0`, `0x180338` readback became
+      `0xdeaddead`
+    - PHY state-machine warnings emitted (`phy_check_link_status ... -110`)
+    - SSH path dropped (`No route to host`) and router required reboot for
+      normal register-path recovery
+
+Operational note:
+- Gate-candidate sweeps should treat `0x80004` bit `5` as hazardous on CR881x.
+- Continue probing this area only with UART attached and reboot budgeted.
+
+## 2026-03-19: `0x18028c` blackhole probe (host->router path)
+
+Capture:
+- `docs/yt921x/live/yt_18028c_blackhole_probe_20260319_110516.txt`
+
+What was tested:
+- live ICMP from host (`192.168.2.100`) to router (`192.168.2.1`) while toggling:
+  - `0x18028c: 0x000007ff -> 0x00000000 -> 0x000007ff`
+
+Observed:
+- register writes/readback were accepted and deterministic
+- ICMP remained uninterrupted:
+  - `60/60` replies, `0%` loss, no spike beyond normal sub-ms jitter
+
+Interpretation:
+- `0x18028c` is writable but does not act as a global host<->router forwarding
+  kill switch in this topology.
+- Further semantics likely require multi-host LAN-LAN isolation/topology probes.
+
+## 2026-03-19: `0x180510`/`0x180514` filter-word live probe
+
+Capture:
+- `docs/yt921x/live/yt_180510_180514_probe_20260319_111723.txt`
+
+What was tested:
+- continuous host->router ICMP while toggling:
+  - `0x180510` (`FILTER_MCAST`): baseline `0x00000400 -> 0x00000000 -> 0x00000400`
+  - `0x180514` (`FILTER_BCAST`): baseline `0x00000400 -> 0x00000000 -> 0x00000400`
+
+Observed:
+- both registers are writable with deterministic readback
+- host->router ICMP remained uninterrupted (`60/60`, `0%` loss)
+
+Interpretation:
+- in this single-host topology, these words do not behave as immediate global
+  unicast path killers.
+- semantics are still likely flood/filter policy related; multi-host
+  broadcast/multicast traffic tests are required for definitive behavior.
+
+Driver follow-up:
+- `yt921x_chip_setup_dsa()` now initializes both `YT921X_FILTER_MCAST` and
+  `YT921X_FILTER_BCAST` alongside unknown unicast/multicast filter masks, so
+  all mapped filter words are explicitly programmed during switch setup.
+
 ## 2026-03-19: Post-build STP word verification (`0x18038c`) on flashed image
 
 Runtime context:
