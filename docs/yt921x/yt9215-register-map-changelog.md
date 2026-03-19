@@ -6,9 +6,10 @@ What was clarified from existing CR881x chunked dumps:
 - still gated (`0xdeadbeef`):
   - `0x1802c0-0x180308`
   - `0x180338-0x180388`
-- readable but currently unmapped (stable zero tables):
+- readable but currently unmapped:
   - `0x18030c-0x180334` (11 words, same cardinality as ports `0..10`)
-  - `0x18038c-0x1803bc` (12 words)
+  - `0x180390-0x1803bc` (11 words, stable zeros in baseline)
+  - `0x18038c` is dynamic (not zero in baseline)
 
 Additional map refinements:
 - Added low-confidence portmask-like key-register notes:
@@ -16,6 +17,21 @@ Additional map refinements:
   - `0x1803cc = 0x000007ff`
 - Added a focused UART/debugfs probe sequence for `0x1803xx` unknowns, centered
   on bridge/learning/VLAN deltas and one-at-a-time gate-candidate toggles.
+
+Live probe update (capture:
+`docs/yt921x/live/yt_1803xx_probe_chunked_20260319_054624.txt`):
+- `lan2` bridge detach (`ip link set lan2 nomaster`) caused deterministic deltas:
+  - `0x180294: 0x000006f9 -> 0x000006fb`
+  - `0x180298: 0x000006fa -> 0x000006ff`
+  - `0x18029c: 0x000006fc -> 0x000006fe`
+  - `0x18038c: 0x000300f3 -> 0x000300ff`
+- Re-attaching `lan2` to `br-lan` restored those values.
+- Direct gate-candidate toggles (`0x80004`, `0x80014`, `0x18028c`, `0x1803cc`)
+  did not open `0x1802c0..0x180308` or `0x180338..0x180388`; both stayed
+  `0xdeadbeef`.
+- `ip link ... type bridge_slave learning` syntax was not supported by this
+  router image (`ip: either "dev" is duplicate, or "type" is garbage`), so
+  learning-specific deltas were validated via direct `0x1803d4` writes instead.
 
 ## 2026-03-18: PSCH shaper (`0xeb`) live calibration on CR881x
 
