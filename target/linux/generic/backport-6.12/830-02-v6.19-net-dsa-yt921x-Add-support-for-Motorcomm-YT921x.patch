@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5327 @@
+@@ -0,0 +1,5307 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -5122,12 +5122,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
-+#if IS_ENABLED(CONFIG_DCB)
-+	res = yt921x_chip_setup_qos(priv);
-+	if (res)
-+		return res;
-+#endif
-+
 +	/* Clear MIB */
 +	ctrl = YT921X_MIB_CTRL_CLEAN | YT921X_MIB_CTRL_ALL_PORT;
 +	res = yt921x_reg_write(priv, YT921X_MIB_CTRL, ctrl);
@@ -5213,13 +5207,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* eee */
 +	.support_eee		= dsa_supports_eee,
 +	.set_mac_eee		= yt921x_dsa_set_mac_eee,
-+#if IS_ENABLED(CONFIG_DCB)
-+	/* dcb */
-+	.port_get_default_prio	= yt921x_dsa_port_get_default_prio,
-+	.port_set_default_prio	= yt921x_dsa_port_set_default_prio,
-+	.port_get_apptrust	= yt921x_dsa_port_get_apptrust,
-+	.port_set_apptrust	= yt921x_dsa_port_set_apptrust,
-+#endif
 +	/* tc */
 +	.port_setup_tc		= yt921x_dsa_port_setup_tc,
 +	/* mtu */
@@ -5256,12 +5243,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	.get_tag_protocol	= yt921x_dsa_get_tag_protocol,
 +	.phylink_get_caps	= yt921x_dsa_phylink_get_caps,
 +	.port_setup		= yt921x_dsa_port_setup,
-+#if IS_ENABLED(CONFIG_DCB)
-+	/* dscp */
-+	.port_get_dscp_prio	= yt921x_dsa_port_get_dscp_prio,
-+	.port_del_dscp_prio	= yt921x_dsa_port_del_dscp_prio,
-+	.port_add_dscp_prio	= yt921x_dsa_port_add_dscp_prio,
-+#endif
 +	.port_enable		= yt921x_dsa_port_enable,
 +	.port_disable		= yt921x_dsa_port_disable,
 +	/* chip */
@@ -5347,7 +5328,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	ds = &priv->ds;
 +	ds->dev = dev;
 +	ds->assisted_learning_on_cpu_port = true;
-+	ds->dscp_prio_mapping_is_global = true;
 +	ds->priv = priv;
 +	ds->ops = &yt921x_dsa_switch_ops;
 +	ds->ageing_time_min = 1 * 5000;
