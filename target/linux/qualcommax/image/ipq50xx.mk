@@ -211,7 +211,8 @@ define Device/xiaomi_cr881x
 	PAGESIZE := 2048
 	DEVICE_DTS_CONFIG := config@mp03.3
 	DEVICE_PACKAGES := ipq-wifi-xiaomi_cr881x ath11k-firmware-ipq5018-qcn6122 \
-		ethtool ip-full tcpdump phytool mii-tool luci-app-portstatus kmod-net-dsa
+		ethtool ip-full tcpdump phytool mii-tool luci-app-portstatus \
+		luci-app-cr881x-yt921x-qos kmod-net-dsa
 endef
 TARGET_DEVICES += xiaomi_cr881x
 
