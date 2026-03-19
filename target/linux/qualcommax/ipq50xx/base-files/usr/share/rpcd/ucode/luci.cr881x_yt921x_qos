@@ -1,0 +1,142 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import { access, popen } from 'fs';
+
+const helper = '/usr/sbin/cr881x-yt921x-qos';
+
+function shell_quote(s) {
+	if (s == null || s == '')
+		return "''";
+
+	return "'" + replace(s, "'", "'\\''") + "'";
+}
+
+function run_helper(args) {
+	let command = helper;
+	let output = '';
+
+	for (let i = 0; i < length(args); i++)
+		command += ' ' + shell_quote(args[i]);
+
+	command += ' 2>&1';
+
+	const fd = popen(command, 'r');
+	if (fd == null) {
+		return {
+			code: -1,
+			output: 'failed to execute helper'
+		};
+	}
+
+	for (let line = fd.read('line'); length(line); line = fd.read('line'))
+		output += line;
+
+	return {
+		code: fd.close(),
+		output: trim(output)
+	};
+}
+
+function parse_tbf_line(line) {
+	line = trim(line);
+	if (!line || index(line, 'tbf p') != 0)
+		return null;
+
+	let colon = index(line, ':');
+	if (colon < 0)
+		return null;
+
+	let port_str = substr(line, 5, colon - 5);
+	let tail = trim(substr(line, colon + 1));
+
+	let item = {
+		port: +port_str,
+		en: 0,
+		dual_rate: 0,
+		meter: 0,
+		eir: 0,
+		ebs: 0,
+		raw: line
+	};
+
+	let fields = split(tail, ' ');
+	for (let i = 0; i < length(fields); i++) {
+		let f = fields[i];
+		let eq = index(f, '=');
+		if (eq <= 0)
+			continue;
+
+		let k = substr(f, 0, eq);
+		let v = substr(f, eq + 1);
+
+		if (k == 'en')
+			item.en = +v;
+		else if (k == 'dual_rate')
+			item.dual_rate = +v;
+		else if (k == 'meter')
+			item.meter = +v;
+		else if (k == 'eir')
+			item.eir = +v;
+		else if (k == 'ebs')
+			item.ebs = +v;
+	}
+
+	item.rate_kbps = (item.eir * 1000) / 1548;
+	item.burst_bytes = item.ebs * 64;
+
+	return item;
+}
+
+function parse_status_output(output) {
+	let ports = [];
+	let lines = split(output, '\n');
+
+	for (let i = 0; i < length(lines); i++) {
+		let p = parse_tbf_line(lines[i]);
+		if (p != null)
+			ports[length(ports)] = p;
+	}
+
+	return ports;
+}
+
+function status_call() {
+	if (!access(helper, 'x')) {
+		return {
+			ok: false,
+			code: 127,
+			error: `${helper} is missing`
+		};
+	}
+
+	const res = run_helper([ 'status' ]);
+	const ports = parse_status_output(res.output);
+
+	return {
+		ok: (res.code == 0),
+		code: res.code,
+		error: (res.code == 0) ? '' : (res.output || 'status failed'),
+		output: res.output,
+		ports
+	};
+}
+
+const methods = {
+	get_info: {
+		call: function() {
+			return {
+				helper
+			};
+		}
+	},
+
+	status: {
+		call: function() {
+			return status_call();
+		}
+	}
+};
+
+return { 'luci.cr881x_yt921x_qos': methods };

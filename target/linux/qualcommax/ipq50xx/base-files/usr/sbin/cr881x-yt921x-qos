@@ -1,0 +1,53 @@
+#!/bin/sh
+
+set -eu
+
+YT_CMD="/sys/kernel/debug/yt921x_cmd"
+ensure_debugfs() {
+	if [ ! -d /sys/kernel/debug ]; then
+		return 1
+	fi
+
+	if [ ! -e "$YT_CMD" ]; then
+		if ! mountpoint -q /sys/kernel/debug 2>/dev/null; then
+			mount -t debugfs debugfs /sys/kernel/debug >/dev/null 2>&1 || true
+		fi
+	fi
+
+	[ -w "$YT_CMD" ] && [ -r "$YT_CMD" ]
+}
+
+show_status() {
+	if ! ensure_debugfs; then
+		echo "error: yt921x debugfs is not available (check CONFIG_NET_DSA_YT921X_DEBUGFS)"
+		return 1
+	fi
+
+	echo tbf >"$YT_CMD"
+	cat "$YT_CMD"
+}
+
+usage() {
+	cat <<'EOF'
+Usage: cr881x-yt921x-qos <command>
+
+Commands:
+  status    Dump YT921x TBF status from debugfs
+EOF
+}
+
+cmd="${1:-status}"
+case "$cmd" in
+status)
+	shift || true
+	show_status "$@"
+	;;
+help|-h|--help)
+	usage
+	;;
+*)
+	echo "error: unknown command '$cmd'" >&2
+	usage >&2
+	exit 2
+	;;
+esac
