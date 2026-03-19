@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,4051 @@
+@@ -0,0 +1,4704 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -88,6 +88,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#endif
 +
 +#include <net/dsa.h>
++#include <net/pkt_cls.h>
 +
 +#include "yt921x.h"
 +
@@ -233,6 +234,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 + * For overflow protection, normally, 100 sec interval should have been OK.
 + */
 +#define YT921X_STATS_INTERVAL_JIFFIES	(3 * HZ)
++
++/*
++ * Empirical CR881x default-lane fit for PSCH EIR:
++ *   cap_mbps ~= 0.0006516 * EIR - 0.085
++ *   EIR ~= 1535 * target_mbps + 130
++ */
++#define YT921X_PSCH_EIR_RATE_SCALE_NUM	1535ULL
++#define YT921X_PSCH_EIR_RATE_SCALE_DEN	1000ULL
++#define YT921X_PSCH_EIR_RATE_OFFSET	130ULL
++#define YT921X_PSCH_EIR_MIN_SAFE	300ULL
 +
 +struct yt921x_reg_mdio {
 +	struct mii_bus *bus;
@@ -843,6 +854,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  int write <port> <reg> <val>\n"
 +				 "  ext read <port> <reg>\n"
 +				 "  ext write <port> <reg> <val>\n"
++				 "  tbl info <id>\n"
++				 "  tbl read <id> <index>\n"
++				 "  tbl write <id> <index> <word> <val>\n"
++				 "  field get <id> <index> <field>\n"
++				 "  field set <id> <index> <field> <val>\n"
 +				 "  mirror\n"
 +				 "  stock map <reg>\n"
 +				 "  dump <start> <end> [stride]\n");
@@ -882,6 +898,312 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	*phy = ((reg >> 6) & 0x7) | 0x10;
 +	*word0 = (reg >> 1) & 0x1e;
 +	*word1 = *word0 + 1;
++}
++
++#define YT921X_PROC_TBL_MAX_WORDS	4
++
++struct yt921x_proc_tbl_field_desc {
++	u8 width;
++	u8 word;
++	u8 shift;
++	const char *name;
++};
++
++struct yt921x_proc_tbl_desc {
++	u8 id;
++	const char *name;
++	u32 base;
++	u8 entry_words;
++	u8 rw_words;
++	u8 entries;
++	const struct yt921x_proc_tbl_field_desc *fields;
++	size_t nfields;
++};
++
++#define YT921X_PROC_FIELD(_width, _word, _shift, _name)	\
++	{ .width = (_width), .word = (_word), .shift = (_shift), .name = (_name) }
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_c7[] = {
++	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ce[] = {
++	YT921X_PROC_FIELD(1, 2, 14, "meter_mode"),
++	YT921X_PROC_FIELD(1, 2, 13, "color_mode"),
++	YT921X_PROC_FIELD(2, 2, 11, "exceed_chg_pcp_cmd"),
++	YT921X_PROC_FIELD(1, 2, 10, "exceed_pri"),
++	YT921X_PROC_FIELD(3, 2, 7, "exceed_chg_pri_cmd"),
++	YT921X_PROC_FIELD(1, 2, 6, "exceed_dp"),
++	YT921X_PROC_FIELD(1, 2, 5, "violate_dp"),
++	YT921X_PROC_FIELD(1, 2, 4, "exceed_dei"),
++	YT921X_PROC_FIELD(4, 2, 0, "violate_pri"),
++	YT921X_PROC_FIELD(12, 1, 20, "cbs"),
++	YT921X_PROC_FIELD(18, 1, 2, "cir"),
++	YT921X_PROC_FIELD(2, 1, 0, "token_unit"),
++	YT921X_PROC_FIELD(14, 0, 18, "ebs"),
++	YT921X_PROC_FIELD(18, 0, 0, "eir"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e4[] = {
++	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e5[] = {
++	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e9[] = {
++	YT921X_PROC_FIELD(1, 2, 6, "en"),
++	YT921X_PROC_FIELD(1, 2, 5, "dual_rate"),
++	YT921X_PROC_FIELD(1, 2, 4, "couple"),
++	YT921X_PROC_FIELD(1, 2, 3, "mode"),
++	YT921X_PROC_FIELD(3, 2, 0, "meter_id"),
++	YT921X_PROC_FIELD(14, 1, 18, "ebs"),
++	YT921X_PROC_FIELD(18, 1, 0, "eir"),
++	YT921X_PROC_FIELD(14, 0, 18, "cbs"),
++	YT921X_PROC_FIELD(18, 0, 0, "cir"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ea[] = {
++	YT921X_PROC_FIELD(1, 0, 0, "slot_time_inv"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_eb[] = {
++	YT921X_PROC_FIELD(1, 1, 4, "en"),
++	YT921X_PROC_FIELD(1, 1, 3, "dual_rate"),
++	YT921X_PROC_FIELD(3, 1, 0, "meter_id"),
++	YT921X_PROC_FIELD(14, 0, 18, "ebs"),
++	YT921X_PROC_FIELD(18, 0, 0, "eir"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ec[] = {
++	YT921X_PROC_FIELD(2, 0, 0, "token_unit_inv"),
++};
++
++static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
++	{
++		.id = 0xc7, .name = "meter-timeslot", .base = 0x220104,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++		.fields = yt921x_tbl_fields_c7,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_c7),
++	},
++	{
++		.id = 0xce, .name = "meter-config", .base = 0x220800,
++		.entry_words = 4, .rw_words = 3, .entries = 14,
++		.fields = yt921x_tbl_fields_ce,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_ce),
++	},
++	{
++		.id = 0xe4, .name = "qsch-slot-time", .base = 0x340008,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++		.fields = yt921x_tbl_fields_e4,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e4),
++	},
++	{
++		.id = 0xe5, .name = "psch-slot-time", .base = 0x34000c,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++		.fields = yt921x_tbl_fields_e5,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e5),
++	},
++	{
++		.id = 0xe9, .name = "qsch-shp-cfg", .base = 0x34c000,
++		.entry_words = 4, .rw_words = 3, .entries = 9,
++		.fields = yt921x_tbl_fields_e9,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e9),
++	},
++	{
++		.id = 0xea, .name = "qsch-meter-cfg", .base = 0x34f000,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++		.fields = yt921x_tbl_fields_ea,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_ea),
++	},
++	{
++		.id = 0xeb, .name = "psch-shp-cfg", .base = 0x354000,
++		.entry_words = 2, .rw_words = 2, .entries = 5,
++		.fields = yt921x_tbl_fields_eb,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_eb),
++	},
++	{
++		.id = 0xec, .name = "psch-meter-cfg", .base = 0x357000,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++		.fields = yt921x_tbl_fields_ec,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_ec),
++	},
++};
++
++static const struct yt921x_proc_tbl_desc *
++yt921x_proc_tbl_desc_find(u32 id)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(yt921x_proc_tbl_descs); i++) {
++		if (yt921x_proc_tbl_descs[i].id == id)
++			return &yt921x_proc_tbl_descs[i];
++	}
++
++	return NULL;
++}
++
++static int
++yt921x_proc_tbl_reg(const struct yt921x_proc_tbl_desc *tbl, u32 index, u32 word,
++		    u32 *regp)
++{
++	u32 entry_stride;
++
++	if (index >= tbl->entries || word >= tbl->rw_words)
++		return -ERANGE;
++
++	entry_stride = tbl->entry_words * 4;
++	*regp = tbl->base + entry_stride * index + 4 * word;
++
++	return 0;
++}
++
++static int
++yt921x_proc_tbl_read_entry(struct yt921x_priv *priv,
++			   const struct yt921x_proc_tbl_desc *tbl, u32 index,
++			   u32 *words)
++{
++	u32 word;
++	int res;
++
++	for (word = 0; word < tbl->rw_words; word++) {
++		u32 reg;
++
++		res = yt921x_proc_tbl_reg(tbl, index, word, &reg);
++		if (res)
++			return res;
++
++		res = yt921x_reg_read(priv, reg, &words[word]);
++		if (res)
++			return res;
++	}
++
++	return 0;
++}
++
++static int
++yt921x_proc_tbl_write_entry(struct yt921x_priv *priv,
++			    const struct yt921x_proc_tbl_desc *tbl, u32 index,
++			    const u32 *words)
++{
++	u32 word;
++	int res;
++
++	for (word = 0; word < tbl->rw_words; word++) {
++		u32 reg;
++
++		res = yt921x_proc_tbl_reg(tbl, index, word, &reg);
++		if (res)
++			return res;
++
++		res = yt921x_reg_write(priv, reg, words[word]);
++		if (res)
++			return res;
++	}
++
++	return 0;
++}
++
++static u32 yt921x_proc_field_mask(u8 width)
++{
++	if (width >= 32)
++		return U32_MAX;
++	if (!width)
++		return 0;
++
++	return (1U << width) - 1;
++}
++
++static int
++yt921x_proc_tbl_field_get(struct yt921x_priv *priv,
++			  const struct yt921x_proc_tbl_desc *tbl, u32 index,
++			  u32 field, u32 *valp)
++{
++	u32 words[YT921X_PROC_TBL_MAX_WORDS] = { 0 };
++	const struct yt921x_proc_tbl_field_desc *f;
++	u32 mask;
++	u32 lo_bits;
++	int res;
++
++	if (field >= tbl->nfields)
++		return -ERANGE;
++	if (tbl->rw_words > YT921X_PROC_TBL_MAX_WORDS)
++		return -E2BIG;
++
++	res = yt921x_proc_tbl_read_entry(priv, tbl, index, words);
++	if (res)
++		return res;
++
++	f = &tbl->fields[field];
++	if (f->word >= tbl->rw_words)
++		return -ERANGE;
++
++	mask = yt921x_proc_field_mask(f->width);
++	if (f->shift + f->width <= 32) {
++		*valp = (words[f->word] >> f->shift) & mask;
++		return 0;
++	}
++
++	if (f->word + 1 >= tbl->rw_words)
++		return -ERANGE;
++
++	lo_bits = 32 - f->shift;
++	*valp = ((words[f->word] >> f->shift) |
++		 (words[f->word + 1] << lo_bits)) & mask;
++	return 0;
++}
++
++static int
++yt921x_proc_tbl_field_set(struct yt921x_priv *priv,
++			  const struct yt921x_proc_tbl_desc *tbl, u32 index,
++			  u32 field, u32 value)
++{
++	u32 words[YT921X_PROC_TBL_MAX_WORDS] = { 0 };
++	const struct yt921x_proc_tbl_field_desc *f;
++	u32 mask;
++	u32 lo_bits;
++	u32 lo_mask;
++	u32 hi_mask;
++	int res;
++
++	if (field >= tbl->nfields)
++		return -ERANGE;
++	if (tbl->rw_words > YT921X_PROC_TBL_MAX_WORDS)
++		return -E2BIG;
++
++	f = &tbl->fields[field];
++	if (f->word >= tbl->rw_words)
++		return -ERANGE;
++
++	mask = yt921x_proc_field_mask(f->width);
++	if (value & ~mask)
++		return -ERANGE;
++
++	res = yt921x_proc_tbl_read_entry(priv, tbl, index, words);
++	if (res)
++		return res;
++
++	if (f->shift + f->width <= 32) {
++		words[f->word] &= ~(mask << f->shift);
++		words[f->word] |= value << f->shift;
++		return yt921x_proc_tbl_write_entry(priv, tbl, index, words);
++	}
++
++	if (f->word + 1 >= tbl->rw_words)
++		return -ERANGE;
++
++	lo_bits = 32 - f->shift;
++	lo_mask = yt921x_proc_field_mask(lo_bits);
++	hi_mask = yt921x_proc_field_mask(f->width - lo_bits);
++
++	words[f->word] &= ~(lo_mask << f->shift);
++	words[f->word] |= (value & lo_mask) << f->shift;
++
++	words[f->word + 1] &= ~hi_mask;
++	words[f->word + 1] |= (value >> lo_bits) & hi_mask;
++
++	return yt921x_proc_tbl_write_entry(priv, tbl, index, words);
 +}
 +
 +static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
@@ -980,6 +1302,177 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				yt921x_proc_reply_append(priv,
 +							 "%s[%u].0x%04x <= 0x%04x\n",
 +							 argv[0], port, reg, val);
++		} else {
++			res = -EINVAL;
++		}
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "tbl") && argc >= 3) {
++		const struct yt921x_proc_tbl_desc *tbl;
++		u32 id;
++
++		res = yt921x_proc_parse_u32(argv[2], &id);
++		if (res)
++			goto out;
++
++		tbl = yt921x_proc_tbl_desc_find(id);
++		if (!tbl) {
++			res = -ENOENT;
++			goto out;
++		}
++
++		if (!strcmp(argv[1], "info")) {
++			u32 field;
++
++			yt921x_proc_reply_append(priv,
++						 "tbl 0x%02x %s base=0x%06x entry_words=%u rw_words=%u entries=%u\n",
++						 tbl->id, tbl->name, tbl->base,
++						 tbl->entry_words, tbl->rw_words,
++						 tbl->entries);
++			for (field = 0; field < tbl->nfields; field++) {
++				const struct yt921x_proc_tbl_field_desc *f;
++
++				f = &tbl->fields[field];
++				yt921x_proc_reply_append(priv,
++							 "  field[%u] %-16s width=%u word=%u shift=%u\n",
++							 field, f->name, f->width,
++							 f->word, f->shift);
++			}
++			goto out;
++		}
++
++		if (argc < 4) {
++			res = -EINVAL;
++			goto out;
++		}
++
++		if (!strcmp(argv[1], "read")) {
++			u32 index;
++			u32 words[YT921X_PROC_TBL_MAX_WORDS] = { 0 };
++			u32 word;
++
++			res = yt921x_proc_parse_u32(argv[3], &index);
++			if (res)
++				goto out;
++
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_proc_tbl_read_entry(priv, tbl, index, words);
++			if (!res) {
++				yt921x_proc_reply_append(priv,
++							 "tbl 0x%02x[%u] %s\n",
++							 tbl->id, index, tbl->name);
++				for (word = 0; word < tbl->rw_words; word++) {
++					u32 reg;
++
++					res = yt921x_proc_tbl_reg(tbl, index, word,
++								  &reg);
++					if (res)
++						break;
++					yt921x_proc_reply_append(priv,
++								 "  reg 0x%06x w%u = 0x%08x\n",
++								 reg, word, words[word]);
++				}
++			}
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		if (!strcmp(argv[1], "write") && argc >= 6) {
++			u32 index;
++			u32 word;
++			u32 val;
++			u32 words[YT921X_PROC_TBL_MAX_WORDS] = { 0 };
++			u32 reg;
++
++			res = yt921x_proc_parse_u32(argv[3], &index);
++			if (res)
++				goto out;
++			res = yt921x_proc_parse_u32(argv[4], &word);
++			if (res)
++				goto out;
++			res = yt921x_proc_parse_u32(argv[5], &val);
++			if (res)
++				goto out;
++
++			if (word >= tbl->rw_words ||
++			    tbl->rw_words > YT921X_PROC_TBL_MAX_WORDS) {
++				res = -ERANGE;
++				goto out;
++			}
++
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_proc_tbl_read_entry(priv, tbl, index, words);
++			if (!res) {
++				words[word] = val;
++				res = yt921x_proc_tbl_write_entry(priv, tbl, index,
++								  words);
++			}
++			if (!res) {
++				res = yt921x_proc_tbl_reg(tbl, index, word, &reg);
++				if (!res)
++					yt921x_proc_reply_append(priv,
++								 "tbl 0x%02x[%u].w%u reg 0x%06x <= 0x%08x\n",
++								 tbl->id, index, word,
++								 reg, val);
++			}
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		res = -EINVAL;
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "field") && argc >= 5) {
++		const struct yt921x_proc_tbl_desc *tbl;
++		const struct yt921x_proc_tbl_field_desc *f;
++		u32 id;
++		u32 index;
++		u32 field;
++		u32 val;
++
++		res = yt921x_proc_parse_u32(argv[2], &id);
++		if (res)
++			goto out;
++		res = yt921x_proc_parse_u32(argv[3], &index);
++		if (res)
++			goto out;
++		res = yt921x_proc_parse_u32(argv[4], &field);
++		if (res)
++			goto out;
++
++		tbl = yt921x_proc_tbl_desc_find(id);
++		if (!tbl) {
++			res = -ENOENT;
++			goto out;
++		}
++		if (field >= tbl->nfields) {
++			res = -ERANGE;
++			goto out;
++		}
++		f = &tbl->fields[field];
++
++		mutex_lock(&priv->reg_lock);
++		if (!strcmp(argv[1], "get")) {
++			res = yt921x_proc_tbl_field_get(priv, tbl, index, field,
++							&val);
++			if (!res)
++				yt921x_proc_reply_append(priv,
++							 "field 0x%02x[%u].%u(%s) = 0x%x (%u)\n",
++							 tbl->id, index, field,
++							 f->name, val, val);
++		} else if (!strcmp(argv[1], "set") && argc >= 6) {
++			res = yt921x_proc_parse_u32(argv[5], &val);
++			if (!res)
++				res = yt921x_proc_tbl_field_set(priv, tbl, index,
++								field, val);
++			if (!res)
++				yt921x_proc_reply_append(priv,
++							 "field 0x%02x[%u].%u(%s) <= 0x%x (%u)\n",
++							 tbl->id, index, field,
++							 f->name, val, val);
 +		} else {
 +			res = -EINVAL;
 +		}
@@ -1238,8 +1731,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct yt921x_port *pp = container_of_const(work, struct yt921x_port,
 +						    mib_read.work);
-+	struct yt921x_priv *priv = container_of(pp - pp->index,
-+						struct yt921x_priv, ports[0]);
++	struct yt921x_priv *priv = pp->priv;
 +	unsigned long delay = YT921X_STATS_INTERVAL_JIFFIES;
 +	int port = pp->index;
 +	int res;
@@ -1278,7 +1770,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	yt921x_read_mib(priv, port);
-+	mutex_unlock(&priv->reg_lock);
 +
 +	j = 0;
 +	for (size_t i = 0; i < ARRAY_SIZE(yt921x_mib_descs); i++) {
@@ -1290,6 +1781,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		data[j] = ((u64 *)mib)[i];
 +		j++;
 +	}
++	mutex_unlock(&priv->reg_lock);
 +}
 +
 +static int yt921x_dsa_get_sset_count(struct dsa_switch *ds, int port, int sset)
@@ -1319,7 +1811,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	yt921x_read_mib(priv, port);
-+	mutex_unlock(&priv->reg_lock);
 +
 +	mac_stats->FramesTransmittedOK = pp->tx_frames;
 +	mac_stats->SingleCollisionFrames = mib->tx_single_collisions;
@@ -1343,6 +1834,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* mac_stats->InRangeLengthErrors */
 +	/* mac_stats->OutOfRangeLengthField */
 +	mac_stats->FrameTooLongErrors = mib->rx_oversize_errors;
++	mutex_unlock(&priv->reg_lock);
 +}
 +
 +static void
@@ -1355,11 +1847,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	yt921x_read_mib(priv, port);
-+	mutex_unlock(&priv->reg_lock);
 +
 +	ctrl_stats->MACControlFramesTransmitted = mib->tx_pause;
 +	ctrl_stats->MACControlFramesReceived = mib->rx_pause;
 +	/* ctrl_stats->UnsupportedOpcodesReceived */
++	mutex_unlock(&priv->reg_lock);
 +}
 +
 +static const struct ethtool_rmon_hist_range yt921x_rmon_ranges[] = {
@@ -1384,7 +1876,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	yt921x_read_mib(priv, port);
-+	mutex_unlock(&priv->reg_lock);
 +
 +	*ranges = yt921x_rmon_ranges;
 +
@@ -1408,6 +1899,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	rmon_stats->hist_tx[4] = mib->tx_512_1023byte;
 +	rmon_stats->hist_tx[5] = mib->tx_1024_1518byte;
 +	rmon_stats->hist_tx[6] = mib->tx_jumbo;
++	mutex_unlock(&priv->reg_lock);
 +}
 +
 +static void
@@ -1419,6 +1911,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	struct yt921x_mib *mib = &pp->mib;
 +	u64 rx_fcs_bytes;
 +	u64 tx_fcs_bytes;
++
++	mutex_lock(&priv->reg_lock);
 +
 +	stats->rx_length_errors = mib->rx_undersize_errors +
 +				  mib->rx_fragment_errors;
@@ -1452,6 +1946,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* stats->tx_dropped */
 +	stats->multicast = mib->rx_multicast;
 +	stats->collisions = mib->tx_collisions;
++
++	mutex_unlock(&priv->reg_lock);
 +}
 +
 +static void
@@ -1464,10 +1960,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	yt921x_read_mib(priv, port);
-+	mutex_unlock(&priv->reg_lock);
 +
 +	pause_stats->tx_pause_frames = mib->tx_pause;
 +	pause_stats->rx_pause_frames = mib->rx_pause;
++	mutex_unlock(&priv->reg_lock);
 +}
 +
 +static int
@@ -1552,6 +2048,109 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	/* Only called for user ports, exclude tag len here */
 +	return YT921X_FRAME_SIZE_MAX - ETH_HLEN - ETH_FCS_LEN - YT921X_TAG_LEN;
++}
++
++static bool yt921x_tbf_supported_port(struct dsa_switch *ds, int port)
++{
++	/* PSCH table has 5 entries and maps to MAC0..MAC4 on YT9215. */
++	return dsa_is_user_port(ds, port) && port >= 0 && port < 5;
++}
++
++static int yt921x_tbf_rate_to_eir(u64 rate_bytes_ps, u32 *eirp)
++{
++	u64 rate_kbps;
++	u64 eir;
++
++	if (!rate_bytes_ps)
++		return -EINVAL;
++
++	/* bytes/s -> kbits/s */
++	rate_kbps = div_u64(rate_bytes_ps, 125);
++	eir = DIV_ROUND_CLOSEST_ULL(rate_kbps * YT921X_PSCH_EIR_RATE_SCALE_NUM,
++				    YT921X_PSCH_EIR_RATE_SCALE_DEN);
++	eir += YT921X_PSCH_EIR_RATE_OFFSET;
++	eir = max(eir, YT921X_PSCH_EIR_MIN_SAFE);
++
++	if (eir > YT921X_PSCH_SHP_EIR_M)
++		return -EOPNOTSUPP;
++
++	*eirp = (u32)eir;
++	return 0;
++}
++
++static int yt921x_tbf_del(struct yt921x_priv *priv, int port)
++{
++	int res;
++
++	res = yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_CTRL(port),
++				     YT921X_PSCH_SHP_EN |
++				     YT921X_PSCH_SHP_DUAL_RATE |
++				     YT921X_PSCH_SHP_METER_ID_M, 0);
++	if (res)
++		return res;
++
++	return yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_EBS_EIR(port),
++				      YT921X_PSCH_SHP_EIR_M |
++				      YT921X_PSCH_SHP_EBS_M, 0);
++}
++
++static int
++yt921x_tbf_add(struct yt921x_priv *priv, int port, struct tc_tbf_qopt_offload *qopt)
++{
++	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
++	u32 eir;
++	int res;
++
++	if (qopt->parent != TC_H_ROOT)
++		return -EOPNOTSUPP;
++
++	res = yt921x_tbf_rate_to_eir(params->rate.rate_bytes_ps, &eir);
++	if (res)
++		return res;
++
++	/* Keep burst conservative until EBS unit mapping is fully decoded. */
++	res = yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_EBS_EIR(port),
++				     YT921X_PSCH_SHP_EIR_M |
++				     YT921X_PSCH_SHP_EBS_M,
++				     YT921X_PSCH_SHP_EIR(eir) |
++				     YT921X_PSCH_SHP_EBS(1));
++	if (res)
++		return res;
++
++	return yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_CTRL(port),
++				      YT921X_PSCH_SHP_EN |
++				      YT921X_PSCH_SHP_DUAL_RATE |
++				      YT921X_PSCH_SHP_METER_ID_M,
++				      YT921X_PSCH_SHP_EN |
++				      YT921X_PSCH_SHP_METER_ID(0));
++}
++
++static int
++yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
++			 enum tc_setup_type type, void *type_data)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct tc_tbf_qopt_offload *qopt;
++	int res = -EOPNOTSUPP;
++
++	if (type != TC_SETUP_QDISC_TBF || !yt921x_tbf_supported_port(ds, port))
++		return -EOPNOTSUPP;
++
++	qopt = type_data;
++	mutex_lock(&priv->reg_lock);
++	switch (qopt->command) {
++	case TC_TBF_REPLACE:
++		res = yt921x_tbf_add(priv, port, qopt);
++		break;
++	case TC_TBF_DESTROY:
++		res = yt921x_tbf_del(priv, port);
++		break;
++	default:
++		break;
++	}
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
 +}
 +
 +static int
@@ -2394,6 +2993,54 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			}
 +		}
 +	} while (0);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static int yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 ctrl;
++	int res;
++
++	if (dsa_is_cpu_port(ds, port))
++		return -EOPNOTSUPP;
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_read(priv, YT921X_PORTn_VLAN_CTRL(port), &ctrl);
++	mutex_unlock(&priv->reg_lock);
++	if (res)
++		return res;
++
++	if (!(ctrl & YT921X_PORT_VLAN_CTRL_CVLAN_PRI_EN))
++		return 0;
++
++	return FIELD_GET(YT921X_PORT_VLAN_CTRL_CVLAN_PRI_M, ctrl);
++}
++
++static int
++yt921x_dsa_port_set_default_prio(struct dsa_switch *ds, int port, u8 prio)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 mask;
++	u32 ctrl;
++	int res;
++
++	if (dsa_is_cpu_port(ds, port))
++		return -EOPNOTSUPP;
++
++	if (prio >= 8)
++		return -EINVAL;
++
++	mask = YT921X_PORT_VLAN_CTRL_CVLAN_PRI_EN |
++	       YT921X_PORT_VLAN_CTRL_CVLAN_PRI_M;
++	ctrl = YT921X_PORT_VLAN_CTRL_CVLAN_PRI_EN |
++	       FIELD_PREP(YT921X_PORT_VLAN_CTRL_CVLAN_PRI_M, prio);
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_update_bits(priv, YT921X_PORTn_VLAN_CTRL(port),
++				     mask, ctrl);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -3963,6 +4610,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* eee */
 +	.support_eee		= dsa_supports_eee,
 +	.set_mac_eee		= yt921x_dsa_set_mac_eee,
++	/* dcb */
++	.port_get_default_prio	= yt921x_dsa_port_get_default_prio,
++	.port_set_default_prio	= yt921x_dsa_port_set_default_prio,
++	/* tc */
++	.port_setup_tc		= yt921x_dsa_port_setup_tc,
 +	/* mtu */
 +	.port_change_mtu	= yt921x_dsa_port_change_mtu,
 +	.port_max_mtu		= yt921x_dsa_port_max_mtu,
@@ -4068,6 +4720,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		struct yt921x_port *pp = &priv->ports[i];
 +
 +		pp->index = i;
++		pp->priv = priv;
 +		INIT_DELAYED_WORK(&pp->mib_read, yt921x_poll_mib);
 +	}
 +
@@ -4113,7 +4766,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_LICENSE("GPL");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,520 @@
+@@ -0,0 +1,533 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -4125,6 +4778,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#include <net/dsa.h>
 +
 +struct dentry;
++struct yt921x_priv;
 +
 +#define YT921X_SMI_SWITCHID_M		GENMASK(3, 2)
 +#define  YT921X_SMI_SWITCHID(x)			FIELD_PREP(YT921X_SMI_SWITCHID_M, (x))
@@ -4342,6 +4996,17 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define   YT921X_PORT_EGR_TPID_STAG(x)			FIELD_PREP(YT921X_PORT_EGR_TPID_STAG_M, (x))
 +#define YT921X_TPID_EGRn(x)		(0x100300 + 4 * (x))	/* [0, 3] */
 +#define  YT921X_TPID_EGR_TPID_M			GENMASK(15, 0)
++
++#define YT921X_PSCH_SHPn_EBS_EIR(port)	(0x354000 + 8 * (port))
++#define  YT921X_PSCH_SHP_EIR_M			GENMASK(17, 0)
++#define   YT921X_PSCH_SHP_EIR(x)			FIELD_PREP(YT921X_PSCH_SHP_EIR_M, (x))
++#define  YT921X_PSCH_SHP_EBS_M			GENMASK(31, 18)
++#define   YT921X_PSCH_SHP_EBS(x)			FIELD_PREP(YT921X_PSCH_SHP_EBS_M, (x))
++#define YT921X_PSCH_SHPn_CTRL(port)	(0x354004 + 8 * (port))
++#define  YT921X_PSCH_SHP_EN			BIT(4)
++#define  YT921X_PSCH_SHP_DUAL_RATE		BIT(3)
++#define  YT921X_PSCH_SHP_METER_ID_M		GENMASK(2, 0)
++#define   YT921X_PSCH_SHP_METER_ID(x)			FIELD_PREP(YT921X_PSCH_SHP_METER_ID_M, (x))
 +
 +#define YT921X_VLAN_IGR_FILTER		0x180280
 +#define  YT921X_VLAN_IGR_FILTER_PORTn_BYPASS_IGMP(port)	BIT((port) + 11)
@@ -4590,6 +5255,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +struct yt921x_port {
 +	unsigned char index;
++	struct yt921x_priv *priv;
 +
 +	bool hairpin;
 +	bool isolated;
