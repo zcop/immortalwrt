@@ -93,7 +93,7 @@ Confidence key:
 | Address | Symbol | Live value | Decode / meaning | Confidence |
 |---|---|---|---|---|
 | `0x080008` | `YT921X_CHIP_ID` | `0x90020001` | chip ID register valid | High |
-| `0x08000c` | `YT921X_EXT_CPU_PORT` | `0x0000c008` | `TAG_EN=1`, `PORT_EN=1`, CPU port=`8` | High |
+| `0x08000c` | `YT921X_EXT_CPU_PORT` | `0x0000c008` | single tagged CPU-port selector (`TAG_EN=1`, `PORT_EN=1`, primary CPU port=`8`); secondary CPU conduit uses plain Ethernet path (no YT tag) | High |
 | `0x080010` | `YT921X_CPU_TAG_TPID` | `0x00009988` | default Motorcomm CPU tag TPID | High |
 | `0x080004` | `YT921X_FUNC` | `0x0000080b` (baseline) | low-bit sweep: bits `23..13` ignored, bit `12` latches, bits `11/10/8` latch, bits `9/7/6` ignored; toggling bit `5` drives `0xdeaddead` readback and management-plane collapse until reboot | High |
 | `0x080014` | `YT921X_PVID_SEL` | `0x00000000` (baseline) | low-bit sweep: bits `15..11` ignored; bits `10..0` latch and restore; no gated-window opening observed | High |
@@ -222,6 +222,12 @@ Controlled UART cable-transition deltas (2026-03-16, lan1/lan3/wan):
 - `p0=0x6f9`, `p1=0x6fa`, `p2=0x6fc`, `p3=0x6ff`, `p4=0x6ff`, `p5=0x6ff`
 - `p6=0x6ff`, `p7=0x6ff`, `p8=0x7ff`, `p9=0x6ff`, `p10=0x6ff`
 
+Conduit-switch signatures (`wan` port 3 moved between CPU conduits):
+- `wan@eth1` (primary conduit): `0x1802a0=0x000006ff`, `0x1802b8=0x000004ff`
+- `wan@eth0` (secondary conduit): `0x1802a0=0x000005ff`, `0x1802b8=0x000004f7`
+- key invariant: both directions must be open (`port3<->port9` bits cleared) for
+  ARP/ICMP to pass on the secondary conduit.
+
 `PORTn_LEARN` (`0x1803d0 + 4*n`, ports `0..10`):
 - `p0=0x00000000`, `p1=0x00000000`, `p2=0x00000000`
 - `p3..p10=0x00020000` (`PORT_LEARN_DIS` set)
@@ -325,7 +331,13 @@ Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
     worked; restoring both to `0x00000400` immediately restored host->router
     reachability. See:
     `docs/yt921x/live/yt_180510_180514_blackhole_recovery_20260319_1655.txt`.
-  - `0x1802a0` (`PORTn_ISOLATION(3)`) changed with `wan` bridge membership (`0x6ff -> 0x6f8` when `wan` joined bridge).
+  - `0x1802a0` (`PORTn_ISOLATION(3)`) changed with `wan` bridge/conduit state
+    (`0x6ff -> 0x6f8` when `wan` joined bridge; `0x6ff -> 0x5ff` when `wan`
+    moved to secondary CPU conduit).
+  - conduit switching requires symmetric CPU-side isolation update:
+    allowing `port3 -> port9` alone is not enough; `port9 -> port3` must also
+    be unblocked (e.g., `0x1802b8: 0x4ff -> 0x4f7`) or return traffic
+    blackholes.
   - `0x1803d8` (`PORTn_LEARN(2)`) toggled with `lan3` bridge membership (`0x00000000 <-> 0x00020000`).
 - Do not classify these as `0xdeadbeef` gated windows; they are accessible and mostly policy/state coupled.
 
