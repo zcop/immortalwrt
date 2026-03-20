@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5406 @@
+@@ -0,0 +1,5483 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -882,6 +882,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  field set <id> <index> <field> <val>\n"
 +				 "  get_flood_filter\n"
 +				 "  set_flood_filter <mcast|bcast|both> <mask>\n"
++				 "  port_status [port]\n"
 +				 "  mirror\n"
 +				 "  tbf [port]\n"
 +				 "  stock map <reg>\n"
@@ -896,6 +897,56 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int yt921x_proc_parse_u16(const char *s, u16 *val)
 +{
 +	return kstrtou16(s, 0, val);
++}
++
++static const char *yt921x_proc_port_speed_name(u32 speed)
++{
++	switch (speed) {
++	case 0:
++		return "10";
++	case 1:
++		return "100";
++	case 2:
++		return "1000";
++	case 3:
++		return "10000";
++	case 4:
++		return "2500";
++	default:
++		return "unknown";
++	}
++}
++
++static int yt921x_proc_reply_port_status(struct yt921x_priv *priv, u32 port)
++{
++	u32 ctrl;
++	u32 st;
++	u32 speed;
++	const char *duplex;
++	const char *speed_name;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_PORTn_CTRL(port), &ctrl);
++	if (res)
++		return res;
++	res = yt921x_reg_read(priv, YT921X_PORTn_STATUS(port), &st);
++	if (res)
++		return res;
++
++	speed = FIELD_GET(YT921X_PORT_SPEED_M, st);
++	duplex = (st & YT921X_PORT_DUPLEX_FULL) ? "full" : "half";
++	speed_name = (st & YT921X_PORT_LINK) ? yt921x_proc_port_speed_name(speed) :
++					     "down";
++
++	yt921x_proc_reply_append(
++		priv,
++		"p%u ctrl=0x%08x status=0x%08x link=%u an=%u speed=%s duplex=%s rx_pause=%u tx_pause=%u rx_mac=%u tx_mac=%u\n",
++		port, ctrl, st, !!(st & YT921X_PORT_LINK),
++		!!(ctrl & YT921X_PORT_LINK), speed_name, duplex,
++		!!(st & YT921X_PORT_RX_PAUSE), !!(st & YT921X_PORT_TX_PAUSE),
++		!!(st & YT921X_PORT_RX_MAC_EN), !!(st & YT921X_PORT_TX_MAC_EN));
++
++	return 0;
 +}
 +
 +static void
@@ -1350,6 +1401,32 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +					YT921X_FILTER_PORTS_M,
 +				priv->flood_bcast_base_mask &
 +					YT921X_FILTER_PORTS_M);
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "port_status")) {
++		u32 start = 0;
++		u32 end = YT921X_PORT_NUM - 1;
++		u32 port;
++
++		if (argc >= 2) {
++			res = yt921x_proc_parse_u32(argv[1], &port);
++			if (res)
++				goto out;
++			if (port >= YT921X_PORT_NUM) {
++				res = -ERANGE;
++				goto out;
++			}
++			start = end = port;
++		}
++
++		mutex_lock(&priv->reg_lock);
++		for (port = start; port <= end; port++) {
++			res = yt921x_proc_reply_port_status(priv, port);
++			if (res)
++				break;
++		}
 +		mutex_unlock(&priv->reg_lock);
 +		goto out;
 +	}
