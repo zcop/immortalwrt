@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5656 @@
+@@ -0,0 +1,5823 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -282,6 +282,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static bool yt921x_is_external_port(const struct yt921x_priv *priv, int port)
 +{
 +	return !!(priv->info->external_mask & BIT(port));
++}
++
++static bool yt921x_is_primary_cpu_port(const struct yt921x_priv *priv, int port)
++{
++	return priv->primary_cpu_port >= 0 && port == priv->primary_cpu_port;
++}
++
++static bool yt921x_is_secondary_cpu_port(const struct yt921x_priv *priv, int port)
++{
++	return priv->secondary_cpu_port >= 0 && port == priv->secondary_cpu_port;
 +}
 +
 +static int yt921x_reg_read(struct yt921x_priv *priv, u32 reg, u32 *valp)
@@ -3429,28 +3439,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int
 +yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid)
 +{
-+	u32 non_cpu_ports;
-+	u64 ctrl64;
 +	u64 mask64;
-+	int res;
 +
 +	mask64 = YT921X_VLAN_CTRL_PORTn(port) |
 +		 YT921X_VLAN_CTRL_UNTAG_PORTn(port);
 +
-+	res = yt921x_reg64_clear_bits(priv, YT921X_VLANn_CTRL(vid), mask64);
-+	if (res)
-+		return res;
-+
-+	res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
-+	if (res)
-+		return res;
-+
-+	non_cpu_ports = GENMASK(YT921X_PORT_NUM - 1, 0) & ~priv->cpu_ports_mask;
-+	if (ctrl64 & YT921X_VLAN_CTRL_PORTS(non_cpu_ports))
-+		return 0;
-+
-+	mask64 = YT921X_VLAN_CTRL_PORTS(priv->cpu_ports_mask) |
-+		 YT921X_VLAN_CTRL_UNTAG_PORTS(priv->cpu_ports_mask);
 +	return yt921x_reg64_clear_bits(priv, YT921X_VLANn_CTRL(vid), mask64);
 +}
 +
@@ -3460,8 +3453,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u64 mask64;
 +	u64 ctrl64;
 +
-+	mask64 = YT921X_VLAN_CTRL_PORTn(port) |
-+		 YT921X_VLAN_CTRL_PORTS(priv->cpu_ports_mask);
++	mask64 = YT921X_VLAN_CTRL_PORTn(port);
 +	ctrl64 = mask64;
 +
 +	mask64 |= YT921X_VLAN_CTRL_UNTAG_PORTn(port);
@@ -3549,23 +3541,22 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u16 pvid = 0;
 +	int res;
 +
-+	if (dsa_is_cpu_port(ds, port))
-+		return 0;
-+
 +	mutex_lock(&priv->reg_lock);
 +	do {
-+		struct dsa_port *dp = dsa_to_port(ds, port);
-+		struct net_device *bdev;
-+
 +		res = yt921x_vlan_del(priv, port, vid);
 +		if (res)
 +			break;
 +
-+		bdev = dsa_port_bridge_dev_get(dp);
-+		if (bdev) {
-+			if (!br_vlan_get_pvid(bdev, &pvid) &&
-+			    pvid == vid)
-+				res = yt921x_pvid_clear(priv, port);
++		if (dsa_is_user_port(ds, port)) {
++			struct dsa_port *dp = dsa_to_port(ds, port);
++			struct net_device *bdev;
++
++			bdev = dsa_port_bridge_dev_get(dp);
++			if (bdev) {
++				if (!br_vlan_get_pvid(bdev, &pvid) &&
++				    pvid == vid)
++					res = yt921x_pvid_clear(priv, port);
++			}
 +		}
 +	} while (0);
 +	mutex_unlock(&priv->reg_lock);
@@ -3583,30 +3574,26 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u16 pvid = 0;
 +	int res;
 +
-+	/* CPU port is supposed to be a member of every VLAN; see
-+	 * yt921x_vlan_add() and yt921x_port_setup()
-+	 */
-+	if (dsa_is_cpu_port(ds, port))
-+		return 0;
-+
 +	mutex_lock(&priv->reg_lock);
 +	do {
-+		struct dsa_port *dp = dsa_to_port(ds, port);
-+		struct net_device *bdev;
-+
 +		res = yt921x_vlan_add(priv, port, vid,
 +				      vlan->flags & BRIDGE_VLAN_INFO_UNTAGGED);
 +		if (res)
 +			break;
 +
-+		bdev = dsa_port_bridge_dev_get(dp);
-+		if (bdev) {
-+			if (vlan->flags & BRIDGE_VLAN_INFO_PVID) {
-+				res = yt921x_pvid_set(priv, port, vid);
-+			} else {
-+				if (!br_vlan_get_pvid(bdev, &pvid) &&
-+				    pvid == vid)
-+					res = yt921x_pvid_clear(priv, port);
++		if (dsa_is_user_port(ds, port)) {
++			struct dsa_port *dp = dsa_to_port(ds, port);
++			struct net_device *bdev;
++
++			bdev = dsa_port_bridge_dev_get(dp);
++			if (bdev) {
++				if (vlan->flags & BRIDGE_VLAN_INFO_PVID) {
++					res = yt921x_pvid_set(priv, port, vid);
++				} else {
++					if (!br_vlan_get_pvid(bdev, &pvid) &&
++					    pvid == vid)
++						res = yt921x_pvid_clear(priv, port);
++				}
 +			}
 +		}
 +	} while (0);
@@ -3614,6 +3601,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	return res;
 +}
++
 +
 +static u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv)
 +{
@@ -3629,6 +3617,92 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	return yt921x_reg_update_bits(priv, YT921X_PORTn_ISOLATION(port),
 +				      mask, blocked_mask & mask);
++}
++
++static int
++yt921x_userport_cpu_isolation_set(struct yt921x_priv *priv, int port, int cpu_port)
++{
++	u32 mask = priv->cpu_ports_mask;
++	u32 blocked_mask;
++
++	blocked_mask = mask & ~BIT(cpu_port);
++
++	return yt921x_reg_update_bits(priv, YT921X_PORTn_ISOLATION(port),
++				      mask, blocked_mask);
++}
++
++static int
++yt921x_userport_current_cpu_port_get(struct yt921x_priv *priv, int port, int *cpu_port)
++{
++	u32 allowed_mask;
++	u32 val;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_PORTn_ISOLATION(port), &val);
++	if (res)
++		return res;
++
++	allowed_mask = priv->cpu_ports_mask & ~val;
++	if (hweight16(allowed_mask) != 1)
++		return -ENOENT;
++
++	*cpu_port = __ffs(allowed_mask);
++
++	return 0;
++}
++
++static int yt921x_secondary_cpu_isolation_sync(struct yt921x_priv *priv,
++					       int cpu_port)
++{
++	struct dsa_switch *ds = &priv->ds;
++	struct dsa_port *dp;
++	u32 blocked_mask;
++	int upstream_port;
++
++	if (!dsa_is_cpu_port(ds, cpu_port) ||
++	    yt921x_is_primary_cpu_port(priv, cpu_port))
++		return 0;
++
++	blocked_mask = yt921x_non_cpu_port_mask(priv);
++	dsa_switch_for_each_user_port(dp, ds) {
++		if (!yt921x_userport_current_cpu_port_get(priv, dp->index,
++							  &upstream_port)) {
++			if (upstream_port == cpu_port)
++				blocked_mask &= ~BIT(dp->index);
++			continue;
++		}
++
++		if (dsa_upstream_port(ds, dp->index) == cpu_port)
++			blocked_mask &= ~BIT(dp->index);
++	}
++
++	return yt921x_port_isolation_set(priv, cpu_port, blocked_mask);
++}
++
++static int
++yt921x_dsa_conduit_to_cpu_port(struct dsa_switch *ds, struct net_device *conduit,
++			       struct netlink_ext_ack *extack)
++{
++	struct dsa_port *cpu_dp;
++
++	if (!conduit) {
++		NL_SET_ERR_MSG_MOD(extack, "Missing conduit device");
++		return -EINVAL;
++	}
++
++	if (netif_is_lag_master(conduit)) {
++		NL_SET_ERR_MSG_MOD(extack, "CPU LAG conduit is not supported");
++		return -EOPNOTSUPP;
++	}
++
++	cpu_dp = conduit->dsa_ptr;
++	if (!cpu_dp || !dsa_port_is_cpu(cpu_dp) || cpu_dp->ds != ds) {
++		NL_SET_ERR_MSG_MOD(extack,
++				   "Conduit does not map to a local CPU port");
++		return -EINVAL;
++	}
++
++	return cpu_dp->index;
 +}
 +
 +static u32
@@ -3813,8 +3887,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			return res;
 +	}
 +
-+	/* BR_FLOOD, BR_MCAST_FLOOD: see the comment where ACT_UNK_ACTn_TRAP
-+	 * is set
++	/* BR_FLOOD, BR_MCAST_FLOOD: unknown unicast/multicast policy is global
++	 * and handled through ACT_UNK_* defaults in chip setup.
 +	 */
 +
 +	/* BR_BCAST_FLOOD: we can filter bcast, but cannot trap them */
@@ -4716,15 +4790,24 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +
 +	if (dsa_is_cpu_port(ds, port)) {
-+		/* Egress of CPU port is supposed to be completely controlled
-+		 * via tagging, so set to oneway isolated (drop all packets
-+		 * without tag).
-+		 */
-+		ctrl = ~(u32)0;
-+		res = yt921x_reg_write(priv, YT921X_PORTn_ISOLATION(port),
-+				       ctrl);
-+		if (res)
-+			return res;
++		if (yt921x_is_primary_cpu_port(priv, port)) {
++			/* Primary conduit uses the YT921X tag format, so keep
++			 * untagged egress from this CPU port blocked.
++			 */
++			ctrl = ~(u32)0;
++			res = yt921x_reg_write(priv, YT921X_PORTn_ISOLATION(port),
++					       ctrl);
++			if (res)
++				return res;
++		} else {
++			/* Secondary conduit carries plain Ethernet/802.1Q, so
++			 * keep non-CPU destinations open and let VLAN tables
++			 * steer traffic.
++			 */
++			res = yt921x_port_isolation_set(priv, port, 0);
++			if (res)
++				return res;
++		}
 +
 +		/* To simplify FDB "isolation" simulation, we also disable
 +		 * learning on the CPU port, and let software identify packets
@@ -4734,6 +4817,18 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		 * VLAN-awareness becomes unrelated on the CPU port (set to
 +		 * VLAN-unaware by the way).
 +		 */
++	}
++
++	if (dsa_is_user_port(ds, port)) {
++		int cpu_port = dsa_upstream_port(ds, port);
++
++		res = yt921x_userport_cpu_isolation_set(priv, port, cpu_port);
++		if (res)
++			return res;
++
++		res = yt921x_secondary_cpu_isolation_sync(priv, cpu_port);
++		if (res)
++			return res;
 +	}
 +
 +	/* Apply full board override once during setup (before link events). */
@@ -4748,6 +4843,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 +			    enum dsa_tag_protocol m)
 +{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++
++	if (dsa_is_cpu_port(ds, port) &&
++	    yt921x_is_secondary_cpu_port(priv, port))
++		return DSA_TAG_PROTO_NONE;
++
 +	return DSA_TAG_PROTO_YT921X;
 +}
 +
@@ -4758,6 +4859,60 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_port_setup(priv, port);
++	mutex_unlock(&priv->reg_lock);
++
++	return res;
++}
++
++static int
++yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
++			       struct net_device *conduit,
++			       struct netlink_ext_ack *extack)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct dsa_port *dp = dsa_to_port(ds, port);
++	int old_cpu_port;
++	int new_cpu_port;
++	u32 val;
++	int res;
++
++	if (!dsa_is_user_port(ds, port))
++		return -EOPNOTSUPP;
++
++	new_cpu_port = yt921x_dsa_conduit_to_cpu_port(ds, conduit, extack);
++	if (new_cpu_port < 0)
++		return new_cpu_port;
++
++	if (!dp->cpu_dp) {
++		NL_SET_ERR_MSG_MOD(extack, "User port has no previous CPU port");
++		return -EINVAL;
++	}
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_userport_current_cpu_port_get(priv, port, &old_cpu_port);
++	if (res) {
++		/* Fallback when hardware state is not yet canonical. */
++		old_cpu_port = dp->cpu_dp->index;
++		res = 0;
++	}
++
++	res = yt921x_userport_cpu_isolation_set(priv, port, new_cpu_port);
++	if (!res && new_cpu_port != old_cpu_port)
++		res = yt921x_reg_read(priv, YT921X_PORTn_ISOLATION(new_cpu_port),
++				      &val);
++	if (!res && new_cpu_port != old_cpu_port)
++		res = yt921x_reg_write(priv, YT921X_PORTn_ISOLATION(new_cpu_port),
++				       val & ~BIT(port));
++	if (!res && new_cpu_port != old_cpu_port)
++		res = yt921x_reg_read(priv, YT921X_PORTn_ISOLATION(old_cpu_port),
++				      &val);
++	if (!res && new_cpu_port != old_cpu_port)
++		res = yt921x_reg_write(priv, YT921X_PORTn_ISOLATION(old_cpu_port),
++				       val | BIT(port));
++	if (!res && new_cpu_port != old_cpu_port)
++		res = yt921x_secondary_cpu_isolation_sync(priv, new_cpu_port);
++	if (!res && new_cpu_port != old_cpu_port)
++		res = yt921x_secondary_cpu_isolation_sync(priv, old_cpu_port);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -5021,10 +5176,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int yt921x_validate_setup_locked(struct yt921x_priv *priv)
 +{
 +	struct device *dev = to_device(priv);
-+	int cpu_port = __ffs(priv->cpu_ports_mask);
++	int cpu_port = priv->primary_cpu_port;
 +	u16 tpid;
 +	u32 val;
 +	int res;
++
++	if (cpu_port < 0)
++		return -EINVAL;
 +
 +	res = yt921x_reg_read(priv, YT921X_EXT_CPU_PORT, &val);
 +	if (res)
@@ -5284,6 +5442,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 +{
 +	struct dsa_switch *ds = &priv->ds;
++	struct device *dev = to_device(priv);
 +	unsigned long cpu_ports_mask;
 +	u64 ctrl64;
 +	u32 ctrl;
@@ -5295,13 +5454,28 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	/* Enable DSA */
 +	priv->cpu_ports_mask = dsa_cpu_ports(ds);
++	if (!priv->cpu_ports_mask)
++		return -EINVAL;
++
++	priv->primary_cpu_port = __ffs(priv->cpu_ports_mask);
++	cpu_ports_mask = priv->cpu_ports_mask & ~BIT(priv->primary_cpu_port);
++	if (cpu_ports_mask)
++		priv->secondary_cpu_port = __ffs(cpu_ports_mask);
++	else
++		priv->secondary_cpu_port = -1;
++
++	if (hweight16(priv->cpu_ports_mask) > 2)
++		dev_warn(dev,
++			 "Only two CPU ports are supported, mask=0x%03x (primary=%d secondary=%d)\n",
++			 priv->cpu_ports_mask, priv->primary_cpu_port,
++			 priv->secondary_cpu_port);
 +
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 +	yt921x_debug_init_snapshot_take_locked(priv, &dbg_stage);
 +#endif
 +
 +	ctrl = YT921X_EXT_CPU_PORT_TAG_EN | YT921X_EXT_CPU_PORT_PORT_EN |
-+	       YT921X_EXT_CPU_PORT_PORT(__ffs(priv->cpu_ports_mask));
++	       YT921X_EXT_CPU_PORT_PORT(priv->primary_cpu_port);
 +	res = yt921x_reg_write(priv, YT921X_EXT_CPU_PORT, ctrl);
 +	if (res)
 +		return res;
@@ -5318,7 +5492,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "cpu-copy");
 +#endif
 +
-+	ctrl = GENMASK(10, 0);
++	/* Unknown UC/MC egress drop mask:
++	 * keep only internal MCU (port 10) blocked, allow CPU/LAN/WAN delivery.
++	 * 0x7ff blackholes unknown unicast destined for router MAC on this board.
++	 */
++	ctrl = BIT(10);
 +	res = yt921x_reg_write(priv, YT921X_FILTER_UNK_UCAST, ctrl);
 +	if (res)
 +		return res;
@@ -5338,24 +5516,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "unk-filter");
 +#endif
 +
-+	/* YT921x does not support native DSA port bridging, so we use port
-+	 * isolation to emulate it. However, be especially careful that port
-+	 * isolation takes _after_ FDB lookups, i.e. if an FDB entry (from
-+	 * another bridge) is matched and the destination port (in another
-+	 * bridge) is blocked, the packet will be dropped instead of flooding to
-+	 * the "bridged" ports, thus we need to trap and handle those packets by
-+	 * software.
-+	 *
-+	 * If there is no more than one bridge, we might be able to drop them
-+	 * directly given some conditions are met, but we trap them in all cases
-+	 * for now.
++	/* Let unknown traffic follow hardware forwarding/isolation. Untagged
++	 * ingress from CPU ports is still dropped.
 +	 */
 +	ctrl = 0;
-+	for (int i = 0; i < YT921X_PORT_NUM; i++)
-+		ctrl |= YT921X_ACT_UNK_ACTn_TRAP(i);
-+	/* Except for CPU ports, if any packets are sent via CPU ports without
-+	 * tag, they should be dropped.
-+	 */
 +	cpu_ports_mask = priv->cpu_ports_mask;
 +	for_each_set_bit(port, &cpu_ports_mask, YT921X_PORT_NUM) {
 +		ctrl &= ~YT921X_ACT_UNK_ACTn_M(port);
@@ -5572,6 +5736,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	.port_stp_state_set	= yt921x_dsa_port_stp_state_set,
 +	/* port */
 +	.get_tag_protocol	= yt921x_dsa_get_tag_protocol,
++	.port_change_conduit	= yt921x_dsa_port_change_conduit,
 +	.phylink_get_caps	= yt921x_dsa_phylink_get_caps,
 +	.port_setup		= yt921x_dsa_port_setup,
 +	.port_enable		= yt921x_dsa_port_enable,
@@ -5655,6 +5820,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	priv->reg_ops = &yt921x_reg_ops_mdio;
 +	priv->reg_ctx = mdio;
++	priv->primary_cpu_port = -1;
++	priv->secondary_cpu_port = -1;
 +
 +	for (size_t i = 0; i < ARRAY_SIZE(priv->ports); i++) {
 +		struct yt921x_port *pp = &priv->ports[i];
@@ -5718,7 +5885,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,664 @@
+@@ -0,0 +1,666 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -6348,6 +6515,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	const struct yt921x_info *info;
 +	/* cache of dsa_cpu_ports(ds) */
 +	u16 cpu_ports_mask;
++	int primary_cpu_port;
++	int secondary_cpu_port;
 +
 +	/* protect the access to the switch registers */
 +	struct mutex reg_lock;
