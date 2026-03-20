@@ -22,11 +22,11 @@ Classification:
 ## A. Safe And Useful Now
 | Range / register | Why it is actionable now |
 |---|---|
-| `0x08000c` (`EXT_CPU_PORT`) | Stable and decoded path for CPU port/tag enable. |
+| `0x08000c` (`EXT_CPU_PORT`) | Stable and decoded path for CPU port/tag enable; runtime confirms this is a single primary tagged-conduit selector, not a multi-CPU fanout register. |
 | `0x080010` (`CPU_TAG_TPID`) | Stable fixed-function control (`0x9988`). |
 | `0x80100 + 4*p` (`PORTn_CTRL`) | Per-port MAC control domain used by working driver path. |
 | `0x80200 + 4*p` (`PORTn_STATUS`) | Deterministic link signature (`0x1fa` up vs `0x0e2` down style). |
-| `0x180294 + 4*p` (`PORTn_ISOLATION`, ports `0..10`) | Active in bridge emulation; behavior observed and reproducible (including `0x1802a0` on `wan` membership changes). |
+| `0x180294 + 4*p` (`PORTn_ISOLATION`, ports `0..10`) | Active in bridge emulation and conduit steering; behavior observed and reproducible (including `0x1802a0`/`0x1802b8` updates when moving `wan` between primary and secondary CPU conduits). |
 | `0x1803d0 + 4*p` (`PORTn_LEARN`, ports `0..10`) | Active in learning control path; used by DSA logic (`0x1803d8` toggled with `lan3` membership). |
 | `0x18038c + 4*n` (`STPn`, instances `0..12`) | STP instance state words; `STPn(0)` is active runtime word, `STPn(1..12)` are writable and default zero in single-bridge runtime. |
 | `0x180440..0x180464` (`AGEING/FDB_*`) | Consistent with FDB/ageing ops in current driver. |
@@ -42,6 +42,7 @@ Classification:
 | `0x080014` (`PVID_SEL`) | Low-bit sweep: bits `15..11` ignored; bits `10..0` latch/restore. No gate-open observed, but still high-impact global domain. | Keep writes gated to controlled debug runs; always restore baseline. |
 | `0x18038c` (`STPn(0)` runtime word) | Changed with bridge membership (`lan2` out: `...f3 -> ...ff`, `wan` in: `...f3 -> ...33`, combined: `...3f`). Direct write/readback works, but bridge events rewrite it to derived value. | Treat as coupled policy/state word; do not use as persistent config source. Capture before/after topology changes only. |
 | `0x180510` (`FILTER_MCAST`), `0x180514` (`FILTER_BCAST`) | `0x00000400` is a safe runtime baseline on tested boots; a bad runtime was observed with both words at `0x000007ff`, correlating with host->router blackhole/asymmetric reachability until reset to `0x00000400`. | Treat as high-impact policy words. Initialize to `0x00000400` and avoid broad all-port masks in normal runtime (`docs/yt921x/live/yt_180510_180514_blackhole_recovery_20260319_1655.txt`). |
+| `0x180734-0x180738` (`ACT_UNK_*`) | Unknown UC/MC action policy is global, and trap-to-CPU behavior follows the primary `EXT_CPU_PORT` only. | For dual-conduit operation, avoid global trap defaults that force unknown traffic to the primary tagged CPU path; keep forwarding/isolation policy coherent with selected conduit. |
 | `0x220800..` (`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
 
 ## C. Writable But Low-Confidence Semantics
