@@ -37,6 +37,11 @@ endef
 EXTRA_CFLAGS+= \
 	-I$(STAGING_DIR)/usr/include/qca-ssdk
 
+ifeq ($(CONFIG_TARGET_SUBTARGET), "ipq50xx")
+EXTRA_CFLAGS+= \
+	-DNSS_DP_SKIP_SSDK_FAL=1
+endif
+
 NSS_DP_HAL_DIR:=$(PKG_BUILD_DIR)/hal
 define Build/Configure
 	$(CP) $(NSS_DP_HAL_DIR)/soc_ops/$(CONFIG_TARGET_SUBTARGET)/nss_$(CONFIG_TARGET_SUBTARGET).h \

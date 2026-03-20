@@ -1,0 +1,185 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: zcop <zcop@localhost>
+Date: Fri, 20 Mar 2026 00:00:00 +0000
+Subject: [PATCH] ipq50xx: guard qca-nss-dp SSDK FAL calls
+
+Avoid early-boot crashes when qca-ssdk is present but no compatible
+QCA switch device is detected on boards using an external YT9215 switch.
+
+On ipq50xx, bypass probe-time MIB flush and MIB/MTU FAL queries so
+nss-dp can probe without dereferencing an invalid SSDK device path.
+---
+--- a/hal/gmac_ops/syn/gmac/syn_if.c
++++ b/hal/gmac_ops/syn/gmac/syn_if.c
+@@ -28,6 +28,10 @@
+ #include "syn_dev.h"
+ #include "syn_mac_reg.h"
+ 
++#ifndef NSS_DP_SKIP_SSDK_FAL
++#define NSS_DP_SKIP_SSDK_FAL 0
++#endif
++
+ #define SYN_STAT(m)	offsetof(struct nss_dp_hal_gmac_stats, m)
+ #define SYN_MIB_STAT(m)	offsetof(fal_mib_counter_t, m)
+ #define HW_ERR_SIZE	sizeof(uint64_t)
+@@ -424,6 +428,13 @@
+ 
+ 	BUG_ON(nghd == NULL);
+ 
++#if NSS_DP_SKIP_SSDK_FAL
++	if (nghd->netdev)
++		return nghd->netdev->mtu + SYN_HAL_MTU_L2_OVERHEAD;
++
++	return ETH_DATA_LEN + SYN_HAL_MTU_L2_OVERHEAD;
++#endif
++
+ 	ret = fal_port_max_frame_size_get(0, nghd->mac_id, &mtu);
+ 
+ 	if (!ret) {
+@@ -448,6 +459,10 @@
+ 		return -1;
+ 	}
+ 
++#if NSS_DP_SKIP_SSDK_FAL
++	return 0;
++#endif
++
+ 	frame_sz = val + SYN_HAL_MTU_L2_OVERHEAD;
+ 	return fal_port_max_frame_size_set(0, nghd->mac_id, frame_sz);
+ }
+@@ -457,6 +472,10 @@
+  */
+ static int syn_get_mib_stats(struct nss_gmac_hal_dev *nghd, fal_mib_counter_t *stats)
+ {
++#if NSS_DP_SKIP_SSDK_FAL
++	return -1;
++#endif
++
+ 	if (fal_mib_counter_get(0, nghd->mac_id, stats) < 0) {
+ 		return -1;
+ 	}
+@@ -839,9 +858,11 @@
+ 	/*
+ 	 * Reset MIB Stats
+ 	 */
++#if !NSS_DP_SKIP_SSDK_FAL
+ 	if (fal_mib_port_flush_counters(0, shd->nghd.mac_id)) {
+ 		netdev_dbg(ndev, "MIB stats Reset fail.\n");
+ 	}
++#endif
+ 
+ 	return (struct nss_gmac_hal_dev *)shd;
+ }
+--- a/hal/gmac_ops/syn/xgmac/syn_if.c
++++ b/hal/gmac_ops/syn/xgmac/syn_if.c
+@@ -26,6 +26,10 @@
+ #include <nss_dp_dev.h>
+ #include "syn_dev.h"
+ 
++#ifndef NSS_DP_SKIP_SSDK_FAL
++#define NSS_DP_SKIP_SSDK_FAL 0
++#endif
++
+ #define SYN_STAT(m)		offsetof(struct nss_dp_hal_gmac_stats, m)
+ #define SYN_XMIB_STAT(m)	offsetof(fal_xgmib_info_t, m)
+ 
+@@ -166,6 +170,13 @@
+ 	int ret;
+ 	uint32_t mtu;
+ 
++#if NSS_DP_SKIP_SSDK_FAL
++	if (nghd && nghd->netdev)
++		return nghd->netdev->mtu + ETH_HLEN + ETH_FCS_LEN;
++
++	return ETH_DATA_LEN + ETH_HLEN + ETH_FCS_LEN;
++#endif
++
+ 	ret = fal_port_max_frame_size_get(0, nghd->mac_id, &mtu);
+ 
+ 	if (!ret)
+@@ -419,9 +430,11 @@
+ 			shd->nghd.mac_base);
+ 
+ 	/* Reset MIB Stats */
++#if !NSS_DP_SKIP_SSDK_FAL
+ 	if (fal_mib_port_flush_counters(0, shd->nghd.mac_id)) {
+ 		netdev_dbg(ndev, "MIB stats Reset fail.\n");
+ 	}
++#endif
+ 
+ 	return (struct nss_gmac_hal_dev *)shd;
+ }
+--- a/hal/gmac_ops/syn/xgmac/syn_dev.h
++++ b/hal/gmac_ops/syn/xgmac/syn_dev.h
+@@ -25,6 +25,10 @@
+ #include <fal/fal_mib.h>
+ #include <fal/fal_port_ctrl.h>
+ 
++#ifndef NSS_DP_SKIP_SSDK_FAL
++#define NSS_DP_SKIP_SSDK_FAL 0
++#endif
++
+ /*
+  * The max MTU value is maximum frame size excluding
+  * Ethernet header size (14B), FCS (4B) and 2x VLANs (8B).
+@@ -145,6 +149,10 @@
+ 
+ static int syn_get_xmib_stats(struct nss_gmac_hal_dev *nghd, fal_xgmib_info_t *stats)
+ {
++#if NSS_DP_SKIP_SSDK_FAL
++	return -1;
++#endif
++
+ 	if (fal_get_xgmib_info(0, nghd->mac_id, stats)) {
+ 		return -1;
+ 	}
+--- a/hal/gmac_ops/qcom/qcom_if.c
++++ b/hal/gmac_ops/qcom/qcom_if.c
+@@ -26,6 +26,10 @@
+ #include <nss_dp_dev.h>
+ #include "qcom_dev.h"
+ 
++#ifndef NSS_DP_SKIP_SSDK_FAL
++#define NSS_DP_SKIP_SSDK_FAL 0
++#endif
++
+ #define QCOM_STAT(m)		offsetof(struct nss_dp_hal_gmac_stats, m)
+ #define QCOM_MIB_STAT(m)	offsetof(fal_mib_counter_t, m)
+ 
+@@ -157,6 +161,10 @@
+  */
+ static int32_t qcom_get_mib_stats(struct nss_gmac_hal_dev *nghd)
+ {
++#if NSS_DP_SKIP_SSDK_FAL
++	return -1;
++#endif
++
+ 	if (qcom_get_stats(nghd))
+ 		return -1;
+ 
+@@ -190,6 +198,13 @@
+ 	int ret;
+ 	uint32_t mtu;
+ 
++#if NSS_DP_SKIP_SSDK_FAL
++	if (nghd && nghd->netdev)
++		return nghd->netdev->mtu + ETH_HLEN + ETH_FCS_LEN;
++
++	return ETH_DATA_LEN + ETH_HLEN + ETH_FCS_LEN;
++#endif
++
+ 	ret = fal_port_max_frame_size_get(0, nghd->mac_id, &mtu);
+ 
+ 	if (!ret)
+@@ -414,9 +429,11 @@
+ 			qhd->nghd.mac_base);
+ 
+ 	/* Reset MIB Stats */
++#if !NSS_DP_SKIP_SSDK_FAL
+ 	if (fal_mib_port_flush_counters(0, qhd->nghd.mac_id)) {
+ 		netdev_dbg(ndev, "MIB stats Reset fail.\n");
+ 	}
++#endif
+ 
+ 	return (struct nss_gmac_hal_dev *)qhd;
+ }
