@@ -375,9 +375,9 @@
 &switch {
 	status = "okay";
 
-	// Keep the CPU uplink on 1G SGMII for compatibility/stability.
+	// Keep both CPU uplinks on 1G SGMII for compatibility/stability.
 	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
-	switch_mac_mode1 = <MAC_MODE_DISABLED>;
+	switch_mac_mode1 = <MAC_MODE_SGMII_CHANNEL1>;
 	switch_mac_mode2 = <MAC_MODE_DISABLED>;
 
 	// ESS port bitmaps (match MAC0/MAC1 usage in qcom,port_phyinfo)
@@ -406,9 +406,21 @@
 
 &dp1 {
 	status = "okay";
+	phy-mode = "sgmii";
+	/delete-property/ phy-handle;
+	/delete-property/ mdiobus;
+	/delete-property/ qcom,phy-mdio-addr;
+	/delete-property/ qcom,link-poll;
 
 	nvmem-cells = <&mac_addr_dp1 0>;
 	nvmem-cell-names = "mac-address";
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+		pause;
+		asym-pause;
+	};
 };
 
 &dp2 {
@@ -532,6 +544,19 @@
 				reg = <8>;
 				phy-mode = "sgmii";
 				ethernet = <&dp2>;
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+					pause;
+					asym-pause;
+				};
+			};
+
+			// MAC9 ---SGMII---> IPQ5018 MAC0 (CPU: eth0 WAN conduit)
+			port@9 {
+				reg = <9>;
+				phy-mode = "sgmii";
+				ethernet = <&dp1>;
 				fixed-link {
 					speed = <1000>;
 					full-duplex;
