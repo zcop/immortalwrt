@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5483 @@
+@@ -0,0 +1,5656 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -76,6 +76,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#include <linux/if_hsr.h>
 +#include <linux/if_vlan.h>
 +#include <linux/iopoll.h>
++#include <linux/jiffies.h>
 +#include <linux/mdio.h>
 +#include <linux/mii.h>
 +#include <linux/module.h>
@@ -83,6 +84,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#include <linux/of_mdio.h>
 +#include <linux/of_net.h>
 +#include <linux/sort.h>
++#include <linux/workqueue.h>
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 +#include <linux/debugfs.h>
 +#include <linux/fs.h>
@@ -253,6 +255,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_PSCH_EBS_MAX		GENMASK(13, 0)
 +#define YT921X_PSCH_SHP_PORTS		5U
 +
++#define YT921X_STORM_GUARD_DEFAULT_PPS		20000U
++#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
++#define YT921X_STORM_GUARD_DEFAULT_INTERVAL_MS	1000U
++
 +struct yt921x_reg_mdio {
 +	struct mii_bus *bus;
 +	int addr;
@@ -269,6 +275,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +#define to_yt921x_priv(_ds) container_of_const(_ds, struct yt921x_priv, ds)
 +#define to_device(priv) ((priv)->ds.dev)
++
++static int yt921x_read_mib(struct yt921x_priv *priv, int port);
++static u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv);
 +
 +static bool yt921x_is_external_port(const struct yt921x_priv *priv, int port)
 +{
@@ -347,9 +356,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +static int yt921x_apply_flood_filters_locked(struct yt921x_priv *priv)
 +{
-+	u32 mcast_mask = priv->flood_mcast_base_mask & YT921X_FILTER_PORTS_M;
-+	u32 bcast_mask = priv->flood_bcast_base_mask & YT921X_FILTER_PORTS_M;
++	u32 mcast_mask = priv->flood_mcast_base_mask | priv->flood_storm_mask;
++	u32 bcast_mask = priv->flood_bcast_base_mask | priv->flood_storm_mask;
 +	int res;
++
++	mcast_mask &= YT921X_FILTER_PORTS_M;
++	bcast_mask &= YT921X_FILTER_PORTS_M;
 +
 +	res = yt921x_reg_write(priv, YT921X_FILTER_MCAST, mcast_mask);
 +	if (res)
@@ -883,6 +895,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  get_flood_filter\n"
 +				 "  set_flood_filter <mcast|bcast|both> <mask>\n"
 +				 "  port_status [port]\n"
++				 "  storm_guard show\n"
++				 "  storm_guard set <0|1> <pps> <hold_ms> <interval_ms>\n"
 +				 "  mirror\n"
 +				 "  tbf [port]\n"
 +				 "  stock map <reg>\n"
@@ -1016,6 +1030,74 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 eir, rate_kbps, ebs, burst_bytes);
 +
 +	return 0;
++}
++
++static void yt921x_storm_guard_workfn(struct work_struct *work)
++{
++	struct yt921x_priv *priv = container_of(to_delayed_work(work),
++						struct yt921x_priv,
++						storm_guard_work);
++	u16 storm_mask = 0;
++	unsigned long targets_mask;
++	unsigned long now = jiffies;
++	u32 interval_ms;
++	u32 pps_limit;
++	u32 hold_ms;
++	bool enabled;
++	int port;
++
++	mutex_lock(&priv->reg_lock);
++	enabled = priv->storm_guard_enabled;
++	interval_ms = max_t(u32, priv->storm_guard_interval_ms, 100);
++	pps_limit = max_t(u32, priv->storm_guard_pps, 1);
++	hold_ms = max_t(u32, priv->storm_guard_hold_ms, 100);
++
++	targets_mask = yt921x_non_cpu_port_mask(priv);
++	for_each_set_bit(port, &targets_mask, YT921X_PORT_NUM) {
++		struct yt921x_port *pp = &priv->ports[port];
++		u64 rx_broadcast;
++		u64 rx_multicast;
++		u64 delta;
++		u64 pps;
++
++		if (yt921x_read_mib(priv, port))
++			continue;
++
++		rx_broadcast = pp->mib.rx_broadcast;
++		rx_multicast = pp->mib.rx_multicast;
++
++		if (!priv->storm_guard_primed) {
++			priv->storm_guard_last_rx_broadcast[port] = rx_broadcast;
++			priv->storm_guard_last_rx_multicast[port] = rx_multicast;
++			continue;
++		}
++
++		delta = (rx_broadcast - priv->storm_guard_last_rx_broadcast[port]) +
++			(rx_multicast - priv->storm_guard_last_rx_multicast[port]);
++		priv->storm_guard_last_rx_broadcast[port] = rx_broadcast;
++		priv->storm_guard_last_rx_multicast[port] = rx_multicast;
++
++		if (!enabled)
++			continue;
++
++		pps = div_u64(delta * 1000ULL, interval_ms);
++		if (pps >= pps_limit)
++			priv->storm_guard_block_until[port] =
++				now + msecs_to_jiffies(hold_ms);
++
++		if (time_before(now, priv->storm_guard_block_until[port]))
++			storm_mask |= BIT(port);
++	}
++
++	priv->storm_guard_primed = true;
++	priv->flood_storm_mask = enabled ? (storm_mask & YT921X_FILTER_PORTS_M) :
++					     0;
++	yt921x_apply_flood_filters_locked(priv);
++	mutex_unlock(&priv->reg_lock);
++
++	if (enabled)
++		schedule_delayed_work(&priv->storm_guard_work,
++				      msecs_to_jiffies(interval_ms));
 +}
 +
 +#define YT921X_PROC_TBL_MAX_WORDS	4
@@ -1357,12 +1439,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (!res)
 +			yt921x_proc_reply_append(
 +				priv,
-+				"flood mcast=0x%03x bcast=0x%03x base_mcast=0x%03x base_bcast=0x%03x\n",
++				"flood mcast=0x%03x bcast=0x%03x base_mcast=0x%03x base_bcast=0x%03x storm=0x%03x\n",
 +				mcast_mask & YT921X_FILTER_PORTS_M,
 +				bcast_mask & YT921X_FILTER_PORTS_M,
 +				priv->flood_mcast_base_mask &
 +					YT921X_FILTER_PORTS_M,
 +				priv->flood_bcast_base_mask &
++					YT921X_FILTER_PORTS_M,
++				priv->flood_storm_mask &
 +					YT921X_FILTER_PORTS_M);
 +		mutex_unlock(&priv->reg_lock);
 +		goto out;
@@ -1395,11 +1479,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (!res)
 +			yt921x_proc_reply_append(
 +				priv,
-+				"flood set %s=0x%03x -> mcast=0x%03x bcast=0x%03x\n",
++				"flood set %s=0x%03x -> mcast=0x%03x bcast=0x%03x (storm=0x%03x)\n",
 +				argv[1], mask,
 +				priv->flood_mcast_base_mask &
 +					YT921X_FILTER_PORTS_M,
 +				priv->flood_bcast_base_mask &
++					YT921X_FILTER_PORTS_M,
++				priv->flood_storm_mask &
 +					YT921X_FILTER_PORTS_M);
 +		mutex_unlock(&priv->reg_lock);
 +		goto out;
@@ -1428,6 +1514,75 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				break;
 +		}
 +		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "storm_guard")) {
++		if (argc == 1 || !strcmp(argv[1], "show")) {
++			mutex_lock(&priv->reg_lock);
++			yt921x_proc_reply_append(
++				priv,
++				"storm_guard en=%u pps=%u hold_ms=%u interval_ms=%u mask=0x%03x\n",
++				priv->storm_guard_enabled, priv->storm_guard_pps,
++				priv->storm_guard_hold_ms,
++				priv->storm_guard_interval_ms,
++				priv->flood_storm_mask &
++					YT921X_FILTER_PORTS_M);
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		if (!strcmp(argv[1], "set") && argc >= 6) {
++			u32 enable;
++			u32 pps;
++			u32 hold_ms;
++			u32 interval_ms;
++
++			res = yt921x_proc_parse_u32(argv[2], &enable);
++			if (res)
++				goto out;
++			res = yt921x_proc_parse_u32(argv[3], &pps);
++			if (res)
++				goto out;
++			res = yt921x_proc_parse_u32(argv[4], &hold_ms);
++			if (res)
++				goto out;
++			res = yt921x_proc_parse_u32(argv[5], &interval_ms);
++			if (res)
++				goto out;
++
++			if (!enable)
++				cancel_delayed_work_sync(&priv->storm_guard_work);
++
++			mutex_lock(&priv->reg_lock);
++			priv->storm_guard_enabled = !!enable;
++			priv->storm_guard_pps = max_t(u32, pps, 1);
++			priv->storm_guard_hold_ms = max_t(u32, hold_ms, 100);
++			priv->storm_guard_interval_ms = max_t(u32, interval_ms,
++							      100);
++			memset(priv->storm_guard_block_until, 0,
++			       sizeof(priv->storm_guard_block_until));
++			priv->storm_guard_primed = false;
++			priv->flood_storm_mask = 0;
++			res = yt921x_apply_flood_filters_locked(priv);
++			mutex_unlock(&priv->reg_lock);
++			if (res)
++				goto out;
++
++			if (enable)
++				mod_delayed_work(system_wq,
++						 &priv->storm_guard_work, 0);
++
++			yt921x_proc_reply_append(
++				priv,
++				"storm_guard set en=%u pps=%u hold_ms=%u interval_ms=%u\n",
++				!!enable, max_t(u32, pps, 1),
++				max_t(u32, hold_ms, 100),
++				max_t(u32, interval_ms, 100));
++			goto out;
++		}
++
++		res = -EINVAL;
 +		goto out;
 +	}
 +
@@ -5175,6 +5330,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	 */
 +	priv->flood_mcast_base_mask = BIT(10);
 +	priv->flood_bcast_base_mask = BIT(10);
++	priv->flood_storm_mask = 0;
 +	res = yt921x_apply_flood_filters_locked(priv);
 +	if (res)
 +		return res;
@@ -5431,6 +5587,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (!priv)
 +		return;
 +
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	cancel_delayed_work_sync(&priv->storm_guard_work);
++#endif
++
 +	dsa_switch_shutdown(&priv->ds);
 +}
 +
@@ -5446,6 +5606,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +		disable_delayed_work_sync(&pp->mib_read);
 +	}
++
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	cancel_delayed_work_sync(&priv->storm_guard_work);
++#endif
 +
 +	dsa_unregister_switch(&priv->ds);
 +
@@ -5500,6 +5664,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		INIT_DELAYED_WORK(&pp->mib_read, yt921x_poll_mib);
 +	}
 +
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	INIT_DELAYED_WORK(&priv->storm_guard_work, yt921x_storm_guard_workfn);
++	priv->storm_guard_enabled = false;
++	priv->storm_guard_primed = false;
++	priv->storm_guard_pps = YT921X_STORM_GUARD_DEFAULT_PPS;
++	priv->storm_guard_hold_ms = YT921X_STORM_GUARD_DEFAULT_HOLD_MS;
++	priv->storm_guard_interval_ms = YT921X_STORM_GUARD_DEFAULT_INTERVAL_MS;
++#endif
++
 +	ds = &priv->ds;
 +	ds->dev = dev;
 +	ds->assisted_learning_on_cpu_port = true;
@@ -5545,7 +5718,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,654 @@
+@@ -0,0 +1,664 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -6192,11 +6365,21 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	struct dentry *proc_cmd;
 +	char proc_reply[1024];
 +	size_t proc_reply_len;
++	struct delayed_work storm_guard_work;
++	bool storm_guard_enabled;
++	bool storm_guard_primed;
++	u32 storm_guard_pps;
++	u32 storm_guard_hold_ms;
++	u32 storm_guard_interval_ms;
++	unsigned long storm_guard_block_until[YT921X_PORT_NUM];
++	u64 storm_guard_last_rx_broadcast[YT921X_PORT_NUM];
++	u64 storm_guard_last_rx_multicast[YT921X_PORT_NUM];
 +#endif
 +
 +	u16 eee_ports_mask;
 +	u16 flood_mcast_base_mask;
 +	u16 flood_bcast_base_mask;
++	u16 flood_storm_mask;
 +};
 +
 +#endif
