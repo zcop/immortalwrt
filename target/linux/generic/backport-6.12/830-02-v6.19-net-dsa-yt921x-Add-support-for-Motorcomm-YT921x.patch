@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5332 @@
+@@ -0,0 +1,5406 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -343,6 +343,19 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +yt921x_reg_toggle_bits(struct yt921x_priv *priv, u32 reg, u32 mask, bool set)
 +{
 +	return yt921x_reg_update_bits(priv, reg, mask, !set ? 0 : mask);
++}
++
++static int yt921x_apply_flood_filters_locked(struct yt921x_priv *priv)
++{
++	u32 mcast_mask = priv->flood_mcast_base_mask & YT921X_FILTER_PORTS_M;
++	u32 bcast_mask = priv->flood_bcast_base_mask & YT921X_FILTER_PORTS_M;
++	int res;
++
++	res = yt921x_reg_write(priv, YT921X_FILTER_MCAST, mcast_mask);
++	if (res)
++		return res;
++
++	return yt921x_reg_write(priv, YT921X_FILTER_BCAST, bcast_mask);
 +}
 +
 +/* Some registers, like VLANn_CTRL, should always be written in 64-bit, even if
@@ -867,6 +880,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  tbl write <id> <index> <word> <val>\n"
 +				 "  field get <id> <index> <field>\n"
 +				 "  field set <id> <index> <field> <val>\n"
++				 "  get_flood_filter\n"
++				 "  set_flood_filter <mcast|bcast|both> <mask>\n"
 +				 "  mirror\n"
 +				 "  tbf [port]\n"
 +				 "  stock map <reg>\n"
@@ -1278,6 +1293,66 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	}
 +
 +	yt921x_proc_reply_reset(priv);
++
++	if (!strcmp(argv[0], "get_flood_filter") && argc == 1) {
++		u32 mcast_mask;
++		u32 bcast_mask;
++
++		mutex_lock(&priv->reg_lock);
++		res = yt921x_reg_read(priv, YT921X_FILTER_MCAST, &mcast_mask);
++		if (!res)
++			res = yt921x_reg_read(priv, YT921X_FILTER_BCAST,
++					      &bcast_mask);
++		if (!res)
++			yt921x_proc_reply_append(
++				priv,
++				"flood mcast=0x%03x bcast=0x%03x base_mcast=0x%03x base_bcast=0x%03x\n",
++				mcast_mask & YT921X_FILTER_PORTS_M,
++				bcast_mask & YT921X_FILTER_PORTS_M,
++				priv->flood_mcast_base_mask &
++					YT921X_FILTER_PORTS_M,
++				priv->flood_bcast_base_mask &
++					YT921X_FILTER_PORTS_M);
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "set_flood_filter") && argc >= 3) {
++		u32 mask;
++
++		res = yt921x_proc_parse_u32(argv[2], &mask);
++		if (res)
++			goto out;
++
++		mask &= YT921X_FILTER_PORTS_M;
++
++		mutex_lock(&priv->reg_lock);
++		if (!strcmp(argv[1], "mcast")) {
++			priv->flood_mcast_base_mask = mask;
++		} else if (!strcmp(argv[1], "bcast")) {
++			priv->flood_bcast_base_mask = mask;
++		} else if (!strcmp(argv[1], "both")) {
++			priv->flood_mcast_base_mask = mask;
++			priv->flood_bcast_base_mask = mask;
++		} else {
++			res = -EINVAL;
++		}
++
++		if (!res)
++			res = yt921x_apply_flood_filters_locked(priv);
++
++		if (!res)
++			yt921x_proc_reply_append(
++				priv,
++				"flood set %s=0x%03x -> mcast=0x%03x bcast=0x%03x\n",
++				argv[1], mask,
++				priv->flood_mcast_base_mask &
++					YT921X_FILTER_PORTS_M,
++				priv->flood_bcast_base_mask &
++					YT921X_FILTER_PORTS_M);
++		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
 +
 +	if (!strcmp(argv[0], "reg") && argc >= 3) {
 +		u32 reg;
@@ -5021,10 +5096,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* Keep stock-safe defaults for flood filters until semantics are fully
 +	 * mapped on YT9215.
 +	 */
-+	res = yt921x_reg_write(priv, YT921X_FILTER_MCAST, BIT(10));
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_FILTER_BCAST, BIT(10));
++	priv->flood_mcast_base_mask = BIT(10);
++	priv->flood_bcast_base_mask = BIT(10);
++	res = yt921x_apply_flood_filters_locked(priv);
 +	if (res)
 +		return res;
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -5394,7 +5468,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,652 @@
+@@ -0,0 +1,654 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -6044,6 +6118,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#endif
 +
 +	u16 eee_ports_mask;
++	u16 flood_mcast_base_mask;
++	u16 flood_bcast_base_mask;
 +};
 +
 +#endif
