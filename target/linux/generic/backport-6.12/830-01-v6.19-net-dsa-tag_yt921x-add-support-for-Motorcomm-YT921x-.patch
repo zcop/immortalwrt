@@ -15,8 +15,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  include/uapi/linux/if_ether.h |   1 +
  net/dsa/Kconfig               |   6 ++
  net/dsa/Makefile              |   1 +
- net/dsa/tag_yt921x.c          | 177 +++++++++++++++++++++++++++++++++++++++++
- 5 files changed, 187 insertions(+)
+ net/dsa/tag_yt921x.c          | 179 +++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 189 insertions(+)
  create mode 100644 net/dsa/tag_yt921x.c
 
 --- a/include/net/dsa.h
@@ -72,7 +72,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  CFLAGS_trace.o := -I$(src)
 --- /dev/null
 +++ b/net/dsa/tag_yt921x.c
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,179 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Motorcomm YT921x Switch Extended CPU Port Tagging
@@ -127,7 +127,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	if (dp->cpu_dp && dp->cpu_dp->index != 8) {
 +		/* Keep debug noise low: trace only WAN egress on secondary conduit. */
-+		if (port == 3 && net_ratelimit()) {
++		if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) &&
++		    port == 3 && net_ratelimit()) {
 +			netdev_info(netdev,
 +				    "YT_TX user=%u cpu_dp=%d conduit=%s len=%u\n",
 +				    port, dp->cpu_dp->index,
@@ -168,7 +169,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	tag = dsa_etype_header_pos_rx(skb);
 +
 +	/* Keep debug noise low: trace secondary conduit ingress only. */
-+	if (cpu_dp && cpu_dp->index != 8 && net_ratelimit()) {
++	if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) &&
++	    cpu_dp && cpu_dp->index != 8 && net_ratelimit()) {
 +		netdev_info(netdev,
 +			    "YT_RX ingress=%s cpu_dp=%d len=%u etype=0x%04x\n",
 +			    netdev->name, cpu_dp->index, skb->len,
