@@ -15,8 +15,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  include/uapi/linux/if_ether.h |   1 +
  net/dsa/Kconfig               |   6 ++
  net/dsa/Makefile              |   1 +
- net/dsa/tag_yt921x.c          | 141 ++++++++++++++++++++++++++++++++++
- 5 files changed, 151 insertions(+)
+ net/dsa/tag_yt921x.c          | 177 +++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 187 insertions(+)
  create mode 100644 net/dsa/tag_yt921x.c
 
 --- a/include/net/dsa.h
@@ -72,7 +72,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  CFLAGS_trace.o := -I$(src)
 --- /dev/null
 +++ b/net/dsa/tag_yt921x.c
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,177 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Motorcomm YT921x Switch Extended CPU Port Tagging
@@ -121,8 +121,22 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct dsa_port *dp = dsa_user_to_port(netdev);
 +	unsigned int port = dp->index;
++	struct net_device *conduit = dsa_port_to_conduit(dp);
 +	__be16 *tag;
 +	u16 tx;
++
++	if (dp->cpu_dp && dp->cpu_dp->index != 8) {
++		/* Keep debug noise low: trace only WAN egress on secondary conduit. */
++		if (port == 3 && net_ratelimit()) {
++			netdev_info(netdev,
++				    "YT_TX user=%u cpu_dp=%d conduit=%s len=%u\n",
++				    port, dp->cpu_dp->index,
++				    conduit ? conduit->name : "none", skb->len);
++		}
++
++		/* Secondary conduit sends raw frames (no YT tag). */
++		return skb;
++	}
 +
 +	skb_push(skb, YT921X_TAG_LEN);
 +	dsa_alloc_etype_header(skb, YT921X_TAG_LEN);
@@ -142,6 +156,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static struct sk_buff *
 +yt921x_tag_rcv(struct sk_buff *skb, struct net_device *netdev)
 +{
++	struct dsa_port *cpu_dp = netdev->dsa_ptr;
 +	unsigned int port;
 +	__be16 *tag;
 +	u16 cmd;
@@ -152,10 +167,31 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	tag = dsa_etype_header_pos_rx(skb);
 +
++	/* Keep debug noise low: trace secondary conduit ingress only. */
++	if (cpu_dp && cpu_dp->index != 8 && net_ratelimit()) {
++		netdev_info(netdev,
++			    "YT_RX ingress=%s cpu_dp=%d len=%u etype=0x%04x\n",
++			    netdev->name, cpu_dp->index, skb->len,
++			    ntohs(tag[0]));
++	}
++
 +	if (unlikely(tag[0] != htons(ETH_P_YT921X))) {
++		/* Secondary conduit receives plain Ethernet frames. */
++		if (cpu_dp && cpu_dp->index != 8) {
++			struct dsa_port *dp;
++
++			dsa_switch_for_each_user_port(dp, cpu_dp->ds) {
++				if (dsa_port_to_conduit(dp) == netdev) {
++					skb->dev = dp->user;
++					return skb;
++				}
++			}
++		}
++
 +		dev_warn_ratelimited(&netdev->dev,
-+				     "Unexpected EtherType 0x%04x\n",
-+				     ntohs(tag[0]));
++				     "Unexpected EtherType 0x%04x ingress=%s cpu_dp=%d\n",
++				     ntohs(tag[0]), netdev->name,
++				     cpu_dp ? cpu_dp->index : -1);
 +		return NULL;
 +	}
 +
