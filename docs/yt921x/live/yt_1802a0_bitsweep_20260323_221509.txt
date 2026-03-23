@@ -1,0 +1,534 @@
+# 0x1802a0 bit sweep 20260323_221509
+# fixed while sweeping: 0x1802a4=0x000006e0, 0x1802b4=0x000007ff, wan@eth0
+# goal: see if any 0x1802a0 variant changes ingress misroute symptom
+
+## Identity
+Linux ImmortalWrt 6.12.74 #0 SMP Fri Mar 20 21:38:26 2026 aarch64 GNU/Linux
+Sat Mar 21 04:13:26 GMT 2026
+7: wan@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000\    link/ether cc:d8:43:54:1c:79 brd ff:ff:ff:ff:ff:ff permaddr a4:a9:30:36:b4:28
+pi4
+Mon 23 Mar 22:15:10 +07 2026
+2: eth0    inet 172.16.9.1/24 brd 172.16.9.255 scope global noprefixroute eth0\       valid_lft forever preferred_lft forever
+2: eth0    inet 192.168.2.178/24 brd 192.168.2.255 scope global noprefixroute eth0\       valid_lft forever preferred_lft forever
+
+## Prepare baseline state
+7: wan@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+baseline_08000c=0x0000c004
+baseline_1802a0=0x000007ef
+baseline_1802a4=0x000006e0
+baseline_1802b4=0x000007ff
+baseline_1802b8=0x000006ef
+reg 0x1802a4 <= 0x000006e0
+reg 0x1802b4 <= 0x000007ff
+fixed_1802a4=0x000006e0
+fixed_1802b4=0x000007ff
+
+===== CASE 0x1802a0=0x000007ef =====
+write_result: reg 0x1802a0 <= 0x000007ef
+readback_1802a0=0x000007ef
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=1.111 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.529 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=0.522 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.522/0.720/1.111 ms
+pi_capture_counts: arp=4 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774278915.872646 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278915.872705 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774278915.872967 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7124, seq 0, length 64
+1774278915.873028 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7124, seq 0, length 64
+1774278916.873725 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7124, seq 1, length 64
+1774278916.873784 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7124, seq 1, length 64
+1774278917.874049 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7124, seq 2, length 64
+1774278917.874090 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7124, seq 2, length 64
+1774278920.877791 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+1774278921.901795 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+10 packets captured
+dmesg_case:
+[23718.130060] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23718.133866] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23719.165128] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23719.165457] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23720.166160] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23721.166480] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23721.200235] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23724.310078] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23724.310307] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23727.390032] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23727.390205] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23730.480021] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23730.480199] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000007ff =====
+write_result: reg 0x1802a0 <= 0x000007ff
+readback_1802a0=0x000007ff
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 0 packets received, 100% packet loss
+pi_capture_counts: arp=6 icmp=0
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774278930.242201 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278930.242247 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774278931.277840 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278931.277870 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774278932.321584 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278932.321616 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+
+6 packets captured
+6 packets received by filter
+0 packets dropped by kernel
+dmesg_case:
+[23733.534489] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23733.560190] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23734.570079] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23735.610063] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=42
+[23735.613850] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23736.680080] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23736.680252] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23739.760049] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23739.760225] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23742.840041] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23742.840215] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23745.960065] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23745.960240] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000007ee =====
+write_result: reg 0x1802a0 <= 0x000007ee
+readback_1802a0=0x000007ee
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=1.147 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.868 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=0.522 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.522/0.845/1.147 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774278945.658284 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278945.658323 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774278945.658477 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7168, seq 0, length 64
+1774278945.658515 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7168, seq 0, length 64
+1774278946.658582 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7168, seq 1, length 64
+1774278946.658639 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7168, seq 1, length 64
+1774278947.658915 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7168, seq 2, length 64
+1774278947.658970 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7168, seq 2, length 64
+1774278950.829784 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23748.950379] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23748.950572] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23749.950589] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23749.990126] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23750.950914] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23754.010070] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23754.014338] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23757.090047] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23757.090223] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23760.190027] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23760.190197] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000007ed =====
+write_result: reg 0x1802a0 <= 0x000007ed
+readback_1802a0=0x000007ed
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=0.994 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.517 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=18.282 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.517/6.597/18.282 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774278959.962283 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278959.962328 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774278959.962451 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7190, seq 0, length 64
+1774278959.962493 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7190, seq 0, length 64
+1774278960.962555 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7190, seq 1, length 64
+1774278960.962602 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7190, seq 1, length 64
+1774278961.966874 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7190, seq 2, length 64
+1774278961.966948 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7190, seq 2, length 64
+1774278965.165787 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23763.254144] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23763.254343] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23763.280166] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23764.254360] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23765.254832] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=98
+[23765.258658] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23766.330126] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23769.430132] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23772.510029] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23772.510212] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000007eb =====
+write_result: reg 0x1802a0 <= 0x000007eb
+readback_1802a0=0x000007eb
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=1.033 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.513 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=0.520 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.513/0.688/1.033 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774278974.252862 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278974.252902 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774278974.253033 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7212, seq 0, length 64
+1774278974.253075 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7212, seq 0, length 64
+1774278975.253144 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7212, seq 1, length 64
+1774278975.253179 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7212, seq 1, length 64
+1774278976.253690 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7212, seq 2, length 64
+1774278976.253729 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7212, seq 2, length 64
+1774278979.501783 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23777.544515] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23777.544752] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23778.544742] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23778.590157] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23779.545278] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23781.580064] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23781.583881] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23784.670039] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23784.670213] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23787.750043] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23787.750226] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000007e7 =====
+write_result: reg 0x1802a0 <= 0x000007e7
+readback_1802a0=0x000007e7
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=0.929 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=18.311 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=13.523 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.929/10.921/18.311 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774278988.502828 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774278988.502861 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774278988.503002 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7234, seq 0, length 64
+1774278988.503040 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7234, seq 0, length 64
+1774278989.507454 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7234, seq 1, length 64
+1774278989.507487 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7234, seq 1, length 64
+1774278990.522123 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7234, seq 2, length 64
+1774278990.522183 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7234, seq 2, length 64
+1774278993.581783 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23790.830156] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23791.794277] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23791.794471] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23792.795016] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=98
+[23792.798899] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23793.813320] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=98
+[23793.813495] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23793.870303] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23796.950120] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23800.050053] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23800.050219] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23803.130023] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23803.130194] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000007cf =====
+write_result: reg 0x1802a0 <= 0x000007cf
+readback_1802a0=0x000007cf
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=1.005 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.511 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=18.554 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.511/6.690/18.554 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774279003.013890 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774279003.013934 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774279003.014078 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7256, seq 0, length 64
+1774279003.014115 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7256, seq 0, length 64
+1774279004.014171 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7256, seq 1, length 64
+1774279004.014207 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7256, seq 1, length 64
+1774279005.018469 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7256, seq 2, length 64
+1774279005.018528 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7256, seq 2, length 64
+1774279008.173789 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23806.230280] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23806.305155] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23806.305350] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23807.305348] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23808.305817] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=98
+[23808.309622] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23809.360153] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23812.460119] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23815.560025] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23815.560200] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000007af =====
+write_result: reg 0x1802a0 <= 0x000007af
+readback_1802a0=0x000007af
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=1.022 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.524 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=0.511 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.511/0.685/1.022 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774279017.263003 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774279017.263050 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774279017.263172 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7278, seq 0, length 64
+1774279017.263216 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7278, seq 0, length 64
+1774279018.263266 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7278, seq 1, length 64
+1774279018.263300 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7278, seq 1, length 64
+1774279019.263850 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7278, seq 2, length 64
+1774279019.263915 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7278, seq 2, length 64
+1774279022.509794 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23820.554027] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23820.554231] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23821.554240] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23821.600134] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23822.554790] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23824.590045] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23824.593878] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23827.700021] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23827.700190] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23830.800032] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23830.800205] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x0000076f =====
+write_result: reg 0x1802a0 <= 0x0000076f
+readback_1802a0=0x0000076f
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=1.026 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=18.302 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=13.699 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 1.026/11.009/18.302 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774279031.683170 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774279031.683214 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774279031.683342 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7300, seq 0, length 64
+1774279031.683384 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7300, seq 0, length 64
+1774279032.687261 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7300, seq 1, length 64
+1774279032.687327 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7300, seq 1, length 64
+1774279033.701669 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7300, seq 2, length 64
+1774279033.701716 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7300, seq 2, length 64
+1774279036.845781 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23833.890122] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23834.973988] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23834.974202] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23835.050382] net eth1: Unexpected EtherType 0x86dd ingress=eth1 cpu_dp=8
+[23835.974182] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=98
+[23835.978054] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23836.992241] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=98
+[23836.992413] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23837.020070] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23837.044763] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23840.130154] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23843.210178] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23843.210407] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23846.300025] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23846.300199] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000006ef =====
+write_result: reg 0x1802a0 <= 0x000006ef
+readback_1802a0=0x000006ef
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=0.905 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.474 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=0.477 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.474/0.618/0.905 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774279045.963831 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774279045.963870 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774279045.964015 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7322, seq 0, length 64
+1774279045.964055 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7322, seq 0, length 64
+1774279046.964639 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7322, seq 1, length 64
+1774279046.964670 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7322, seq 1, length 64
+1774279047.965171 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7322, seq 2, length 64
+1774279047.965224 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7322, seq 2, length 64
+1774279051.181788 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23849.254436] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23849.254529] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23849.259972] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23849.266538] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23849.300264] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23850.255199] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23850.255318] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23851.255701] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23851.255798] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23852.300061] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23852.303875] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23854.472303] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23855.390048] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23855.390222] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23855.496280] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23856.520263] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23858.470032] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23858.470204] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000005ef =====
+write_result: reg 0x1802a0 <= 0x000005ef
+readback_1802a0=0x000005ef
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=21.625 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.467 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=0.463 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.463/7.518/21.625 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774279060.360895 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774279060.360943 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774279060.381683 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7344, seq 0, length 64
+1774279060.381723 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7344, seq 0, length 64
+1774279061.382325 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7344, seq 1, length 64
+1774279061.382365 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7344, seq 1, length 64
+1774279062.382840 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7344, seq 2, length 64
+1774279062.382915 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7344, seq 2, length 64
+1774279065.517789 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23863.651057] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=42
+[23863.651253] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23863.672179] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23864.672671] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23864.720169] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23865.673153] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23867.740144] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23870.820045] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23870.820221] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23873.970038] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23873.970224] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+===== CASE 0x1802a0=0x000003ef =====
+write_result: reg 0x1802a0 <= 0x000003ef
+readback_1802a0=0x000003ef
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=6.060 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.477 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=18.116 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.477/8.217/18.116 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774279074.507314 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774279074.507359 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774279074.507476 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7374, seq 0, length 64
+1774279074.507515 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7374, seq 0, length 64
+1774279075.507583 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7374, seq 1, length 64
+1774279075.507615 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7374, seq 1, length 64
+1774279076.511639 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7374, seq 2, length 64
+1774279076.511677 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7374, seq 2, length 64
+1774279079.597781 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+dmesg_case:
+[23877.060139] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23877.797499] net eth1: Unexpected EtherType 0x0806 ingress=eth1 cpu_dp=8
+[23877.797737] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23878.797780] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23879.797885] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=98
+[23879.801768] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23880.840151] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23883.930197] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+[23887.010046] yt921x 90000.mdio-1:1d wan: YT_TX user=3 cpu_dp=4 conduit=eth0 len=352
+[23887.010224] net eth1: Unexpected EtherType 0x0800 ingress=eth1 cpu_dp=8
+
+## Restore
+restored_eth0_1802a0=0x000007ef
+restored_eth0_1802a4=0x000006e0
+restored_eth0_1802b4=0x000007ff
+7: wan@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000\    link/ether cc:d8:43:54:1c:79 brd ff:ff:ff:ff:ff:ff permaddr a4:a9:30:36:b4:28
+final_08000c=0x0000c008
+final_1802a0=0x000006ff
+final_1802a4=0x000006e8
+final_1802b4=0x000007f7

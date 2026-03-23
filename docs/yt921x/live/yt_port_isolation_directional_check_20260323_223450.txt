@@ -1,0 +1,100 @@
+# Port isolation directional check 20260323_223450
+# register model: PORTn_ISOLATION = 0x180294 + 4*n
+# tested directions:
+# - port3 bit4 (reg 0x1802a0 bit4): block 3->4
+# - port4 bit3 (reg 0x1802a4 bit3): block 4->3
+
+## Prepare wan@eth0
+7: wan@eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000\    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff
+
+## Baseline registers
+reg_1802a0=0x000007ef
+reg_1802a4=0x000006e0
+reg_1802b4=0x000007ff
+
+===== CASE control_pass =====
+target_1802a0=0x000007ef target_1802a4=0x000006e0
+write_a0: reg 0x1802a0 <= 0x000007ef
+write_a4: reg 0x1802a4 <= 0x000006e0
+readback_1802a0=0x000007ef
+readback_1802a4=0x000006e0
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+64 bytes from 172.16.9.1: seq=0 ttl=64 time=1.028 ms
+64 bytes from 172.16.9.1: seq=1 ttl=64 time=0.522 ms
+64 bytes from 172.16.9.1: seq=2 ttl=64 time=0.528 ms
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.522/0.692/1.028 ms
+pi_capture_counts: arp=3 icmp=6
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774280095.788773 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774280095.788811 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774280095.788952 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7502, seq 0, length 64
+1774280095.788990 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7502, seq 0, length 64
+1774280096.789078 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7502, seq 1, length 64
+1774280096.789108 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7502, seq 1, length 64
+1774280097.789599 a4:a9:30:36:b4:28 > dc:a6:32:73:3a:4d, ethertype IPv4 (0x0800), length 98: 192.168.2.1 > 172.16.9.1: ICMP echo request, id 7502, seq 2, length 64
+1774280097.789614 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype IPv4 (0x0800), length 98: 172.16.9.1 > 192.168.2.1: ICMP echo reply, id 7502, seq 2, length 64
+1774280101.037785 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Request who-has 192.168.2.1 tell 192.168.2.178, length 28
+
+9 packets captured
+10 packets received by filter
+
+===== CASE p3_block_p4 =====
+target_1802a0=0x000007ff target_1802a4=0x000006e0
+write_a0: reg 0x1802a0 <= 0x000007ff
+write_a4: reg 0x1802a4 <= 0x000006e0
+readback_1802a0=0x000007ff
+readback_1802a4=0x000006e0
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 0 packets received, 100% packet loss
+pi_capture_counts: arp=6 icmp=0
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+1774280110.267252 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774280110.267291 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774280111.291941 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774280111.291971 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+1774280112.335715 a4:a9:30:36:b4:28 > ff:ff:ff:ff:ff:ff, ethertype ARP (0x0806), length 60: Request who-has 172.16.9.1 tell 192.168.2.1, length 46
+1774280112.335756 dc:a6:32:73:3a:4d > a4:a9:30:36:b4:28, ethertype ARP (0x0806), length 42: Reply 172.16.9.1 is-at dc:a6:32:73:3a:4d, length 28
+
+6 packets captured
+6 packets received by filter
+0 packets dropped by kernel
+
+===== CASE p4_block_p3 =====
+target_1802a0=0x000007ef target_1802a4=0x000006e8
+write_a0: reg 0x1802a0 <= 0x000007ef
+write_a4: reg 0x1802a4 <= 0x000006e8
+readback_1802a0=0x000007ef
+readback_1802a4=0x000006e8
+router_ping:
+PING 172.16.9.1 (172.16.9.1): 56 data bytes
+
+--- 172.16.9.1 ping statistics ---
+3 packets transmitted, 0 packets received, 100% packet loss
+pi_capture_counts: arp=0 icmp=0
+pi_capture_head:
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+
+0 packets captured
+0 packets received by filter
+0 packets dropped by kernel
+
+## Restore
+restored_eth0_1802a0=0x000007ef
+restored_eth0_1802a4=0x000006e0
+restored_eth0_1802b4=0x000007ff
+7: wan@eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000\    link/ether cc:d8:43:54:1c:79 brd ff:ff:ff:ff:ff:ff permaddr a4:a9:30:36:b4:28
+final_1802a0=0x000006ff
+final_1802a4=0x000006e8
+final_1802b4=0x000007f7
