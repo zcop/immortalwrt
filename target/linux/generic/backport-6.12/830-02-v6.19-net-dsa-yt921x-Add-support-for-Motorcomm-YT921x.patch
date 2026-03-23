@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5823 @@
+@@ -0,0 +1,5864 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -3705,6 +3705,29 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return cpu_dp->index;
 +}
 +
++static int
++yt921x_conduit_fdb_retarget(struct yt921x_priv *priv, int user_port,
++			    int old_cpu_port, int new_cpu_port)
++{
++	int res;
++
++	if (old_cpu_port == new_cpu_port)
++		return 0;
++
++	/* Conduit switch can leave stale static/dynamic CPU-directed entries.
++	 * Flush the moved user and both CPU ports so hardware relearns the path.
++	 */
++	res = yt921x_fdb_flush_port(priv, user_port, true);
++	if (res)
++		return res;
++
++	res = yt921x_fdb_flush_port(priv, old_cpu_port, true);
++	if (res)
++		return res;
++
++	return yt921x_fdb_flush_port(priv, new_cpu_port, true);
++}
++
 +static u32
 +yt921x_bridge_block_mask(struct yt921x_priv *priv, int port, u16 ports_mask,
 +			 u32 isolated_mask)
@@ -4913,6 +4936,22 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		res = yt921x_secondary_cpu_isolation_sync(priv, new_cpu_port);
 +	if (!res && new_cpu_port != old_cpu_port)
 +		res = yt921x_secondary_cpu_isolation_sync(priv, old_cpu_port);
++	if (!res)
++		res = yt921x_conduit_fdb_retarget(priv, port, old_cpu_port,
++						  new_cpu_port);
++	if (!res) {
++		res = yt921x_reg_update_bits(priv, YT921X_EXT_CPU_PORT,
++					     YT921X_EXT_CPU_PORT_PORT_M,
++					     YT921X_EXT_CPU_PORT_PORT(new_cpu_port));
++		if (!res) {
++			res = yt921x_reg_read(priv, YT921X_EXT_CPU_PORT, &val);
++			if (!res)
++				dev_info(ds->dev,
++					 "port%d conduit cpu%d->cpu%d ext_cpu=%lu\n",
++					 port, old_cpu_port, new_cpu_port,
++					 FIELD_GET(YT921X_EXT_CPU_PORT_PORT_M, val));
++		}
++	}
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -5457,7 +5496,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (!priv->cpu_ports_mask)
 +		return -EINVAL;
 +
-+	priv->primary_cpu_port = __ffs(priv->cpu_ports_mask);
++	if (priv->cpu_ports_mask & BIT(8))
++		priv->primary_cpu_port = 8;
++	else
++		priv->primary_cpu_port = __ffs(priv->cpu_ports_mask);
 +	cpu_ports_mask = priv->cpu_ports_mask & ~BIT(priv->primary_cpu_port);
 +	if (cpu_ports_mask)
 +		priv->secondary_cpu_port = __ffs(cpu_ports_mask);
@@ -5523,7 +5565,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	cpu_ports_mask = priv->cpu_ports_mask;
 +	for_each_set_bit(port, &cpu_ports_mask, YT921X_PORT_NUM) {
 +		ctrl &= ~YT921X_ACT_UNK_ACTn_M(port);
-+		ctrl |= YT921X_ACT_UNK_ACTn_DROP(port);
++		ctrl |= yt921x_is_primary_cpu_port(priv, port) ?
++			YT921X_ACT_UNK_ACTn_DROP(port) :
++			YT921X_ACT_UNK_ACTn_FORWARD(port);
 +	}
 +	res = yt921x_reg_write(priv, YT921X_ACT_UNK_UCAST, ctrl);
 +	if (res)

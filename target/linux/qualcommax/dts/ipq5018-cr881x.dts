@@ -18,7 +18,8 @@
 
 		label-mac-device = &dp1;
 
-		ethernet0 = &dp2;
+		ethernet0 = &dp1;
+		ethernet1 = &dp2;
 
 		led-boot = &led_system_blue;
 		led-failsafe = &led_system_red;
@@ -406,25 +407,16 @@
 
 &dp1 {
 	status = "okay";
-	phy-mode = "sgmii";
-	/delete-property/ phy-handle;
-	/delete-property/ mdiobus;
-	/delete-property/ qcom,phy-mdio-addr;
-	/delete-property/ qcom,link-poll;
+	phy-mode = "internal";
+	phy-handle = <&ge_phy>;
 
 	nvmem-cells = <&mac_addr_dp1 0>;
 	nvmem-cell-names = "mac-address";
-
-	fixed-link {
-		speed = <1000>;
-		full-duplex;
-		pause;
-		asym-pause;
-	};
 };
 
 &dp2 {
 	status = "okay";
+	phy-mode = "sgmii";
 
 	nvmem-cells = <&mac_addr_dp2 0>;
 	nvmem-cell-names = "mac-address";
@@ -531,12 +523,18 @@
 				phy-handle = <&sw_phy3>;
 			};
 
-			// MAC4 -> Phy4 -> IPQ5018 GE Phy (unused in DSA)
+			// MAC4 -> Phy4 -> IPQ5018 GE Phy (CPU: eth0 WAN conduit)
 			port@4 {
 				reg = <4>;
 				label = "cpu";
 				phy-mode = "internal";
-				phy-handle = <&sw_phy4>;
+				ethernet = <&dp1>;
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+					pause;
+					asym-pause;
+				};
 			};
 
 			// MAC8 ---SGMII---> IPQ5018 MAC1 (CPU: eth1)
@@ -552,18 +550,6 @@
 				};
 			};
 
-			// MAC9 ---SGMII---> IPQ5018 MAC0 (CPU: eth0 WAN conduit)
-			port@9 {
-				reg = <9>;
-				phy-mode = "sgmii";
-				ethernet = <&dp1>;
-				fixed-link {
-					speed = <1000>;
-					full-duplex;
-					pause;
-					asym-pause;
-				};
-			};
 		};
 	};
 };
