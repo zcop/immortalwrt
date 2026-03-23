@@ -1,6 +1,6 @@
 # YT9215 Register Map Changelog
 
-## 2026-03-20: Dual-conduit isolation symmetry validation (`wan` eth1 <-> eth0)
+## 2026-03-23: Dual-conduit isolation validation after CR881x port4 remap (`wan` eth1 <-> eth0)
 
 Runtime context:
 - dual-uplink `yt921x` conduit switching enabled (`port_change_conduit` path)
@@ -8,21 +8,22 @@ Runtime context:
   CPU conduits
 
 What was confirmed:
-- `EXT_CPU_PORT` (`0x08000c`) remains a single primary tagged CPU-port selector
-  (`...008` on this board); secondary conduit forwarding depends on plain
-  Ethernet path plus `PORTn_ISOLATION`.
-- switching `wan` (port 3) to secondary conduit requires symmetric isolation:
-  both `port3 -> port9` and `port9 -> port3` must be allowed.
+- `EXT_CPU_PORT` (`0x08000c`) remains a single primary tagged CPU-port selector.
+  On this board/runtime it switches between:
+  - `0x0000c008` for primary conduit (`wan@eth1`)
+  - `0x0000c004` for secondary conduit (`wan@eth0`)
+- after the CR881x DTS remap (`cpu8 <-> cpu4` secondary path), switching `wan`
+  to secondary conduit requires symmetric isolation between `port3` and `port4`.
 
 Observed signatures:
-- `wan@eth1` (primary): `0x1802a0=0x000006ff`, `0x1802b8=0x000004ff`
-- `wan@eth0` (secondary): `0x1802a0=0x000005ff`, `0x1802b8=0x000004f7`
+- `wan@eth1` (primary): `0x1802a0=0x000006ff`, `0x1802b8=0x000006ef`,
+  `0x08000c=0x0000c008`
+- `wan@eth0` (secondary): `0x1802a0=0x000007ef`, `0x1802b8=0x000006ef`,
+  `0x08000c=0x0000c004`
 
-Failure mode decoded:
-- asymmetric state (`0x1802a0` already allowing port 9, but `0x1802b8` still
-  blocking bit3) produced ARP incomplete / ping loss on `wan@eth0`.
-- clearing CPU-port return-path bit (`0x1802b8: ...4ff -> ...4f7`) restored WAN
-  reachability on secondary conduit.
+Traffic validation:
+- Pi capture on upstream (`172.16.9.1`) observed ARP request/reply and ICMP
+  echo request/reply while `wan` was on `eth0`, confirming bidirectional path.
 
 ## 2026-03-19: UART-safe low-bit sweeps on `0x80014`/`0x80004`
 
