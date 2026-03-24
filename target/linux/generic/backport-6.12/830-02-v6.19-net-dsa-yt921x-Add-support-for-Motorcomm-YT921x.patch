@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6028 @@
+@@ -0,0 +1,6036 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -5736,6 +5736,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "unk-action");
++#endif
++
++	/* Reset mirror engine to known state; firmware can leave stale bits. */
++	res = yt921x_reg_write(priv, YT921X_MIRROR, 0);
++	if (res)
++		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mirror-reset");
 +#endif
 +
 +	/* Tagged VID 0 should be treated as untagged, which confuses the
