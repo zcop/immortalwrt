@@ -39,6 +39,26 @@ Primary data:
 - `docs/yt921x/live/yt_80004_lowbit_stage2_20260319_130318.txt`
 - `docs/yt921x/live/yt_18028c_blackhole_probe_20260319_110516.txt`
 - `docs/yt921x/live/yt_180510_180514_probe_20260319_111723.txt`
+- `docs/yt921x/live/yt_180310_bit_coupling_probe_20260324_154311.txt`
+- `docs/yt921x/live/yt_180314_bit_coupling_probe_20260324_154902.txt`
+- `docs/yt921x/live/yt_180318_bit_coupling_probe_20260324_155116.txt`
+- `docs/yt921x/live/yt_18031c_bit_coupling_probe_20260324_161111.txt`
+- `docs/yt921x/live/yt_180320_bit_coupling_probe_20260324_091453.txt`
+- `docs/yt921x/live/yt_180324_bit_coupling_probe_20260324_091516.txt`
+- `docs/yt921x/live/yt_180328_bit_coupling_probe_20260324_091712.txt`
+- `docs/yt921x/live/yt_18032c_bit_coupling_probe_20260324_091713.txt`
+- `docs/yt921x/live/yt_180330_bit_coupling_probe_20260324_091714.txt`
+- `docs/yt921x/live/yt_180334_bit_coupling_probe_20260324_091715.txt`
+- `docs/yt921x/live/yt_vlan_membership_probe_wan_vid10_20260324_161032.txt`
+- `docs/yt921x/live/yt_vlan_filtering_probe_wan_vid10_20260324_161244.txt`
+- `docs/yt921x/live/yt_gated_window_recheck_80014_bit0_20260324_154715.txt`
+- `docs/yt921x/live/yt_gate_candidate_18028c_1803cc_probe_20260324_092049.txt`
+- `docs/yt921x/live/yt_80004_combo_gate_probe_bits8_10_11_12_20260324_092541.txt`
+- `docs/yt921x/live/yt_vlan_ctrl_decode_probe_wan_vid10_20260324_092626.txt`
+- `docs/yt921x/live/yt_vlan_vtu_stride_pvid_probe_fix_20260324_093111.txt`
+- `docs/yt921x/live/yt_pvid_field_sensitivity_wan_v2_20260324_093322.txt`
+- `docs/yt921x/live/yt_tbf_tc_offload_probe_wan_20260324_094055.txt`
+- `docs/yt921x/live/yt_multicast_mdb_probe_snoop_on_20260324_094305.txt`
 - `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
 - Driver symbols in `target/linux/generic/backport-6.12/830-02-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch`
 - UART transition run:
@@ -95,7 +115,7 @@ Confidence key:
 | `0x080008` | `YT921X_CHIP_ID` | `0x90020001` | chip ID register valid | High |
 | `0x08000c` | `YT921X_EXT_CPU_PORT` | `0x0000c008` | single tagged CPU-port selector (`TAG_EN=1`, `PORT_EN=1`, primary CPU port=`8`); secondary CPU conduit uses plain Ethernet path (no YT tag) | High |
 | `0x080010` | `YT921X_CPU_TAG_TPID` | `0x00009988` | default Motorcomm CPU tag TPID | High |
-| `0x080004` | `YT921X_FUNC` | `0x0000080b` (baseline) | low-bit sweep: bits `23..13` ignored, bit `12` latches, bits `11/10/8` latch, bits `9/7/6` ignored; toggling bit `5` drives `0xdeaddead` readback and management-plane collapse until reboot | High |
+| `0x080004` | `YT921X_FUNC` | `0x0000080b` (baseline) | low-bit sweep: bits `23..13` ignored, bit `12` latches, bits `11/10/8` latch, bits `9/7/6` ignored; toggling bit `5` drives `0xdeaddead` readback and management-plane collapse until reboot; safe combo sweep of bits `{8,10,11,12}` did not unlock gated windows | High |
 | `0x080014` | `YT921X_PVID_SEL` | `0x00000000` (baseline) | low-bit sweep: bits `15..11` ignored; bits `10..0` latch and restore; no gated-window opening observed | High |
 | `0x080028` | `YT921X_SERDES_CTRL` | `0x00000041` | serdes global control bits set | Medium |
 | `0x080388` | `YT921X_CHIP_MODE` | `0x00000002` | chip mode profile is non-zero active mode | High |
@@ -106,19 +126,27 @@ Confidence key:
 | `0x080368` | `YT921X_MDIO_POLLINGn(9)` | `0x00000012` | link=`0`, full duplex=`1`, speed code=`2` | High |
 | `0x06a004` | `YT921X_EXT_MBUS_CTRL` | `0x00000900` | ext MBUS last command encoding (volatile latch) | High |
 | `0x0f0004` | `YT921X_INT_MBUS_CTRL` | `0x006a0908` | int MBUS last command encoding (volatile latch) | High |
-| `0x354000` | `YT921X_PSCH_SHPn_EBS_EIR(0)` | write-proven | shaper tuple for port 0 (`EIR[17:0]`, `EBS[31:18]`) | High |
-| `0x354004` | `YT921X_PSCH_SHPn_CTRL(0)` | write-proven | shaper control (`EN`,`DUAL_RATE`,`METER_ID`) | High |
-| `0x354008-0x354024` | `YT921X_PSCH_SHPn_* (1..4)` | write-proven | same layout for ports 1..4 (stride 8 bytes/port) | High |
-| `0x180280` | `YT921X_VLAN_IGR_FILTER` | `0x00000000` | no explicit bypass bits set | Medium |
+| `0x354000` | `YT921X_PSCH_SHPn_EBS_EIR(0)` | tc-validated | shaper tuple for port 0 (`EIR[17:0]`, `EBS[31:18]`) | High |
+| `0x354004` | `YT921X_PSCH_SHPn_CTRL(0)` | tc-validated | shaper control (`EN`,`DUAL_RATE`,`METER_ID`) | High |
+| `0x354008-0x354024` | `YT921X_PSCH_SHPn_* (1..4)` | tc-validated | same layout for ports 1..4 (stride 8 bytes/port); live `tc tbf` offload on `wan` (port3) mapped to `0x354018/0x35401c` with expected EIR/EBS scaling | High |
+| `0x180280` | `YT921X_VLAN_IGR_FILTER` | dynamic (`0x00000000` / `0x0000000f`) | with `bridge vlan_filtering=0` readback is `0x00000000`; enabling `vlan_filtering=1` toggles low nibble to `0x0000000f` and returns to `0x00000000` when disabled | Medium |
+| `0x188050` | `YT921X_VLANn_CTRL(10)` word0 | dynamic (`0x00000000` / `0x00000c80`) | VID10 tagged-membership word toggles when adding/removing VID10 on `wan` + `lan1` (+ `br-lan self`) | High |
+| `0x188054` | `YT921X_VLANn_CTRL(10)` word1 | dynamic (`0x00000000` / `0x00000100`) | toggles when `lan1` on VID10 flips tagged -> untagged, consistent with egress-untag mask bits | High |
+| `0x188058` | `YT921X_VLANn_CTRL(11)` word0 | dynamic (`0x00000000` / `0x00000c00`) | VID11 table word toggles on VID11 add/remove; confirms 8-byte VTU stride (`VID10@0x188050`, `VID11@0x188058`) | High |
+| `0x230010-0x23001c` | `YT921X_PORTn_VLAN_CTRL(0..3)` | dynamic (`0xc007ffc0` / `0xc0040040`) | flips to `0xc0040040` when `br-lan vlan_filtering=1` and restores on disable; confirms active per-port VLAN mode control coupling | High |
+| `0x23001c` | `YT921X_PORTn_VLAN_CTRL(3)` (WAN in this mapping) | dynamic | WAN PVID sensitivity maps as `PVID << 6` in this word (`20->0x0500`, `21->0x0540`, `30->0x0780`, `100->0x1900`) | High |
+| `0x230080-0x2300a8` | `YT921X_PORTn_VLAN_CTRL1(0..10)` | `0x00000000` (sampled) | remained zero across the `vlan_filtering` and VID10 add/del probe sequence | Medium |
 | `0x180294-0x1802bc` | `YT921X_PORTn_ISOLATION(n=0..10)` | dynamic | directional per-source destination block mask (`bit d` blocks `src n -> dst d`) used by bridge/conduit steering; low 11 bits are active while unrelated upper bits are preserved | High |
-| `0x18028c` | unknown (portmask-like, pre-`PORTn_ISOLATION`) | `0x000007ff` | writable (`0x7ff <-> 0x0`); single-host LAN->router probe (`192.168.2.100 -> 192.168.2.1`) showed 0% ICMP loss, so no global kill-switch behavior observed in that path | Medium |
-| `0x18030c-0x180334` | unknown writable table (11 words) | baseline `0x00000000` | each word is writable with mask `0x000007ff`; values persist across bridge-membership toggles; post-flash TCP/ARP/multicast + FDB snapshots stayed stable across phase toggles | Medium |
-| `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
+| `0x18028c` | unknown (portmask-like, pre-`PORTn_ISOLATION`) | `0x000007ff` | writable (`0x7ff <-> 0x0`); single-host LAN->router probe (`192.168.2.100 -> 192.168.2.1`) showed 0% ICMP loss, and one-hot gate-candidate sweeps did not unlock `0xdeadbeef` windows | Medium |
+| `0x18030c-0x180334` | unknown writable table (11 words) | baseline `0x00000000` | each word is writable with mask `0x000007ff`; values persist across bridge-membership toggles; per-word bit-coupling sweeps (`0x180310..0x180334`) showed no immediate deltas in sampled isolation/STP/learn words | Medium |
+| `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline; one-hot gate-candidate sweeps did not unlock `0xdeadbeef` windows | Low |
+| `0x180734` | `YT921X_ACT_UNK_UCAST` | `0x00020000` | unknown-unicast action profile; static MDB add/del probe showed no direct delta | High |
+| `0x180738` | `YT921X_ACT_UNK_MCAST` | `0x00020000` | unknown-multicast action profile; static MDB add/del probe showed no direct delta | High |
 | `0x18038c` | `YT921X_STPn(0)` | `0x000300f3` (earlier), `0x003cfc0c` (post-build flash) | active STP instance 0 per-port state word; bridge membership/state changes update low-byte fields in-place: `lan2` `[3:2]` (`0x...0c -> 0x...00` when removed), `lan3` `[5:4]` (`0x...0c -> 0x...3c` on re-add), `wan` `[7:6]` (`0x...3c -> 0x...fc` on add) | High |
 | `0x180390` | `YT921X_STPn(1)` | `0x00000000` | inactive STP instance bank default; direct write/readback verified (`0 -> 0x3 -> 0`) | High |
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
-| `0x180510` | `YT921X_FILTER_MCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400` | High |
-| `0x180514` | `YT921X_FILTER_BCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400` | High |
+| `0x180510` | `YT921X_FILTER_MCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400`; static MDB add/del test showed no direct delta here | High |
+| `0x180514` | `YT921X_FILTER_BCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400`; static MDB add/del test showed no direct delta here | High |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
 | `0x180454` | `YT921X_FDB_IN0` | `0xccd84354` | active FDB input/result window | Medium |
 | `0x180458` | `YT921X_FDB_IN1` | `0x70011c7a` | active FDB input/result window | Medium |
@@ -303,6 +331,10 @@ Additional gated-window behavior (live probes):
     - `docs/yt921x/live/yt_80014_lowbit_stage2_20260319_130132.txt`
     - `docs/yt921x/live/yt_80004_lowbit_stage1_20260319_130230.txt`
     - `docs/yt921x/live/yt_80004_lowbit_stage2_20260319_130318.txt`
+- direct gate-candidate sweeps on `0x18028c` and `0x1803cc` (`0x0`, `0x7ff`,
+  one-hot `bit0..bit10`) did not change sampled gated words
+  (`0x1802c0/0x1802c4/0x1802f0/0x180304`, `0x180338/0x18033c/0x180368/0x180388`);
+  all remained `0xdeadbeef`.
 
 Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
 - `0x18030c-0x180334` is writable and masked:
@@ -324,6 +356,12 @@ Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
     with no observable outage in this workload.
   - post-flash mixed workload probes (`tcp+arp+icmp+mcast` and neighbor churn)
     still showed no phase-correlated deltas in known active control words.
+  - per-word bit-coupling probes now cover `0x180310`, `0x180314`, `0x180318`,
+    `0x18031c`, `0x180320`, `0x180324`, `0x180328`, `0x18032c`, `0x180330`,
+    and `0x180334`; all accepted one-hot writes (`bit0..bit10`) with stable
+    readback and no immediate deltas in sampled active words
+    (`0x180294/0x180298/0x18029c/0x1802a0/0x1802a4/0x1802b4/0x1802b8`,
+    `0x18038c`, `0x1803d0/0x1803d4/0x1803d8`).
   - bridge-FDB instrumentation showed stable learning state across all phases:
     `fdb_total=22`, target host MAC remained on `lan1` (master `br-lan`) with
     unchanged `self` entry, while table words toggled `0x000 <-> 0x7ff`.
@@ -361,11 +399,37 @@ Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
     also be unblocked (current mapping uses cpu port 4) or return traffic
     blackholes.
   - `0x1803d8` (`PORTn_LEARN(2)`) toggled with `lan3` bridge membership (`0x00000000 <-> 0x00020000`).
+  - VLAN decode probe (`vlan_filtering` + `wan` VID10):
+    - `0x180280` toggled `0x00000000 <-> 0x0000000f` with
+      `br-lan vlan_filtering 0/1`.
+    - `0x188050` (`VLANn_CTRL(10)` word0) toggled
+      `0x00000000 <-> 0x00000c80` when VID10 membership changed.
+    - `0x188054` (`VLANn_CTRL(10)` word1) toggled
+      `0x00000000 <-> 0x00000100` when `lan1` on VID10 changed from tagged to
+      untagged.
+    - `0x188058` (`VLANn_CTRL(11)` word0) toggled
+      `0x00000000 <-> 0x00000c00` on VID11 add/remove, confirming 8-byte VTU
+      stride.
+    - `0x230010..0x23001c` (`PORTn_VLAN_CTRL(0..3)`) toggled
+      `0xc007ffc0 <-> 0xc0040040` with `vlan_filtering` state.
+    - WAN PVID sensitivity on `0x23001c` followed `PVID << 6` exactly for
+      test set `{20,21,30,100}`.
 - Do not classify these as `0xdeadbeef` gated windows; they are accessible and mostly policy/state coupled.
 
 ## Focused Probe Plan For Remaining Unknowns
 Goal: decode semantics of the writable `0x18030c..0x180334` mask table and find
 what gate controls expose `0x1802c0..0x180308` and `0x180338..0x180388`.
+
+Current status:
+- bit-coupling coverage is now complete for `0x180310..0x180334` under the
+  current runtime model, with no immediate coupling into sampled active policy
+  words.
+- VLAN membership + `vlan_filtering` toggles identified deterministic control
+  deltas in VTU/filter/per-port blocks: `0x180280`,
+  `0x188050/0x188054/0x188058`, and `0x230010..0x23001c`.
+- `0x080004` safe combo sweep across bits `{8,10,11,12}` did not unlock
+  `0xdeadbeef` windows.
+- remaining high-value unknown is gated-window unlock control.
 
 Recommended sequence (debug build, UART shell):
 1. Snapshot baseline:
@@ -405,3 +469,8 @@ Layout (per port `p`, stride `0x8`):
 Status:
 - This block is not just symbolic: it is live write/readback verified on CR881x.
 - Driver `port_setup_tc(TBF)` currently programs this window for hardware rate-limit offload.
+- Live `tc tbf` validation on `wan` confirms deterministic scaling on port3:
+  - `10mbit/32k` -> `eir=15480`, `ebs=512`, raw `0x354018=0x08003c78`
+  - `50mbit/64k` -> `eir=76880`, `ebs=1024`, raw `0x354018=0x10012c50`
+- Teardown note: `EN` bit clears on qdisc delete (`0x35401c=0x0`), while
+  `EIR/EBS` payload retention was observed in this run (`0x354018` preserved).

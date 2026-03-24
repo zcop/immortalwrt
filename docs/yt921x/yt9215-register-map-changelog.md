@@ -1,5 +1,105 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-24: Unknown-table expansion (`0x180310..0x180334`) + VLAN ingress filter delta
+
+Captures:
+- `docs/yt921x/live/yt_180310_bit_coupling_probe_20260324_154311.txt`
+- `docs/yt921x/live/yt_180314_bit_coupling_probe_20260324_154902.txt`
+- `docs/yt921x/live/yt_180318_bit_coupling_probe_20260324_155116.txt`
+- `docs/yt921x/live/yt_18031c_bit_coupling_probe_20260324_161111.txt`
+- `docs/yt921x/live/yt_180320_bit_coupling_probe_20260324_091453.txt`
+- `docs/yt921x/live/yt_180324_bit_coupling_probe_20260324_091516.txt`
+- `docs/yt921x/live/yt_180328_bit_coupling_probe_20260324_091712.txt`
+- `docs/yt921x/live/yt_18032c_bit_coupling_probe_20260324_091713.txt`
+- `docs/yt921x/live/yt_180330_bit_coupling_probe_20260324_091714.txt`
+- `docs/yt921x/live/yt_180334_bit_coupling_probe_20260324_091715.txt`
+- `docs/yt921x/live/yt_gated_window_recheck_80014_bit0_20260324_154715.txt`
+- `docs/yt921x/live/yt_gate_candidate_18028c_1803cc_probe_20260324_092049.txt`
+- `docs/yt921x/live/yt_80004_combo_gate_probe_bits8_10_11_12_20260324_092541.txt`
+- `docs/yt921x/live/yt_vlan_membership_probe_wan_vid10_20260324_161032.txt`
+- `docs/yt921x/live/yt_vlan_filtering_probe_wan_vid10_20260324_161244.txt`
+- `docs/yt921x/live/yt_vlan_ctrl_decode_probe_wan_vid10_20260324_092626.txt`
+- `docs/yt921x/live/yt_vlan_vtu_stride_pvid_probe_fix_20260324_093111.txt`
+- `docs/yt921x/live/yt_pvid_field_sensitivity_wan_v2_20260324_093322.txt`
+
+What was confirmed:
+- unknown writable table words `0x180310..0x180334` all accepted one-hot writes
+  (`bit0..bit10`) and restored cleanly.
+- during those sweeps, sampled active policy words stayed constant:
+  - isolation: `0x180294=0x7e1`, `0x180298=0x7e2`, `0x18029c=0x7e4`,
+    `0x1802a0=0x7e8`, `0x1802a4=0x6e0`, `0x1802b4=0x7ff`, `0x1802b8=0x6ef`
+  - STP/learning: `0x18038c=0x003cfc30`, `0x1803d0=0x0`, `0x1803d4=0x0`,
+    `0x1803d8=0x00020000`
+- safe recheck of gate candidate `0x080014` bit0 still did not unlock gated
+  windows (`0x1802c0..0x180308`, `0x180338..0x180388` remained `0xdeadbeef`).
+- direct sweeps of gate candidates `0x18028c` and `0x1803cc` (`0x0`, `0x7ff`,
+  one-hot `bit0..bit10`) also left sampled gated words unchanged at
+  `0xdeadbeef`.
+- safe combo sweep of `0x080004` bits `{8,10,11,12}` (all 16 combinations)
+  also left sampled gated words unchanged at `0xdeadbeef`.
+- VLAN tests:
+  - membership-only add/del (`bridge vlan_filtering=0`) did not move sampled
+    hardware words.
+  - enabling `bridge vlan_filtering=1` toggled `0x180280` from `0x00000000` to
+    `0x0000000f`, and disabling filtering returned it to `0x00000000`.
+  - focused VLAN control decode showed:
+    - `0x188050` (`VLANn_CTRL(10)` word0) toggles
+      `0x00000000 <-> 0x00000c80` with VID10 membership changes
+    - `0x188054` (`VLANn_CTRL(10)` word1) toggles
+      `0x00000000 <-> 0x00000100` when `lan1` on VID10 flips tagged -> untagged
+    - `0x188058` (`VLANn_CTRL(11)` word0) toggles
+      `0x00000000 <-> 0x00000c00` on VID11 add/del, confirming 8-byte VTU stride
+    - `0x230010..0x23001c` (`PORTn_VLAN_CTRL(0..3)`) toggles
+      `0xc007ffc0 <-> 0xc0040040` with `vlan_filtering`
+    - WAN PVID field sensitivity on `0x23001c` follows `PVID << 6` for
+      probes `{20,21,30,100}`
+
+Interpretation update:
+- `0x18030c..0x180334` currently behaves as writable masked state without
+  immediate coupling to sampled L2 forwarding/isolation/STP words in this
+  runtime model.
+- `0x180280` now has a deterministic software-coupled transition tied to Linux
+  bridge `vlan_filtering`.
+- active VLAN control coupling is now confirmed in both VID table and per-port
+  control blocks (`0x188050/0x188054/0x188058`, `0x230010..0x23001c`).
+- gated-window unlock control remains unresolved; `0x080014 bit0` is ruled out
+  as a direct unlock in this runtime, and safe `0x080004` bit-combo sweeps are
+  also ruled out.
+
+## 2026-03-24: QoS TBF offload stress + multicast MDB path check
+
+Captures:
+- `docs/yt921x/live/yt_tbf_tc_offload_probe_wan_20260324_094055.txt`
+- `docs/yt921x/live/yt_multicast_mdb_probe_20260324_094150.txt`
+- `docs/yt921x/live/yt_multicast_mdb_probe_vid1_20260324_094214.txt`
+- `docs/yt921x/live/yt_multicast_mdb_probe_snoop_on_20260324_094305.txt`
+
+What was confirmed:
+- `tc tbf` offload path is active on `wan`:
+  - qdisc reports `offloaded`
+  - port3 PSCH slot (`0x354018/0x35401c`) updates with expected EIR/EBS scaling
+    for `10mbit/32k` and `50mbit/64k` profiles.
+- after qdisc delete:
+  - shaper `EN` bit clears (`0x35401c=0`)
+  - `EIR/EBS` payload retention was observed (`0x354018` kept last programmed
+    value in this run).
+- multicast MDB path:
+  - with `multicast_snooping=0`, `bridge mdb add` is rejected (`EINVAL`)
+  - with `multicast_snooping=1`, static MDB add succeeds and shows `offload`
+  - sampled multicast-related regs (`0x180510`, `0x180514`, `0x180734`,
+    `0x180738`) did not change during that static MDB add/del sequence.
+
+Interpretation update:
+- QoS/TBF offload datapath is functionally validated on live hardware.
+- MDB offload is operational when bridge snooping is enabled.
+- Immediate multicast policy coupling is not through the sampled flood/action
+  words above; likely maintained in other tables/paths.
+
+Driver follow-up:
+- `yt921x_tbf_del()` teardown path was hardened to hard-clear both PSCH words
+  (`SHPn_CTRL` and `SHPn_EBS_EIR`) via direct writes to avoid stale EIR/EBS
+  retention across qdisc recreate cycles.
+
 ## 2026-03-23: Dual-conduit isolation validation after CR881x port4 remap (`wan` eth1 <-> eth0)
 
 Runtime context:
