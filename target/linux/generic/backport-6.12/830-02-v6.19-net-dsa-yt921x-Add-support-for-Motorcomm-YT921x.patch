@@ -20,9 +20,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 ---
  drivers/net/dsa/Kconfig  |   14 +
  drivers/net/dsa/Makefile |    1 +
- drivers/net/dsa/yt921x.c | 3761 ++++++++++++++++++++++++++++++++++++++++++++++
+ drivers/net/dsa/yt921x.c | 3770 ++++++++++++++++++++++++++++++++++++++++++++++
  drivers/net/dsa/yt921x.h |  520 +++++++
- 4 files changed, 4296 insertions(+)
+ 4 files changed, 4305 insertions(+)
  create mode 100644 drivers/net/dsa/yt921x.c
  create mode 100644 drivers/net/dsa/yt921x.h
 
@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5864 @@
+@@ -0,0 +1,5882 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -1095,7 +1095,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			priv->storm_guard_block_until[port] =
 +				now + msecs_to_jiffies(hold_ms);
 +
-+		if (time_before(now, priv->storm_guard_block_until[port]))
++		if (priv->storm_guard_block_until[port] &&
++		    time_before(now, priv->storm_guard_block_until[port]))
 +			storm_mask |= BIT(port);
 +	}
 +
@@ -2310,6 +2311,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u64 tx_fcs_bytes;
 +
 +	mutex_lock(&priv->reg_lock);
++
++	/* Keep per-port traffic counters fresh for userspace readers such as
++	 * LuCI port status. Relying only on delayed polling can expose stale
++	 * values after topology/conduit changes.
++	 */
++	yt921x_read_mib(priv, port);
 +
 +	stats->rx_length_errors = mib->rx_undersize_errors +
 +				  mib->rx_fragment_errors;
@@ -3714,18 +3721,18 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (old_cpu_port == new_cpu_port)
 +		return 0;
 +
-+	/* Conduit switch can leave stale static/dynamic CPU-directed entries.
-+	 * Flush the moved user and both CPU ports so hardware relearns the path.
++	/* Conduit switch can leave stale dynamic CPU-directed entries.
++	 * Keep static entries intact to avoid disrupting unrelated user ports.
 +	 */
-+	res = yt921x_fdb_flush_port(priv, user_port, true);
++	res = yt921x_fdb_flush_port(priv, user_port, false);
 +	if (res)
 +		return res;
 +
-+	res = yt921x_fdb_flush_port(priv, old_cpu_port, true);
++	res = yt921x_fdb_flush_port(priv, old_cpu_port, false);
 +	if (res)
 +		return res;
 +
-+	return yt921x_fdb_flush_port(priv, new_cpu_port, true);
++	return yt921x_fdb_flush_port(priv, new_cpu_port, false);
 +}
 +
 +static u32
@@ -4920,6 +4927,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	}
 +
 +	res = yt921x_userport_cpu_isolation_set(priv, port, new_cpu_port);
++	if (!res && new_cpu_port != old_cpu_port)
++		/* Ensure the moved user port always unblocks new CPU and blocks old
++		 * CPU explicitly, even if prior state was non-canonical.
++		 */
++		res = yt921x_reg_update_bits(priv, YT921X_PORTn_ISOLATION(port),
++					     BIT(old_cpu_port) | BIT(new_cpu_port),
++					     BIT(old_cpu_port));
++
 +	if (!res && new_cpu_port != old_cpu_port)
 +		res = yt921x_reg_read(priv, YT921X_PORTn_ISOLATION(new_cpu_port),
 +				      &val);
