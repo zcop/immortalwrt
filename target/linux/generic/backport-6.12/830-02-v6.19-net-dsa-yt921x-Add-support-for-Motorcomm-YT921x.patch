@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6036 @@
+@@ -0,0 +1,6041 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -5731,6 +5731,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_write(priv, YT921X_ACT_UNK_UCAST, ctrl);
 +	if (res)
 +		return res;
++
++	/* Keep IGMP control traffic visible to software snooping even when
++	 * unknown multicast filtering/flood controls are active.
++	 */
++	ctrl |= YT921X_ACT_UNK_MCAST_BYPASS_DROP_IGMP;
 +	res = yt921x_reg_write(priv, YT921X_ACT_UNK_MCAST, ctrl);
 +	if (res)
 +		return res;
