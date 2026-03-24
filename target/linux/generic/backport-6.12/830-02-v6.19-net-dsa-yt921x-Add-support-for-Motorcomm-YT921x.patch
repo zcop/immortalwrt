@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6041 @@
+@@ -0,0 +1,6053 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -2889,8 +2889,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 ctrl;
 +	int res;
 +
-+	if (!lag.id)
-+		return -EINVAL;
++	if (!lag.id || lag.id > ds->num_lag_ids)
++		return 0;
 +
 +	ctrl = 0;
 +	dsa_lag_foreach_port(dp, ds->dst, &lag)
@@ -2904,15 +2904,27 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
-+yt921x_dsa_port_lag_check(struct dsa_switch *ds, struct dsa_lag lag,
++yt921x_dsa_port_lag_check(struct dsa_switch *ds, int port, struct dsa_lag lag,
 +			  struct netdev_lag_upper_info *info,
 +			  struct netlink_ext_ack *extack)
 +{
 +	unsigned int members;
 +	struct dsa_port *dp;
 +
-+	if (!lag.id)
-+		return -EINVAL;
++	if (!dsa_is_user_port(ds, port)) {
++		NL_SET_ERR_MSG_MOD(extack, "Only user ports can join a LAG");
++		return -EOPNOTSUPP;
++	}
++
++	if (!lag.id) {
++		NL_SET_ERR_MSG_MOD(extack, "No free hardware LAG ID available");
++		return -EOPNOTSUPP;
++	}
++
++	if (lag.id > ds->num_lag_ids) {
++		NL_SET_ERR_MSG_MOD(extack, "LAG ID exceeds hardware capacity");
++		return -EOPNOTSUPP;
++	}
 +
 +	members = 0;
 +	dsa_lag_foreach_port(dp, ds->dst, &lag)
@@ -2954,7 +2966,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 ctrl;
 +	int res;
 +
-+	res = yt921x_dsa_port_lag_check(ds, lag, info, extack);
++	res = yt921x_dsa_port_lag_check(ds, port, lag, info, extack);
 +	if (res)
 +		return res;
 +
