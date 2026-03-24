@@ -212,6 +212,7 @@ define Device/xiaomi_cr881x
 	DEVICE_DTS_CONFIG := config@mp03.3
 	DEVICE_PACKAGES := ipq-wifi-xiaomi_cr881x ath11k-firmware-ipq5018-qcn6122 \
 		ethtool ip-full tcpdump phytool mii-tool luci-app-portstatus \
+		autocore \
 		luci-app-cr881x-yt921x-qos wan-conduit-manager luci-app-cr881x-wan-mode \
 		luci-app-wan-conduit-manager \
 		kmod-net-dsa

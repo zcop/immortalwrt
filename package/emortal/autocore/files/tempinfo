@@ -5,6 +5,43 @@
 IEEE_PATH="/sys/class/ieee80211"
 THERMAL_PATH="/sys/class/thermal"
 
+format_millic() {
+	local path="$1"
+	[ -f "$path" ] || return 1
+	awk '{printf("%.1f°C", $0 / 1000)}' "$path" 2>"/dev/null"
+}
+
+get_thermal_by_type() {
+	local type="$1"
+	local z t
+
+	for z in "$THERMAL_PATH"/thermal_zone*; do
+		[ -d "$z" ] || continue
+		t="$(cat "$z/type" 2>"/dev/null" || true)"
+		[ "$t" = "$type" ] || continue
+		format_millic "$z/temp" && return 0
+	done
+
+	return 1
+}
+
+find_wifi_temp_by_path() {
+	local path="$1"
+	local t
+
+	for t in \
+		"/sys/devices/$path"/ieee80211/phy*/hwmon*/temp1_input \
+		"/sys/devices/$path"/ieee80211/phy*/device/hwmon/hwmon*/temp1_input \
+		"/sys/devices/$path"/ieee80211/phy*/hwmon/hwmon*/temp1_input \
+		"/sys/devices/$path"/hwmon/hwmon*/temp1_input
+	do
+		[ -f "$t" ] || continue
+		format_millic "$t" && return 0
+	done
+
+	return 1
+}
+
 case "$DISTRIB_TARGET" in
 ipq40xx/*|ipq806x/*)
 	wifi_temp="$(awk '{printf("%.1f°C ", $0 / 1000)}' "$IEEE_PATH"/phy*/device/hwmon/hwmon*/temp1_input 2>"/dev/null" | awk '$1=$1')"
@@ -24,17 +61,61 @@ ipq40xx/*)
 	fi
 	[ -z "$mt76_temp" ] || wifi_temp="${wifi_temp:+$wifi_temp }$mt76_temp"
 	;;
+	qualcommax/*)
+		cpu_temp="$(get_thermal_by_type "cpu-thermal" || true)"
+		[ -n "$cpu_temp" ] || cpu_temp="$(format_millic "$THERMAL_PATH/thermal_zone0/temp" 2>/dev/null || true)"
+
+	for dev in $(uci -q show wireless 2>/dev/null | awk -F'[.=]' '/=wifi-device$/ {print $2}'); do
+		band="$(uci -q get wireless."$dev".band 2>/dev/null || true)"
+		path="$(uci -q get wireless."$dev".path 2>/dev/null || true)"
+
+		[ -n "$band" ] || continue
+		[ -n "$path" ] || continue
+
+		wifi_item_temp="$(find_wifi_temp_by_path "$path" || true)"
+		[ -n "$wifi_item_temp" ] || continue
+
+		case "$band" in
+		2g|2.4g)
+			[ -n "$wifi_24_temp" ] || wifi_24_temp="$wifi_item_temp"
+			;;
+		5g)
+			[ -n "$wifi_5_temp" ] || wifi_5_temp="$wifi_item_temp"
+			;;
+		esac
+	done
+	;;
 *)
 	cpu_temp="$(awk '{printf("%.1f°C", $0 / 1000)}' "$THERMAL_PATH/thermal_zone0/temp" 2>"/dev/null")"
 	;;
 esac
 
-if [ -n "$cpu_temp" ] && [ -z "$wifi_temp" ]; then
-	echo -n "CPU: $cpu_temp"
-elif [ -z "$cpu_temp" ] && [ -n "$wifi_temp" ]; then
-	echo -n "WiFi: $wifi_temp"
-elif [ -n "$cpu_temp" ] && [ -n "$wifi_temp" ]; then
-	echo -n "CPU: $cpu_temp, WiFi: $wifi_temp"
+if [ "$DISTRIB_TARGET" = "${DISTRIB_TARGET#qualcommax/}" ]; then
+	if [ -n "$cpu_temp" ] && [ -z "$wifi_temp" ]; then
+		echo -n "CPU: $cpu_temp"
+	elif [ -z "$cpu_temp" ] && [ -n "$wifi_temp" ]; then
+		echo -n "WiFi: $wifi_temp"
+	elif [ -n "$cpu_temp" ] && [ -n "$wifi_temp" ]; then
+		echo -n "CPU: $cpu_temp, WiFi: $wifi_temp"
+	else
+		echo -n "No temperature info"
+	fi
 else
-	echo -n "No temperature info"
+	if [ -n "$cpu_temp" ] && [ -n "$wifi_24_temp" ] && [ -n "$wifi_5_temp" ]; then
+		echo -n "CPU: $cpu_temp, WiFi 2.4G: $wifi_24_temp, WiFi 5G: $wifi_5_temp"
+	elif [ -n "$cpu_temp" ] && [ -n "$wifi_24_temp" ]; then
+		echo -n "CPU: $cpu_temp, WiFi 2.4G: $wifi_24_temp"
+	elif [ -n "$cpu_temp" ] && [ -n "$wifi_5_temp" ]; then
+		echo -n "CPU: $cpu_temp, WiFi 5G: $wifi_5_temp"
+	elif [ -n "$cpu_temp" ]; then
+		echo -n "CPU: $cpu_temp"
+	elif [ -n "$wifi_24_temp" ] && [ -n "$wifi_5_temp" ]; then
+		echo -n "WiFi 2.4G: $wifi_24_temp, WiFi 5G: $wifi_5_temp"
+	elif [ -n "$wifi_24_temp" ]; then
+		echo -n "WiFi 2.4G: $wifi_24_temp"
+	elif [ -n "$wifi_5_temp" ]; then
+		echo -n "WiFi 5G: $wifi_5_temp"
+	else
+		echo -n "No temperature info"
+	fi
 fi
