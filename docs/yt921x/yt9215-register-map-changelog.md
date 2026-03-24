@@ -16,10 +16,10 @@ What was confirmed:
   to secondary conduit requires symmetric isolation between `port3` and `port4`.
 
 Observed signatures:
-- `wan@eth1` (primary): `0x1802a0=0x000006ff`, `0x1802b8=0x000006ef`,
-  `0x08000c=0x0000c008`
-- `wan@eth0` (secondary): `0x1802a0=0x000007ef`, `0x1802b8=0x000006ef`,
-  `0x08000c=0x0000c004`
+- `wan@eth1` (primary): `0x1802a0=0x000006ff`, `0x1802a4=0x000006e8`,
+  `0x1802b4=0x000007f7`, `0x1802b8=0x000006ef`, `0x08000c=0x0000c008`
+- `wan@eth0` (secondary): `0x1802a0=0x000007ef`, `0x1802a4=0x000006e0`,
+  `0x1802b4=0x000007ff`, `0x1802b8=0x000006ef`, `0x08000c=0x0000c004`
 
 Traffic validation:
 - Pi capture on upstream (`172.16.9.1`) observed ARP request/reply and ICMP
@@ -73,8 +73,8 @@ Observed:
   - `60/60` replies, `0%` loss, no spike beyond normal sub-ms jitter
 
 Interpretation:
-- `0x18028c` is writable but does not act as a global host<->router forwarding
-  kill switch in this topology.
+- `0x18028c` is writable but did not act as a host<->router forwarding
+  kill switch in the tested single-host LAN->router path.
 - Further semantics likely require multi-host LAN-LAN isolation/topology probes.
 
 ## 2026-03-19: `0x180510`/`0x180514` filter-word live probe

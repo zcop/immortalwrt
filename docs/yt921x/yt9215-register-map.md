@@ -110,7 +110,8 @@ Confidence key:
 | `0x354004` | `YT921X_PSCH_SHPn_CTRL(0)` | write-proven | shaper control (`EN`,`DUAL_RATE`,`METER_ID`) | High |
 | `0x354008-0x354024` | `YT921X_PSCH_SHPn_* (1..4)` | write-proven | same layout for ports 1..4 (stride 8 bytes/port) | High |
 | `0x180280` | `YT921X_VLAN_IGR_FILTER` | `0x00000000` | no explicit bypass bits set | Medium |
-| `0x18028c` | unknown (portmask-like, pre-`PORTn_ISOLATION`) | `0x000007ff` | writable (`0x7ff <-> 0x0`) but host->router blackhole probe showed 0% ICMP loss in this topology | Medium |
+| `0x180294-0x1802bc` | `YT921X_PORTn_ISOLATION(n=0..10)` | dynamic | directional per-source destination block mask (`bit d` blocks `src n -> dst d`) used by bridge/conduit steering; low 11 bits are active while unrelated upper bits are preserved | High |
+| `0x18028c` | unknown (portmask-like, pre-`PORTn_ISOLATION`) | `0x000007ff` | writable (`0x7ff <-> 0x0`); single-host LAN->router probe (`192.168.2.100 -> 192.168.2.1`) showed 0% ICMP loss, so no global kill-switch behavior observed in that path | Medium |
 | `0x18030c-0x180334` | unknown writable table (11 words) | baseline `0x00000000` | each word is writable with mask `0x000007ff`; values persist across bridge-membership toggles; post-flash TCP/ARP/multicast + FDB snapshots stayed stable across phase toggles | Medium |
 | `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline | Low |
 | `0x18038c` | `YT921X_STPn(0)` | `0x000300f3` (earlier), `0x003cfc0c` (post-build flash) | active STP instance 0 per-port state word; bridge membership/state changes update low-byte fields in-place: `lan2` `[3:2]` (`0x...0c -> 0x...00` when removed), `lan3` `[5:4]` (`0x...0c -> 0x...3c` on re-add), `wan` `[7:6]` (`0x...3c -> 0x...fc` on add) | High |
@@ -219,13 +220,30 @@ Controlled UART cable-transition deltas (2026-03-16, lan1/lan3/wan):
 
 ## L2 Tables Snapshot
 `PORTn_ISOLATION` (`0x180294 + 4*n`, ports `0..10`):
-- `p0=0x6f9`, `p1=0x6fa`, `p2=0x6fc`, `p3=0x6ff`, `p4=0x6ff`, `p5=0x6ff`
-- `p6=0x6ff`, `p7=0x6ff`, `p8=0x7ff`, `p9=0x6ff`, `p10=0x6ff`
+- Historical baseline dump (2026-03-16/19 captures):
+  - `p0=0x6f9`, `p1=0x6fa`, `p2=0x6fc`, `p3=0x6ff`, `p4=0x6ff`, `p5=0x6ff`
+  - `p6=0x6ff`, `p7=0x6ff`, `p8=0x7ff`, `p9=0x6ff`, `p10=0x6ff`
+- Current conduit-aware runtime signatures (2026-03-23 probes):
+  - `wan@eth1` profile:
+    - `0x1802a0=0x000006ff` (`p3`)
+    - `0x1802a4=0x000006e8` (`p4`)
+    - `0x1802b4=0x000007f7` (`p8`)
+    - `0x1802b8=0x000006ef` (`p9`)
+  - `wan@eth0` profile:
+    - `0x1802a0=0x000007ef` (`p3`)
+    - `0x1802a4=0x000006e0` (`p4`)
+    - `0x1802b4=0x000007ff` (`p8`)
+    - `0x1802b8=0x000006ef` (`p9`)
+- Directional semantics validated:
+  - `0x1802a0 bit4` blocks `port3 -> port4`
+  - `0x1802a4 bit3` blocks `port4 -> port3`
 
 Conduit-switch signatures (`wan` port 3 moved between CPU conduits):
 - `wan@eth1` (primary conduit): `0x1802a0=0x000006ff`,
+  `0x1802a4=0x000006e8`, `0x1802b4=0x000007f7`,
   `0x1802b8=0x000006ef`, `0x08000c=0x0000c008`
 - `wan@eth0` (secondary conduit): `0x1802a0=0x000007ef`,
+  `0x1802a4=0x000006e0`, `0x1802b4=0x000007ff`,
   `0x1802b8=0x000006ef`, `0x08000c=0x0000c004`
 - key invariant on current CR881x mapping: both directions must be open
   (`port3<->port4`) for ARP/ICMP to pass on the secondary conduit.
@@ -333,9 +351,11 @@ Adjacent readable (non-gated) sub-windows in the same `0x1803xx` block:
     worked; restoring both to `0x00000400` immediately restored host->router
     reachability. See:
     `docs/yt921x/live/yt_180510_180514_blackhole_recovery_20260319_1655.txt`.
-  - `0x1802a0` (`PORTn_ISOLATION(3)`) changed with `wan` bridge/conduit state
-    (`0x6ff -> 0x6f8` when `wan` joined bridge; `0x6ff -> 0x7ef` when `wan`
-    moved to secondary CPU conduit on the current port4 mapping).
+  - `PORTn_ISOLATION` conduit signature updates are multi-word, not `0x1802a0`
+    only: on current CR881x mapping the key set is
+    `0x1802a0/0x1802a4/0x1802b4/0x1802b8`, with
+    `wan@eth1={0x6ff,0x6e8,0x7f7,0x6ef}` and
+    `wan@eth0={0x7ef,0x6e0,0x7ff,0x6ef}`.
   - conduit switching requires symmetric CPU-side isolation update:
     allowing `port3 -> cpu` alone is not enough; reverse `cpu -> port3` must
     also be unblocked (current mapping uses cpu port 4) or return traffic
