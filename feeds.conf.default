@@ -5,6 +5,7 @@ src-git telephony https://github.com/openwrt/telephony.git
 src-git video https://github.com/openwrt/video.git
 src-git zcopapp https://github.com/zcop/luci-app-cr881x-yt921x-qos.git
 src-git cr881xwanmode https://github.com/zcop/luci-app-cr881x-wan-mode.git
+src-git wanconduit https://github.com/zcop/openwrt-wan-conduit-manager.git;master
 #src-git targets https://github.com/openwrt/targets.git
 #src-git oldpackages http://git.openwrt.org/packages.git
 #src-link custom /usr/src/openwrt/custom-feed
