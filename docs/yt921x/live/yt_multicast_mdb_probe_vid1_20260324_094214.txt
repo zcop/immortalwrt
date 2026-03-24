@@ -1,0 +1,9 @@
+time_start=2026-03-23T19:48:43+00:00
+=== try_add_vid1 ===
+mdb_add_vid1=fail
+RTNETLINK answers: Invalid argument
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+reg 0x180734 = 0x00020000
+reg 0x180738 = 0x00020000
+time_end=2026-03-23T19:48:43+00:00

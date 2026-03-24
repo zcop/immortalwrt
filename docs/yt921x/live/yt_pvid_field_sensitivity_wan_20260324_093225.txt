@@ -1,0 +1,58 @@
+time_start=2026-03-23T19:38:55+00:00
+probe=wan pvid field sensitivity
+=== baseline_pvid1 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+=== set_pvid20 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+=== set_pvid21 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+=== set_pvid30 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+=== restore_pvid1 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+time_end=2026-03-23T19:39:02+00:00

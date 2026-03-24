@@ -1,0 +1,211 @@
+time_start=2026-03-23T19:32:56+00:00
+probe=vlan ctrl decode with wan vid10
+orig_vf=0
+=== snapshot:baseline ===
+vlan_filtering=0
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x00000000
+reg 0x188000 = 0x0043ff80
+reg 0x188004 = 0x00000000
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188010 = 0x00000000
+reg 0x188014 = 0x00000000
+reg 0x188050 = 0x00000000
+reg 0x188054 = 0x00000000
+reg 0x230010 = 0xc007ffc0
+reg 0x230080 = 0x00000000
+reg 0x230014 = 0xc007ffc0
+reg 0x230084 = 0x00000000
+reg 0x230018 = 0xc007ffc0
+reg 0x230088 = 0x00000000
+reg 0x23001c = 0xc007ffc0
+reg 0x23008c = 0x00000000
+reg 0x230020 = 0xc007ffc0
+reg 0x230090 = 0x00000000
+reg 0x230024 = 0xc007ffc0
+reg 0x230094 = 0x00000000
+reg 0x230028 = 0xc007ffc0
+reg 0x230098 = 0x00000000
+reg 0x23002c = 0xc007ffc0
+reg 0x23009c = 0x00000000
+reg 0x230030 = 0xc007ffc0
+reg 0x2300a0 = 0x00000000
+reg 0x230034 = 0xc007ffc0
+reg 0x2300a4 = 0x00000000
+reg 0x230038 = 0xc007ffc0
+reg 0x2300a8 = 0x00000000
+=== snapshot:vf1 ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188000 = 0x0043ff80
+reg 0x188004 = 0x00000000
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188010 = 0x00000000
+reg 0x188014 = 0x00000000
+reg 0x188050 = 0x00000000
+reg 0x188054 = 0x00000000
+reg 0x230010 = 0xc0040040
+reg 0x230080 = 0x00000000
+reg 0x230014 = 0xc0040040
+reg 0x230084 = 0x00000000
+reg 0x230018 = 0xc0040040
+reg 0x230088 = 0x00000000
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+reg 0x230020 = 0xc007ffc0
+reg 0x230090 = 0x00000000
+reg 0x230024 = 0xc007ffc0
+reg 0x230094 = 0x00000000
+reg 0x230028 = 0xc007ffc0
+reg 0x230098 = 0x00000000
+reg 0x23002c = 0xc007ffc0
+reg 0x23009c = 0x00000000
+reg 0x230030 = 0xc007ffc0
+reg 0x2300a0 = 0x00000000
+reg 0x230034 = 0xc007ffc0
+reg 0x2300a4 = 0x00000000
+reg 0x230038 = 0xc007ffc0
+reg 0x2300a8 = 0x00000000
+=== snapshot:add_vid10 ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+                  10
+br-lan            1 PVID Egress Untagged
+                  10
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188000 = 0x0043ff80
+reg 0x188004 = 0x00000000
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188010 = 0x00000000
+reg 0x188014 = 0x00000000
+reg 0x188050 = 0x00000c00
+reg 0x188054 = 0x00000000
+reg 0x230010 = 0xc0040040
+reg 0x230080 = 0x00000000
+reg 0x230014 = 0xc0040040
+reg 0x230084 = 0x00000000
+reg 0x230018 = 0xc0040040
+reg 0x230088 = 0x00000000
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+reg 0x230020 = 0xc007ffc0
+reg 0x230090 = 0x00000000
+reg 0x230024 = 0xc007ffc0
+reg 0x230094 = 0x00000000
+reg 0x230028 = 0xc007ffc0
+reg 0x230098 = 0x00000000
+reg 0x23002c = 0xc007ffc0
+reg 0x23009c = 0x00000000
+reg 0x230030 = 0xc007ffc0
+reg 0x2300a0 = 0x00000000
+reg 0x230034 = 0xc007ffc0
+reg 0x2300a4 = 0x00000000
+reg 0x230038 = 0xc007ffc0
+reg 0x2300a8 = 0x00000000
+=== snapshot:del_vid10 ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188000 = 0x0043ff80
+reg 0x188004 = 0x00000000
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188010 = 0x00000000
+reg 0x188014 = 0x00000000
+reg 0x188050 = 0x00000000
+reg 0x188054 = 0x00000000
+reg 0x230010 = 0xc0040040
+reg 0x230080 = 0x00000000
+reg 0x230014 = 0xc0040040
+reg 0x230084 = 0x00000000
+reg 0x230018 = 0xc0040040
+reg 0x230088 = 0x00000000
+reg 0x23001c = 0xc0040040
+reg 0x23008c = 0x00000000
+reg 0x230020 = 0xc007ffc0
+reg 0x230090 = 0x00000000
+reg 0x230024 = 0xc007ffc0
+reg 0x230094 = 0x00000000
+reg 0x230028 = 0xc007ffc0
+reg 0x230098 = 0x00000000
+reg 0x23002c = 0xc007ffc0
+reg 0x23009c = 0x00000000
+reg 0x230030 = 0xc007ffc0
+reg 0x2300a0 = 0x00000000
+reg 0x230034 = 0xc007ffc0
+reg 0x2300a4 = 0x00000000
+reg 0x230038 = 0xc007ffc0
+reg 0x2300a8 = 0x00000000
+=== snapshot:restore ===
+vlan_filtering=0
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x00000000
+reg 0x188000 = 0x0043ff80
+reg 0x188004 = 0x00000000
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188010 = 0x00000000
+reg 0x188014 = 0x00000000
+reg 0x188050 = 0x00000000
+reg 0x188054 = 0x00000000
+reg 0x230010 = 0xc007ffc0
+reg 0x230080 = 0x00000000
+reg 0x230014 = 0xc007ffc0
+reg 0x230084 = 0x00000000
+reg 0x230018 = 0xc007ffc0
+reg 0x230088 = 0x00000000
+reg 0x23001c = 0xc007ffc0
+reg 0x23008c = 0x00000000
+reg 0x230020 = 0xc007ffc0
+reg 0x230090 = 0x00000000
+reg 0x230024 = 0xc007ffc0
+reg 0x230094 = 0x00000000
+reg 0x230028 = 0xc007ffc0
+reg 0x230098 = 0x00000000
+reg 0x23002c = 0xc007ffc0
+reg 0x23009c = 0x00000000
+reg 0x230030 = 0xc007ffc0
+reg 0x2300a0 = 0x00000000
+reg 0x230034 = 0xc007ffc0
+reg 0x2300a4 = 0x00000000
+reg 0x230038 = 0xc007ffc0
+reg 0x2300a8 = 0x00000000
+time_end=2026-03-23T19:33:01+00:00

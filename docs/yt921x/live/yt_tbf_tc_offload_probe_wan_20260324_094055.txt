@@ -1,0 +1,73 @@
+time_start=2026-03-23T19:47:24+00:00
+=== baseline ===
+qdisc noqueue 0: root refcnt 2 
+tbf p0: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p1: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p2: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p3: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p4: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+reg 0x354000 = 0x00000000
+reg 0x354004 = 0x00000000
+reg 0x354008 = 0x00000000
+reg 0x35400c = 0x00000000
+reg 0x354010 = 0x00000000
+reg 0x354014 = 0x00000000
+reg 0x354018 = 0x00000000
+reg 0x35401c = 0x00000000
+reg 0x354020 = 0x00000000
+reg 0x354024 = 0x00000000
+tc_replace_A=ok
+=== after_A_10mbit_32k ===
+qdisc tbf 8001: root refcnt 2 offloaded rate 10Mbit burst 32Kb lat 50ms 
+tbf p0: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p1: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p2: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p3: en=1 dual_rate=0 meter=0 eir=15480 (~10000 kbps) ebs=512 (~32768 bytes)
+tbf p4: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+reg 0x354000 = 0x00000000
+reg 0x354004 = 0x00000000
+reg 0x354008 = 0x00000000
+reg 0x35400c = 0x00000000
+reg 0x354010 = 0x00000000
+reg 0x354014 = 0x00000000
+reg 0x354018 = 0x08003c78
+reg 0x35401c = 0x00000010
+reg 0x354020 = 0x00000000
+reg 0x354024 = 0x00000000
+tc_replace_B=ok
+=== after_B_50mbit_64k ===
+qdisc tbf 8001: root refcnt 2 offloaded rate 50Mbit burst 64Kb lat 50ms 
+tbf p0: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p1: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p2: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p3: en=1 dual_rate=0 meter=0 eir=76880 (~50000 kbps) ebs=1024 (~65536 bytes)
+tbf p4: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+reg 0x354000 = 0x00000000
+reg 0x354004 = 0x00000000
+reg 0x354008 = 0x00000000
+reg 0x35400c = 0x00000000
+reg 0x354010 = 0x00000000
+reg 0x354014 = 0x00000000
+reg 0x354018 = 0x10012c50
+reg 0x35401c = 0x00000010
+reg 0x354020 = 0x00000000
+reg 0x354024 = 0x00000000
+tc_del=ok
+=== after_del ===
+qdisc noqueue 0: root refcnt 2 
+tbf p0: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p1: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p2: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+tbf p3: en=0 dual_rate=0 meter=0 eir=76880 (~50000 kbps) ebs=1024 (~65536 bytes)
+tbf p4: en=0 dual_rate=0 meter=0 eir=0 (~0 kbps) ebs=0 (~0 bytes)
+reg 0x354000 = 0x00000000
+reg 0x354004 = 0x00000000
+reg 0x354008 = 0x00000000
+reg 0x35400c = 0x00000000
+reg 0x354010 = 0x00000000
+reg 0x354014 = 0x00000000
+reg 0x354018 = 0x10012c50
+reg 0x35401c = 0x00000000
+reg 0x354020 = 0x00000000
+reg 0x354024 = 0x00000000
+time_end=2026-03-23T19:47:29+00:00

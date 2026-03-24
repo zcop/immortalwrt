@@ -1,0 +1,69 @@
+time_start=2026-03-23T19:39:52+00:00
+probe=wan pvid field sensitivity v2
+=== baseline_pvid1 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040000
+=== set_pvid20 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 Egress Untagged
+                  20 PVID Egress Untagged
+br-lan            1
+                  20
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040500
+=== clear_pvid20 ===
+reg 0x23001c = 0xc0040040
+=== set_pvid21 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 Egress Untagged
+                  21 PVID Egress Untagged
+br-lan            1
+                  21
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040540
+=== clear_pvid21 ===
+reg 0x23001c = 0xc0040040
+=== set_pvid30 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 Egress Untagged
+                  30 PVID Egress Untagged
+br-lan            1
+                  30
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0040780
+=== clear_pvid30 ===
+reg 0x23001c = 0xc0040040
+=== set_pvid100 ===
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 Egress Untagged
+                  100 PVID Egress Untagged
+br-lan            1
+                  100
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x23001c = 0xc0041900
+=== clear_pvid100 ===
+reg 0x23001c = 0xc0040040
+time_end=2026-03-23T19:40:03+00:00

@@ -1,0 +1,42 @@
+time_start=2026-03-23T19:48:19+00:00
+=== baseline ===
+01:00:5e:00:00:01 dev eth0 self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy1-ap0 self permanent
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+reg 0x180734 = 0x00020000
+reg 0x180738 = 0x00020000
+mdb_add_lan1=fail
+RTNETLINK answers: Invalid argument
+=== after_add_lan1 ===
+01:00:5e:00:00:01 dev eth0 self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy1-ap0 self permanent
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+reg 0x180734 = 0x00020000
+reg 0x180738 = 0x00020000
+mdb_add_lan2=fail
+RTNETLINK answers: Invalid argument
+=== after_add_lan2 ===
+01:00:5e:00:00:01 dev eth0 self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy1-ap0 self permanent
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+reg 0x180734 = 0x00020000
+reg 0x180738 = 0x00020000
+=== after_del ===
+01:00:5e:00:00:01 dev eth0 self permanent
+01:00:5e:00:00:01 dev br-lan self permanent
+01:00:5e:00:00:01 dev phy0-ap0 self permanent
+01:00:5e:00:00:01 dev phy1-ap0 self permanent
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+reg 0x180734 = 0x00020000
+reg 0x180738 = 0x00020000
+time_end=2026-03-23T19:48:20+00:00

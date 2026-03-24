@@ -1,0 +1,124 @@
+time_start=2026-03-23T19:36:58+00:00
+probe=vlan vtu stride pvid
+orig_vf=0
+=== snapshot:baseline_vf1 ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188050 = 0x00000000
+reg 0x188054 = 0x00000000
+reg 0x188058 = 0x00000000
+reg 0x18805c = 0x00000000
+=== snapshot:vid10_tagged_wan_lan1 ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+                  10
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+                  10
+br-lan            1 PVID Egress Untagged
+                  10
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188050 = 0x00000c80
+reg 0x188054 = 0x00000000
+reg 0x188058 = 0x00000000
+reg 0x18805c = 0x00000000
+=== snapshot:vid10_lan1_untagged ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+                  10 Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+                  10
+br-lan            1 PVID Egress Untagged
+                  10
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188050 = 0x00000c80
+reg 0x188054 = 0x00000100
+reg 0x188058 = 0x00000000
+reg 0x18805c = 0x00000000
+=== snapshot:vid11_added ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+                  10 Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+                  10
+                  11
+br-lan            1 PVID Egress Untagged
+                  10
+                  11
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188050 = 0x00000c80
+reg 0x188054 = 0x00000100
+reg 0x188058 = 0x00000c00
+reg 0x18805c = 0x00000000
+=== snapshot:wan_pvid20_untagged ===
+vlan_filtering=1
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+                  10 Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 Egress Untagged
+                  10
+                  11
+                  20 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+                  10
+                  11
+                  20
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x0000000f
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188050 = 0x00000c80
+reg 0x188054 = 0x00000100
+reg 0x188058 = 0x00000c00
+reg 0x18805c = 0x00000000
+=== snapshot:restore ===
+vlan_filtering=0
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+reg 0x180280 = 0x00000000
+reg 0x188008 = 0x00000f80
+reg 0x18800c = 0x00001f00
+reg 0x188050 = 0x00000000
+reg 0x188054 = 0x00000000
+reg 0x188058 = 0x00000000
+reg 0x18805c = 0x00000000
+time_end=2026-03-23T19:37:07+00:00

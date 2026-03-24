@@ -1,0 +1,207 @@
+time_start=2026-03-23T19:19:13+00:00
+probe=vlan_filtering controlled window on br-lan + wan vid10
+commands:
+  help
+  reg read <addr>
+  reg write <addr> <val>
+  int read <port> <reg>
+  int write <port> <reg> <val>
+  ext read <port> <reg>
+  ext write <port> <reg> <val>
+  tbl info <id>
+  tbl read <id> <index>
+  tbl write <id> <index> <word> <val>
+  field get <id> <index> <field>
+  field set <id> <index> <field> <val>
+  get_flood_filter
+  set_flood_filter <mcast|bcast|both> <mask>
+  port_status [port]
+  storm_guard show
+  storm_guard set <0|1> <pps> <hold_ms> <interval_ms>
+  mirror
+  tbf [port]
+  stock map <reg>
+  dump <start> <end> [stride]
+orig_vlan_filtering=0
+### baseline
+bridge_vlan_show
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+br_lan_link
+11: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff promiscuity 0 allmulti 0 minmtu 68 maxmtu 65535 
+reg_core
+reg 0x180280 = 0x00000000
+reg 0x18028c = 0x000007ff
+reg 0x180294 = 0x000007e1
+reg 0x180298 = 0x000007e2
+reg 0x18029c = 0x000007e4
+reg 0x1802a0 = 0x000007e8
+reg 0x1802a4 = 0x000006e0
+reg 0x1802b4 = 0x000007ff
+reg 0x1802b8 = 0x000006ef
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x18038c = 0x003cfc30
+reg 0x180390 = 0x00000000
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00000000
+reg 0x1803d8 = 0x00020000
+reg 0x08000c = 0x0000c008
+reg 0x080014 = 0x00000000
+### set vlan_filtering=1
+### after_filtering_on
+bridge_vlan_show
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+br_lan_link
+11: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff promiscuity 0 allmulti 0 minmtu 68 maxmtu 65535 
+reg_core
+reg 0x180280 = 0x0000000f
+reg 0x18028c = 0x000007ff
+reg 0x180294 = 0x000007e1
+reg 0x180298 = 0x000007e2
+reg 0x18029c = 0x000007e4
+reg 0x1802a0 = 0x000007e8
+reg 0x1802a4 = 0x000006e0
+reg 0x1802b4 = 0x000007ff
+reg 0x1802b8 = 0x000006ef
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x18038c = 0x003cfc30
+reg 0x180390 = 0x00000000
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00000000
+reg 0x1803d8 = 0x00020000
+reg 0x08000c = 0x0000c008
+reg 0x080014 = 0x00000000
+### add vid10 on br-lan self + wan
+### after_add_vid10
+bridge_vlan_show
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+                  10
+br-lan            1 PVID Egress Untagged
+                  10
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+br_lan_link
+11: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff promiscuity 0 allmulti 0 minmtu 68 maxmtu 65535 
+reg_core
+reg 0x180280 = 0x0000000f
+reg 0x18028c = 0x000007ff
+reg 0x180294 = 0x000007e1
+reg 0x180298 = 0x000007e2
+reg 0x18029c = 0x000007e4
+reg 0x1802a0 = 0x000007e8
+reg 0x1802a4 = 0x000006e0
+reg 0x1802b4 = 0x000007ff
+reg 0x1802b8 = 0x000006ef
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x18038c = 0x003cfc30
+reg 0x180390 = 0x00000000
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00000000
+reg 0x1803d8 = 0x00020000
+reg 0x08000c = 0x0000c008
+reg 0x080014 = 0x00000000
+### del vid10 on wan + br-lan self
+### after_del_vid10
+bridge_vlan_show
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+br_lan_link
+11: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff promiscuity 0 allmulti 0 minmtu 68 maxmtu 65535 
+reg_core
+reg 0x180280 = 0x0000000f
+reg 0x18028c = 0x000007ff
+reg 0x180294 = 0x000007e1
+reg 0x180298 = 0x000007e2
+reg 0x18029c = 0x000007e4
+reg 0x1802a0 = 0x000007e8
+reg 0x1802a4 = 0x000006e0
+reg 0x1802b4 = 0x000007ff
+reg 0x1802b8 = 0x000006ef
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x18038c = 0x003cfc30
+reg 0x180390 = 0x00000000
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00000000
+reg 0x1803d8 = 0x00020000
+reg 0x08000c = 0x0000c008
+reg 0x080014 = 0x00000000
+### restore original filtering
+### final_restored
+bridge_vlan_show
+port              vlan-id  
+lan1              1 PVID Egress Untagged
+lan2              1 PVID Egress Untagged
+lan3              1 PVID Egress Untagged
+wan               1 PVID Egress Untagged
+br-lan            1 PVID Egress Untagged
+phy0-ap0          1 PVID Egress Untagged
+phy1-ap0          1 PVID Egress Untagged
+br_lan_link
+11: br-lan: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether a4:a9:30:36:b4:28 brd ff:ff:ff:ff:ff:ff promiscuity 0 allmulti 0 minmtu 68 maxmtu 65535 
+reg_core
+reg 0x180280 = 0x00000000
+reg 0x18028c = 0x000007ff
+reg 0x180294 = 0x000007e1
+reg 0x180298 = 0x000007e2
+reg 0x18029c = 0x000007e4
+reg 0x1802a0 = 0x000007e8
+reg 0x1802a4 = 0x000006e0
+reg 0x1802b4 = 0x000007ff
+reg 0x1802b8 = 0x000006ef
+reg 0x18030c = 0x00000000
+reg 0x180310 = 0x00000000
+reg 0x180314 = 0x00000000
+reg 0x180318 = 0x00000000
+reg 0x18031c = 0x00000000
+reg 0x18038c = 0x003cfc30
+reg 0x180390 = 0x00000000
+reg 0x1803d0 = 0x00000000
+reg 0x1803d4 = 0x00000000
+reg 0x1803d8 = 0x00020000
+reg 0x08000c = 0x0000c008
+reg 0x080014 = 0x00000000
+time_end=2026-03-23T19:19:14+00:00

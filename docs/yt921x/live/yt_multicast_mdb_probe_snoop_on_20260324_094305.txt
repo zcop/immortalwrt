@@ -1,0 +1,25 @@
+time_start=2026-03-23T19:49:34+00:00
+orig_snooping=0
+=== before_add ===
+dev br-lan port br-lan grp ff02::2 temp
+dev br-lan port br-lan grp ff02::1:ff00:1 temp
+dev br-lan port br-lan grp ff02::1:ff36:b428 temp
+dev br-lan port br-lan grp ff02::1:ff00:0 temp
+dev br-lan port br-lan grp ff02::6a temp
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+reg 0x180734 = 0x00020000
+reg 0x180738 = 0x00020000
+=== add_try ===
+mdb_add=ok
+dev br-lan port lan1 grp 239.1.1.1 permanent offload vid 1
+dev br-lan port br-lan grp ff02::2 temp
+dev br-lan port br-lan grp ff02::1:ff00:1 temp
+dev br-lan port br-lan grp ff02::1:ff36:b428 temp
+dev br-lan port br-lan grp ff02::1:ff00:0 temp
+dev br-lan port br-lan grp ff02::6a temp
+reg 0x180510 = 0x00000400
+reg 0x180514 = 0x00000400
+reg 0x180734 = 0x00020000
+reg 0x180738 = 0x00020000
+time_end=2026-03-23T19:49:35+00:00
