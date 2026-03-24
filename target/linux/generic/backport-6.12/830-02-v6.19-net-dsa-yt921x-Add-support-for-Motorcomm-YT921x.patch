@@ -2503,16 +2503,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	int res;
 +
-+	res = yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_CTRL(port),
-+				     YT921X_PSCH_SHP_EN |
-+				     YT921X_PSCH_SHP_DUAL_RATE |
-+				     YT921X_PSCH_SHP_METER_ID_M, 0);
++	/* Hard-clear both words to avoid stale EIR/EBS retention across
++	 * qdisc teardown/recreate cycles.
++	 */
++	res = yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port), 0);
 +	if (res)
 +		return res;
 +
-+	return yt921x_reg_update_bits(priv, YT921X_PSCH_SHPn_EBS_EIR(port),
-+				      YT921X_PSCH_SHP_EIR_M |
-+				      YT921X_PSCH_SHP_EBS_M, 0);
++	return yt921x_reg_write(priv, YT921X_PSCH_SHPn_EBS_EIR(port), 0);
 +}
 +
 +static int
