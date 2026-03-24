@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,5984 @@
+@@ -0,0 +1,6028 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -378,6 +378,32 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +
 +	return yt921x_reg_write(priv, YT921X_FILTER_BCAST, bcast_mask);
++}
++
++static int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv)
++{
++	struct dsa_switch *ds = &priv->ds;
++	struct dsa_port *dp;
++	u16 mcast_mask = BIT(10);
++	u16 bcast_mask = BIT(10);
++
++	dsa_switch_for_each_user_port(dp, ds) {
++		struct yt921x_port *pp = &priv->ports[dp->index];
++
++		/* BR_MCAST_FLOOD/BR_BCAST_FLOOD are bridge-only controls. */
++		if (!dsa_port_bridge_dev_get(dp))
++			continue;
++
++		if (!pp->mcast_flood)
++			mcast_mask |= BIT(dp->index);
++		if (!pp->bcast_flood)
++			bcast_mask |= BIT(dp->index);
++	}
++
++	priv->flood_mcast_base_mask = mcast_mask;
++	priv->flood_bcast_base_mask = bcast_mask;
++
++	return yt921x_apply_flood_filters_locked(priv);
 +}
 +
 +/* Some registers, like VLANn_CTRL, should always be written in 64-bit, even if
@@ -4005,6 +4031,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		    struct switchdev_brport_flags flags)
 +{
 +	struct yt921x_port *pp = &priv->ports[port];
++	bool refresh_flood;
 +	bool do_flush;
 +	u32 mask;
 +	int res;
@@ -4019,11 +4046,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			return res;
 +	}
 +
-+	/* BR_FLOOD, BR_MCAST_FLOOD: unknown unicast/multicast policy is global
-+	 * and handled through ACT_UNK_* defaults in chip setup.
-+	 */
-+
-+	/* BR_BCAST_FLOOD: we can filter bcast, but cannot trap them */
++	/* BR_FLOOD (unknown UC) remains global via ACT_UNK_* policy. */
++	refresh_flood = false;
++	if (flags.mask & BR_MCAST_FLOOD) {
++		pp->mcast_flood = flags.val & BR_MCAST_FLOOD;
++		refresh_flood = true;
++	}
++	if (flags.mask & BR_BCAST_FLOOD) {
++		pp->bcast_flood = flags.val & BR_BCAST_FLOOD;
++		refresh_flood = true;
++	}
 +
 +	do_flush = false;
 +	if (flags.mask & BR_HAIRPIN_MODE) {
@@ -4049,6 +4081,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			if (res)
 +				return res;
 +		}
++	}
++
++	if (refresh_flood) {
++		res = yt921x_refresh_flood_masks_locked(priv);
++		if (res)
++			return res;
 +	}
 +
 +	return 0;
@@ -4096,6 +4134,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_bridge_leave(priv, port);
++	if (!res)
++		res = yt921x_refresh_flood_masks_locked(priv);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	if (res)
@@ -4120,6 +4160,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_bridge_join(priv, port, ports_mask);
++	if (!res)
++		res = yt921x_refresh_flood_masks_locked(priv);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -5989,6 +6031,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +		pp->index = i;
 +		pp->priv = priv;
++		pp->mcast_flood = true;
++		pp->bcast_flood = true;
 +		INIT_DELAYED_WORK(&pp->mib_read, yt921x_poll_mib);
 +	}
 +
@@ -6046,7 +6090,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,668 @@
+@@ -0,0 +1,670 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -6659,6 +6703,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	bool hairpin;
 +	bool isolated;
++	bool mcast_flood;
++	bool bcast_flood;
 +	bool port_up;
 +
 +	struct delayed_work mib_read;
