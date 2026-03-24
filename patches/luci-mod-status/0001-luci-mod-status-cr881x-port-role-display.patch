@@ -1,8 +1,8 @@
 diff --git a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js
-index c475f2e..ac5e61c 100644
+index c475f2e..0f18823 100644
 --- a/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js
 +++ b/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/29_ports.js
-@@ -20,11 +20,59 @@ const callNetworkDeviceStatus = rpc.declare({
+@@ -20,11 +20,90 @@ const callNetworkDeviceStatus = rpc.declare({
  	expect: { '': {} }
  });
  
@@ -59,10 +59,79 @@ index c475f2e..ac5e61c 100644
 +	return (name && labels[name]) ? labels[name] : name;
 +}
 +
++function getStatValue(stats, key)
++{
++	const value = +(stats ? stats[key] : 0);
++	return Number.isFinite(value) ? value : 0;
++}
++
++function getByteCounter(stats, direction)
++{
++	const bytes = getStatValue(stats, '%s_bytes'.format(direction));
++	const packets = getStatValue(stats, '%s_packets'.format(direction));
++
++	if (bytes <= 0 || packets <= 0)
++		return bytes;
++
++	/* Guard against broken driver counters (e.g. PB with only a few packets). */
++	if ((bytes / packets) > 262144)
++		return 0;
++
++	return bytes;
++}
++
++function getPortStats(port, statsMap)
++{
++	const name = (port && port.netdev) ? port.netdev.getName() : null;
++
++	if (name && L.isObject(statsMap) && L.isObject(statsMap[name]))
++		return statsMap[name];
++
++	return (port && port.netdev) ? (port.netdev._devstate('stats') || {}) : {};
++}
++
  function resolveVLANChain(ifname, bridges, mapping)
  {
  	while (!mapping[ifname]) {
-@@ -380,7 +428,8 @@ return baseclass.extend({
+@@ -286,21 +365,23 @@ function formatPSEPower(pse) {
+ 	return null;
+ }
+ 
+-function formatStats(portdev, pse) {
+-	const stats = portdev._devstate('stats') || {};
++function formatStats(portdev, pse, stats) {
++	const statSrc = L.isObject(stats) ? stats : (portdev._devstate('stats') || {});
++	const rxBytes = getByteCounter(statSrc, 'rx');
++	const txBytes = getByteCounter(statSrc, 'tx');
+ 	const items = [
+-		_('Received bytes'), '%1024mB'.format(stats.rx_bytes),
+-		_('Received packets'), '%1000mPkts.'.format(stats.rx_packets),
+-		_('Received multicast'), '%1000mPkts.'.format(stats.multicast),
+-		_('Receive errors'), '%1000mPkts.'.format(stats.rx_errors),
+-		_('Receive dropped'), '%1000mPkts.'.format(stats.rx_dropped),
+-
+-		_('Transmitted bytes'), '%1024mB'.format(stats.tx_bytes),
+-		_('Transmitted packets'), '%1000mPkts.'.format(stats.tx_packets),
+-		_('Transmit errors'), '%1000mPkts.'.format(stats.tx_errors),
+-		_('Transmit dropped'), '%1000mPkts.'.format(stats.tx_dropped),
+-
+-		_('Collisions seen'), stats.collisions
++		_('Received bytes'), '%1024mB'.format(rxBytes),
++		_('Received packets'), '%1000mPkts.'.format(getStatValue(statSrc, 'rx_packets')),
++		_('Received multicast'), '%1000mPkts.'.format(getStatValue(statSrc, 'multicast')),
++		_('Receive errors'), '%1000mPkts.'.format(getStatValue(statSrc, 'rx_errors')),
++		_('Receive dropped'), '%1000mPkts.'.format(getStatValue(statSrc, 'rx_dropped')),
++
++		_('Transmitted bytes'), '%1024mB'.format(txBytes),
++		_('Transmitted packets'), '%1000mPkts.'.format(getStatValue(statSrc, 'tx_packets')),
++		_('Transmit errors'), '%1000mPkts.'.format(getStatValue(statSrc, 'tx_errors')),
++		_('Transmit dropped'), '%1000mPkts.'.format(getStatValue(statSrc, 'tx_dropped')),
++
++		_('Collisions seen'), getStatValue(statSrc, 'collisions')
+ 	];
+ 
+ 	if (pse) {
+@@ -380,7 +461,8 @@ return baseclass.extend({
  			L.resolveDefault(fs.read('/etc/board.json'), '{}'),
  			firewall.getZones(),
  			network.getNetworks(),
@@ -72,19 +141,73 @@ index c475f2e..ac5e61c 100644
  		]).then((data) => {
  			/* Get all known port names from builtin ports or board.json */
  			const builtinPorts = data[0] || [];
-@@ -430,7 +479,9 @@ return baseclass.extend({
+@@ -408,17 +490,25 @@ return baseclass.extend({
+ 			/* Query PSE status from netifd for all known ports */
+ 			const psePromises = Array.from(allPorts).map((devname) => {
+ 				return L.resolveDefault(callNetworkDeviceStatus(devname), {}).then((status) => {
+-					return { name: devname, pse: status.pse || null };
++					return {
++						name: devname,
++						pse: status.pse || null,
++						stats: status.statistics || status.stats || null
++					};
+ 				});
+ 			});
+ 
+ 			return Promise.all(psePromises).then((pseResults) => {
+ 				const pseMap = {};
++				const statsMap = {};
+ 				pseResults.forEach((r) => {
+ 					if (r.pse)
+ 						pseMap[r.name] = r.pse;
++					if (r.stats)
++						statsMap[r.name] = r.stats;
+ 				});
+ 				data.push(pseMap);
++				data.push(statsMap);
+ 				return data;
+ 			});
+ 		});
+@@ -430,7 +520,10 @@ return baseclass.extend({
  
  		const board = JSON.parse(data[1]),
  		      port_map = buildInterfaceMapping(data[2], data[3]),
 -		      pseMap = data[5] || {};
 +		      wanModeStatus = data[5] || {},
 +		      portLabelMap = buildCR881xPortLabelMap(board, wanModeStatus),
-+		      pseMap = data[6] || {};
++		      pseMap = data[6] || {},
++		      statsMap = data[7] || {};
  		let known_ports = [];
  
  		if (Array.isArray(data[0]) && data[0].length > 0) {
-@@ -498,7 +549,7 @@ return baseclass.extend({
- 			statsContent.push(E('span', { 'class': 'cbi-tooltip' }, formatStats(port.netdev, pse)));
+@@ -473,6 +566,9 @@ return baseclass.extend({
+ 			const pmap = port_map[port.netdev.getName()];
+ 			const pzones = (pmap && pmap.zones.length) ? pmap.zones.sort((a, b) => L.naturalCompare(a.getName(), b.getName())) : [ null ];
+ 			const pse = pseMap[port.device];
++			const stats = getPortStats(port, statsMap);
++			const txBytes = getByteCounter(stats, 'tx');
++			const rxBytes = getByteCounter(stats, 'rx');
+ 			const pseInfo = getPSEStatus(pse);
+ 			const psePower = formatPSEPower(pse);
+ 
+@@ -485,9 +581,9 @@ return baseclass.extend({
+ 			}
+ 
+ 			const statsContent = [
+-				'\u25b2\u202f%1024.1mB'.format(port.netdev.getTXBytes()),
++				'\u25b2\u202f%1024.1mB'.format(txBytes),
+ 				E('br'),
+-				'\u25bc\u202f%1024.1mB'.format(port.netdev.getRXBytes())
++				'\u25bc\u202f%1024.1mB'.format(rxBytes)
+ 			];
+ 
+ 			if (psePower) {
+@@ -495,10 +591,10 @@ return baseclass.extend({
+ 				statsContent.push(psePower);
+ 			}
+ 
+-			statsContent.push(E('span', { 'class': 'cbi-tooltip' }, formatStats(port.netdev, pse)));
++			statsContent.push(E('span', { 'class': 'cbi-tooltip' }, formatStats(port.netdev, pse, stats)));
  
  			return E('div', { 'class': 'ifacebox', 'style': 'margin:.25em;width:100px' }, [
 -				E('div', { 'class': 'ifacebox-head', 'style': 'font-weight:bold' }, [ port.netdev.getName() ]),
