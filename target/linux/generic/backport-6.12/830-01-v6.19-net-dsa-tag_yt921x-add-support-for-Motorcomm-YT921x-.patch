@@ -15,8 +15,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  include/uapi/linux/if_ether.h |   1 +
  net/dsa/Kconfig               |   6 ++
  net/dsa/Makefile              |   1 +
- net/dsa/tag_yt921x.c          | 179 +++++++++++++++++++++++++++++++++++++++++
- 5 files changed, 189 insertions(+)
+ net/dsa/tag_yt921x.c          | 197 +++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 207 insertions(+)
  create mode 100644 net/dsa/tag_yt921x.c
 
 --- a/include/net/dsa.h
@@ -72,7 +72,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  CFLAGS_trace.o := -I$(src)
 --- /dev/null
 +++ b/net/dsa/tag_yt921x.c
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,197 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Motorcomm YT921x Switch Extended CPU Port Tagging
@@ -190,10 +190,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			}
 +		}
 +
-+		dev_warn_ratelimited(&netdev->dev,
-+				     "Unexpected EtherType 0x%04x ingress=%s cpu_dp=%d\n",
-+				     ntohs(tag[0]), netdev->name,
-+				     cpu_dp ? cpu_dp->index : -1);
++		if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) && net_ratelimit())
++			netdev_info(netdev,
++				    "YT_DROP untagged ingress=%s cpu_dp=%d etype=0x%04x\n",
++				    netdev->name,
++				    cpu_dp ? cpu_dp->index : -1,
++				    ntohs(tag[0]));
++
 +		return NULL;
 +	}
 +
@@ -208,6 +211,21 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	port = FIELD_GET(YT921X_TAG_RX_PORT_M, rx);
 +	skb->dev = dsa_conduit_find_user(netdev, 0, port);
 +	if (unlikely(!skb->dev)) {
++		/* During conduit retarget, tagged spillover can report a CPU
++		 * source port (for example 4) on the primary conduit. That is
++		 * not a user-port frame, so drop it quietly.
++		 */
++		if (cpu_dp && port < cpu_dp->ds->num_ports &&
++		    dsa_is_cpu_port(cpu_dp->ds, port)) {
++			if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) &&
++			    net_ratelimit())
++				netdev_info(netdev,
++					    "YT_DROP cpu-src ingress=%s cpu_dp=%d src_port=%u cmd=0x%03x\n",
++					    netdev->name, cpu_dp->index, port,
++					    FIELD_GET(YT921X_TAG_RX_CMD_M, rx));
++			return NULL;
++		}
++
 +		dev_warn_ratelimited(&netdev->dev,
 +				     "Couldn't decode source port %u\n", port);
 +		return NULL;
