@@ -1,0 +1,24 @@
+start 2026-03-25T14:33:50+07:00
+REG 0x180500 orig=0x00000000
+BASE reg=0x180500 sent=392554 delta_rx=392573
+TRIAL reg=0x180500 bit=0 trial=0x00000001 sent=392574 delta_rx=392593
+TRIAL reg=0x180500 bit=1 trial=0x00000002 sent=392566 delta_rx=392585
+TRIAL reg=0x180500 bit=2 trial=0x00000004 sent=392560 delta_rx=392580
+TRIAL reg=0x180500 bit=3 trial=0x00000008 sent=392535 delta_rx=392554
+TRIAL reg=0x180500 bit=4 trial=0x00000010 sent=392562 delta_rx=392582
+TRIAL reg=0x180500 bit=5 trial=0x00000020 sent=392596 delta_rx=392615
+TRIAL reg=0x180500 bit=6 trial=0x00000040 sent=392591 delta_rx=392611
+TRIAL reg=0x180500 bit=7 trial=0x00000080 sent=392570 delta_rx=392589
+RESTORE reg=0x180500 final=0x00000000
+REG 0x355000 orig=0x00000000
+BASE reg=0x355000 sent=392565 delta_rx=392584
+TRIAL reg=0x355000 bit=0 trial=0x00000001 sent=392575 delta_rx=392594
+TRIAL reg=0x355000 bit=1 trial=0x00000002 sent=392553 delta_rx=392572
+TRIAL reg=0x355000 bit=2 trial=0x00000004 sent=392548 delta_rx=392568
+TRIAL reg=0x355000 bit=3 trial=0x00000008 sent=392588 delta_rx=392607
+TRIAL reg=0x355000 bit=4 trial=0x00000010 sent=392562 delta_rx=392582
+TRIAL reg=0x355000 bit=5 trial=0x00000020 sent=392571 delta_rx=392590
+TRIAL reg=0x355000 bit=6 trial=0x00000040 sent=392586 delta_rx=392606
+TRIAL reg=0x355000 bit=7 trial=0x00000080 sent=392556 delta_rx=392575
+RESTORE reg=0x355000 final=0x00000000
+end 2026-03-25T14:35:21+07:00
