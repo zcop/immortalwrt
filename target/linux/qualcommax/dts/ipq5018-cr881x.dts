@@ -322,6 +322,26 @@
 	};
 };
 
+&crypto {
+	status = "okay";
+};
+
+&cryptobam {
+	status = "okay";
+};
+
+&prng {
+	status = "okay";
+};
+
+&qfprom {
+	status = "okay";
+};
+
+&tsens {
+	status = "okay";
+};
+
 &soc {
 	leds {
 		compatible = "gpio-leds";
