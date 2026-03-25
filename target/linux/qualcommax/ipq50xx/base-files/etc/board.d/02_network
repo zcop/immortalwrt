@@ -30,6 +30,7 @@ ipq50xx_setup_interfaces()
 		ucidef_set_network_device_conduit "lan1" "eth1"
 		ucidef_set_network_device_conduit "lan2" "eth1"
 		ucidef_set_network_device_conduit "lan3" "eth1"
+		ucidef_set_network_device_conduit "wan" "eth0"
 		;;
 	linksys,mx6200|\
 	yuncore,ax830|\
