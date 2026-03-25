@@ -1,5 +1,107 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-25: Unknown-unicast (UU) trap from `10.1.0.178` (`eth0`) + candidate A/B
+
+Captures:
+- `docs/yt921x/live/yt_uu_ab_candidates_20260325_1500.txt`
+- `docs/yt921x/live/yt_uu_ab_dump_mib_20260325_1505.txt`
+
+What was confirmed:
+- UU source was moved to external host `10.1.0.178` and bound to `eth0`
+  (`192.168.2.178`) with static neighbor:
+  - `192.168.2.199 lladdr 02:de:ad:be:ef:00 dev eth0`
+- Two timed UU runs completed:
+  - `done 10746149` packets (first run)
+  - `done 8191720` packets (second run)
+- Router side per-port netdev counters changed strongly during the first run
+  (`lan2 tx`, `lan1 tx`, `lan3 rx`), confirming active L2 flood-path activity
+  under UU stimulus in this topology.
+- Candidate A/B toggles tested:
+  - `0x1805d4` (`bit9`: `0x23f <-> 0x03f`)
+  - `0x1805d8` (`bit9`: `0x23f <-> 0x03f`)
+  - `0x180690` (`bit0`: `0x1 <-> 0x0`)
+  - `0x1806bc` (`bit4`: `0x10 <-> 0x0`)
+- Across both A/B passes, no deterministic clamp signature was observed between
+  baseline and trial windows for these candidates.
+
+Interpretation update:
+- In this runtime, the tested `0x1805d4/0x1805d8/0x180690/0x1806bc` bit toggles
+  did not reveal a clear UU storm-policer gate.
+- Keep these registers in low-confidence policy bucket and continue with other
+  candidate regions for UU-specific policing logic.
+
+## 2026-03-25: MIB signal mapping (`0x0c0100..0x0c01fc`) + `0x1805d4` bit9 A/B
+
+Captures:
+- `docs/yt921x/live/yt_mib_map_broadcast_20260325_1450.txt`
+- `docs/yt921x/live/yt_ab_1805d4_mib_broadcast_20260325_1450.txt`
+
+What was confirmed:
+- Under synchronized ~3s high-rate UDP broadcast load, the strongest moving
+  MIB words in this sampled window were:
+  - `0x0c0100` and `0x0c0130` (both near packet-send count)
+  - `0x0c013c` (large high-rate accumulator)
+  - `0x0c0184` (secondary high-delta counter)
+- A/B on `0x1805d4` (`0x0000023f -> 0x0000003f`, i.e. bit9 clear) with matched
+  load showed only send-volume-proportional deltas and no independent drop-like
+  counter surge in sampled MIB words.
+
+Interpretation update:
+- `0x0c0100..0x0c01fc` can be used as a practical live signal window for
+  stress-path comparison.
+- Clearing `0x1805d4` bit9 did not expose a broadcast-path policer effect in
+  this runtime.
+
+## 2026-03-25: Global-enable candidate sweep (`0x180500`, `0x355000`) under live broadcast load
+
+Capture:
+- `docs/yt921x/live/yt_global_gate_sweep_180500_355000_20260325_143350.txt`
+
+What was confirmed:
+- Low-bit (`bit0..bit7`) sweep with per-trial rollback was run on:
+  - `0x180500` (orig `0x00000000`)
+  - `0x355000` (orig `0x00000000`)
+- Method used synchronized ~4s high-rate UDP broadcast bursts from host and
+  sampled `lan1_rx` deltas on the router for each trial.
+- All trial deltas tracked packet send counts and stayed baseline-equivalent:
+  - `0x180500`: no measurable clamp/gate effect for `bit0..bit7`
+  - `0x355000`: no measurable clamp/gate effect for `bit0..bit7`
+- Both registers restored cleanly to original values after sweep.
+
+Interpretation update:
+- No evidence that `0x180500` low bits or `0x355000` low bits are the missing
+  global storm-control enable in the tested broadcast path.
+- Unknown-unicast-focused probes remain required to continue narrowing BUM
+  policer control points.
+
+## 2026-03-25: BUM storm candidate probe (`0x1805d0..0x1806bc`) under live broadcast load
+
+Capture:
+- `docs/yt921x/live/yt_bum_storm_candidate_probe_20260325_1345.md`
+
+What was confirmed:
+- In `0x353000..0x355f00`, only three readable islands were observed in this
+  runtime:
+  - `0x353000..0x3531ff` (all zeros)
+  - `0x354000..0x354054` (known PSCH/TBF region)
+  - `0x355000..0x355028` (all zeros)
+- Candidate L2 cluster in `0x1805d0..0x1806bc` remained static during
+  synchronized high-rate UDP broadcast stress:
+  - `0x1805d0..0x18068c` mostly `0x0000003f`
+  - `0x1805d4`/`0x1805d8` were `0x0000023f`
+  - `0x180690=0x00000001`, `0x1806b8=0x000007ff`, `0x1806bc=0x00000010`
+- A/B probes under identical ~4s broadcast bursts (about `339k` datagrams) did
+  not show policing behavior on `lan1_rx`:
+  - `0x1805d0: 0x3f -> 0x3e` produced near-identical deltas
+  - `0x1806b8: 0x7ff -> 0x0ff` produced near-identical deltas
+  - timed `0x18068c` toggles (`0x3f <-> 0x3e`) showed no sustained gating
+
+Interpretation update:
+- On the tested broadcast path, this cluster did not act like active storm-rate
+  limiter control.
+- `0x1805d0..0x18068c` and `0x1806b8/0x1806bc` should stay in low-confidence
+  policy/config buckets until unknown-unicast stress testing is completed.
+
 ## 2026-03-24: Unknown-table expansion (`0x180310..0x180334`) + VLAN ingress filter delta
 
 Captures:

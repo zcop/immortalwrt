@@ -59,6 +59,12 @@ Primary data:
 - `docs/yt921x/live/yt_pvid_field_sensitivity_wan_v2_20260324_093322.txt`
 - `docs/yt921x/live/yt_tbf_tc_offload_probe_wan_20260324_094055.txt`
 - `docs/yt921x/live/yt_multicast_mdb_probe_snoop_on_20260324_094305.txt`
+- `docs/yt921x/live/yt_bum_storm_candidate_probe_20260325_1345.md`
+- `docs/yt921x/live/yt_global_gate_sweep_180500_355000_20260325_143350.txt`
+- `docs/yt921x/live/yt_mib_map_broadcast_20260325_1450.txt`
+- `docs/yt921x/live/yt_ab_1805d4_mib_broadcast_20260325_1450.txt`
+- `docs/yt921x/live/yt_uu_ab_candidates_20260325_1500.txt`
+- `docs/yt921x/live/yt_uu_ab_dump_mib_20260325_1505.txt`
 - `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
 - Driver symbols in `target/linux/generic/backport-6.12/830-02-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch`
 - UART transition run:
@@ -97,8 +103,11 @@ Confidence key:
 | `0x18038c` | `YT921X_STPn(0)` active STP-instance control word | High |
 | `0x180390-0x1803bc` | `YT921X_STPn(1..12)` inactive STP-instance bank (defaults zero) | High |
 | `0x1804b0-0x1804b8` | FDB output/result payload window (`FDB_OUT*`) | Medium |
+| `0x180500-0x18053c` | unknown L2 policy/control window (mostly zero in sampled runtime) | Low |
 | `0x180510-0x180514` | mcast/bcast filter masks | Medium |
 | `0x180598-0x1805cc` | VLAN egress filter + LAG group/member tables | Medium |
+| `0x1805d0-0x18068c` | unknown mask matrix (mostly `0x3f`) | Low |
+| `0x1806b8-0x1806bc` | unknown threshold/mode pair (`0x7ff` / `0x10`) | Low |
 | `0x180690` | CPU copy policy (`CPU_COPY`) | High |
 | `0x180734-0x180738` | unknown L2 action profile (`ACT_UNK_*`) | High |
 | `0x180958` | FDB HW flush policy | Medium |
@@ -106,6 +115,7 @@ Confidence key:
 | `0x210000-0x210090` | ingress TPID and LAG hash selector | High |
 | `0x230010-0x230080` | per-port VLAN default/drop control | High |
 | `0x300300` | mirror control register | High |
+| `0x355000-0x355028` | unknown QoS-neighbor island (all zero in sampled runtime) | Low |
 | `0x0c0004` | MIB control | Medium |
 | `0x0e0000-0x0e0004` | EDATA control/status | Medium |
 
@@ -147,6 +157,12 @@ Confidence key:
 | `0x1803d0` | `YT921X_PORTn_LEARN(0)` | `0x00000000` | learn defaults for lower ports | Medium |
 | `0x180510` | `YT921X_FILTER_MCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400`; static MDB add/del test showed no direct delta here | High |
 | `0x180514` | `YT921X_FILTER_BCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400`; static MDB add/del test showed no direct delta here | High |
+| `0x180500` | unknown (global-policy candidate) | `0x00000000` | low-bit sweep (`bit0..bit7`) under synchronized broadcast load showed baseline-equivalent `lan1_rx` deltas for all trials; no measurable gating effect, restored to baseline after each trial | Low |
+| `0x1805d0..0x18068c` | unknown mask matrix | mostly `0x0000003f` (`0x1805d4`/`0x1805d8`=`0x0000023f`) | synchronized high-rate UDP broadcast probe kept these words static; A/B on `0x1805d0` (`0x3f` vs `0x3e`) and timed toggles on `0x18068c` showed no measurable broadcast policing effect on `lan1_rx` | Low |
+| `0x1806b8` | unknown threshold-like word | `0x000007ff` | A/B test (`0x7ff` vs `0x0ff`) under identical broadcast bursts produced near-identical `lan1_rx` deltas (no observed limiter effect) | Low |
+| `0x1806bc` | unknown mode/selector-like word | `0x00000010` | static during synchronized broadcast probe | Low |
+| `0x355000` | unknown (QoS/global-enable candidate) | `0x00000000` | low-bit sweep (`bit0..bit7`) under synchronized broadcast load showed baseline-equivalent `lan1_rx` deltas for all trials; no measurable gating effect, restored to baseline after each trial | Low |
+| `0x0c0100`, `0x0c0130`, `0x0c013c`, `0x0c0184` | unknown MIB words (signal set) | dynamic under load | in sampled `0x0c0100..0x0c01fc` window these were strongest stress-path signals during ~3s broadcast flood; `0x1805d4` bit9 A/B (`0x23f -> 0x3f`) did not produce extra drop-like deltas beyond send-volume scaling | Medium |
 | `0x180440` | `YT921X_AGEING` | `0x0000003c` | ageing interval=`0x003c` | High |
 | `0x180454` | `YT921X_FDB_IN0` | `0xccd84354` | active FDB input/result window | Medium |
 | `0x180458` | `YT921X_FDB_IN1` | `0x70011c7a` | active FDB input/result window | Medium |
