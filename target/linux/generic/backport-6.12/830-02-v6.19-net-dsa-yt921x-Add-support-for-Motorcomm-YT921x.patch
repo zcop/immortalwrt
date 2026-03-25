@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6053 @@
+@@ -0,0 +1,6072 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -3586,12 +3586,23 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int
 +yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid)
 +{
-+	u64 mask64;
++	u64 ctrl64;
++	int res;
 +
-+	mask64 = YT921X_VLAN_CTRL_PORTn(port) |
-+		 YT921X_VLAN_CTRL_UNTAG_PORTn(port);
++	res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
++	if (res)
++		return res;
 +
-+	return yt921x_reg64_clear_bits(priv, YT921X_VLANn_CTRL(vid), mask64);
++	ctrl64 &= ~YT921X_VLAN_CTRL_PORTn(port);
++	ctrl64 &= ~YT921X_VLAN_CTRL_UNTAG_PORTn(port);
++
++	/* Keep VID=FID mapping tidy when the last member leaves VLAN X.
++	 * Keep VID 0 untouched for priority-tagged traffic semantics.
++	 */
++	if (vid && !(ctrl64 & YT921X_VLAN_CTRL_PORTS_M))
++		ctrl64 &= ~YT921X_VLAN_CTRL_FID_M;
++
++	return yt921x_reg64_write(priv, YT921X_VLANn_CTRL(vid), ctrl64);
 +}
 +
 +static int
@@ -3606,6 +3617,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	mask64 |= YT921X_VLAN_CTRL_UNTAG_PORTn(port);
 +	if (untagged)
 +		ctrl64 |= YT921X_VLAN_CTRL_UNTAG_PORTn(port);
++
++	/* Program VID=FID for IVL behavior expected by vlan_filtering
++	 * bridges. Leave VID 0 unchanged.
++	 */
++	if (vid) {
++		mask64 |= YT921X_VLAN_CTRL_FID_M;
++		ctrl64 |= YT921X_VLAN_CTRL_FID(vid);
++	}
 +
 +	return yt921x_reg64_update_bits(priv, YT921X_VLANn_CTRL(vid),
 +					mask64, ctrl64);
