@@ -1,0 +1,291 @@
+--- a/mount_root.c	2026-03-28 01:23:19.567460875 +0700
++++ b/mount_root.c	2026-03-28 01:49:41.521438985 +0700
+@@ -15,14 +15,259 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <unistd.h>
++#include <dirent.h>
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
++#include <stdbool.h>
++#include <limits.h>
++#include <stdarg.h>
+ 
+ #include <libubox/ulog.h>
+ 
+ #include "libfstools/libfstools.h"
+ #include "libfstools/volume.h"
+ 
++#define DT_COMPATIBLE_PATH      "/proc/device-tree/compatible"
++#define PROC_MTD_PATH           "/proc/mtd"
++#define SYS_UBI_PATH            "/sys/class/ubi"
++#define UBIATTACH_BIN           "/usr/sbin/ubiattach"
++#define UBIDETACH_BIN           "/usr/sbin/ubidetach"
++#define UBIMKVOL_BIN            "/usr/sbin/ubimkvol"
++#define UBIFORMAT_BIN           "/usr/sbin/ubiformat"
++
++static int cr881x_userdata_prepared = -1;
++static int cr881x_userdata_ubi = -1;
++static char cr881x_userdata_mount_src[32];
++
++static int read_line(const char *path, char *buf, size_t len)
++{
++	FILE *f;
++
++	if (!buf || !len)
++		return -1;
++
++	f = fopen(path, "r");
++	if (!f)
++		return -1;
++
++	if (!fgets(buf, len, f)) {
++		fclose(f);
++		return -1;
++	}
++	fclose(f);
++
++	buf[strcspn(buf, "\r\n")] = '\0';
++	return 0;
++}
++
++static int run_quiet(const char *fmt, ...)
++{
++	char cmd[256];
++	va_list ap;
++
++	va_start(ap, fmt);
++	vsnprintf(cmd, sizeof(cmd), fmt, ap);
++	va_end(ap);
++
++	return system(cmd);
++}
++
++static bool is_cr881x(void)
++{
++	FILE *f;
++	char buf[256];
++	size_t n, i;
++
++	f = fopen(DT_COMPATIBLE_PATH, "rb");
++	if (!f)
++		return false;
++
++	n = fread(buf, 1, sizeof(buf), f);
++	fclose(f);
++	if (!n)
++		return false;
++
++	for (i = 0; i + sizeof("xiaomi,cr881x") - 1 <= n; i++) {
++		if (!memcmp(buf + i, "xiaomi,cr881x", sizeof("xiaomi,cr881x") - 1))
++			return true;
++	}
++
++	return false;
++}
++
++static int find_mtd_index(const char *name)
++{
++	FILE *f;
++	char line[256], label[128];
++	int idx;
++
++	f = fopen(PROC_MTD_PATH, "r");
++	if (!f)
++		return -1;
++
++	while (fgets(line, sizeof(line), f)) {
++		if (sscanf(line, "mtd%d: %*x %*x \"%127[^\"]\"", &idx, label) != 2)
++			continue;
++		if (!strcmp(label, name)) {
++			fclose(f);
++			return idx;
++		}
++	}
++
++	fclose(f);
++	return -1;
++}
++
++static int find_ubi_num_by_mtd(int mtdnum)
++{
++	DIR *d;
++	struct dirent *de;
++	char path[PATH_MAX], line[32];
++	int ubi;
++
++	d = opendir(SYS_UBI_PATH);
++	if (!d)
++		return -1;
++
++	while ((de = readdir(d)) != NULL) {
++		if (sscanf(de->d_name, "ubi%d", &ubi) != 1)
++			continue;
++
++		snprintf(path, sizeof(path), SYS_UBI_PATH "/%s/mtd_num", de->d_name);
++		if (read_line(path, line, sizeof(line)))
++			continue;
++
++		if (atoi(line) == mtdnum) {
++			closedir(d);
++			return ubi;
++		}
++	}
++
++	closedir(d);
++	return -1;
++}
++
++static bool ubi_volume_exists_on_ubi(int ubi_num, const char *name)
++{
++	DIR *d;
++	struct dirent *de;
++	char path[PATH_MAX], vname[128];
++	int dev, vol;
++
++	d = opendir(SYS_UBI_PATH);
++	if (!d)
++		return false;
++
++	while ((de = readdir(d)) != NULL) {
++		if (sscanf(de->d_name, "ubi%d_%d", &dev, &vol) != 2)
++			continue;
++		if (dev != ubi_num)
++			continue;
++
++		snprintf(path, sizeof(path), SYS_UBI_PATH "/%s/name", de->d_name);
++		if (read_line(path, vname, sizeof(vname)))
++			continue;
++		if (!strcmp(vname, name)) {
++			closedir(d);
++			return true;
++		}
++	}
++
++	closedir(d);
++	return false;
++}
++
++static int ensure_cr881x_userdata(void)
++{
++	int mtdnum, ubi;
++
++	if (!is_cr881x())
++		return -1;
++
++	mtdnum = find_mtd_index("overlay");
++	if (mtdnum < 0)
++		return -1;
++
++	ubi = find_ubi_num_by_mtd(mtdnum);
++	if (ubi < 0) {
++		if (!run_quiet(UBIATTACH_BIN " -m %d >/dev/null 2>&1", mtdnum))
++			ubi = find_ubi_num_by_mtd(mtdnum);
++	}
++	if (ubi >= 0) {
++		cr881x_userdata_ubi = ubi;
++		snprintf(cr881x_userdata_mount_src, sizeof(cr881x_userdata_mount_src),
++			 "ubi%d:userdata", ubi);
++	}
++
++	if (ubi >= 0 && ubi_volume_exists_on_ubi(ubi, "userdata"))
++		return 0;
++
++	if (ubi >= 0 &&
++	    !run_quiet(UBIMKVOL_BIN " /dev/ubi%d -N userdata -m >/dev/null 2>&1", ubi))
++		return 0;
++
++	ULOG_NOTE("cr881x: reinitializing mtd%d for userdata overlay volume\n", mtdnum);
++	(void) run_quiet(UBIDETACH_BIN " -m %d >/dev/null 2>&1", mtdnum);
++	if (run_quiet(UBIFORMAT_BIN " /dev/mtd%d -y >/dev/null 2>&1", mtdnum))
++		return -1;
++	if (run_quiet(UBIATTACH_BIN " -m %d >/dev/null 2>&1", mtdnum))
++		return -1;
++
++	ubi = find_ubi_num_by_mtd(mtdnum);
++	if (ubi < 0)
++		return -1;
++	cr881x_userdata_ubi = ubi;
++	snprintf(cr881x_userdata_mount_src, sizeof(cr881x_userdata_mount_src),
++		 "ubi%d:userdata", ubi);
++
++	if (run_quiet(UBIMKVOL_BIN " /dev/ubi%d -N userdata -m >/dev/null 2>&1", ubi))
++		return -1;
++
++	return 0;
++}
++
++static void overlay_volume_fixup(struct volume *v)
++{
++	if (!v || !v->name || strcmp(v->name, "userdata"))
++		return;
++
++	if (cr881x_userdata_ubi < 0 || !cr881x_userdata_mount_src[0])
++		return;
++
++	free(v->blk);
++	v->blk = strdup(cr881x_userdata_mount_src);
++}
++
++static struct volume *overlay_volume_find_start(void)
++{
++	const char *name;
++	struct volume *v;
++
++	if (cr881x_userdata_prepared < 0)
++		cr881x_userdata_prepared = ensure_cr881x_userdata();
++
++	name = (cr881x_userdata_prepared == 0) ? "userdata" : "rootfs_data";
++	v = volume_find((char *)name);
++	if (!v && strcmp(name, "rootfs_data"))
++		v = volume_find("rootfs_data");
++
++	return v;
++}
++
++static struct volume *overlay_volume_find_done(void)
++{
++	struct volume *v;
++
++	if (cr881x_userdata_prepared == 0) {
++		v = volume_find("userdata");
++		if (v)
++			return v;
++	}
++
++	return volume_find("rootfs_data");
++}
++
+ /*
+  * Called in the early (PREINIT) stage, when we immediately need some writable
+  * filesystem.
+@@ -31,7 +276,7 @@
+ start(int argc, char *argv[3])
+ {
+ 	struct volume *root;
+-	struct volume *data = volume_find("rootfs_data");
++	struct volume *data = overlay_volume_find_start();
+ 	struct stat s;
+ 
+ 	if (!getenv("PREINIT") && stat("/tmp/.preinit", &s))
+@@ -59,8 +304,9 @@
+ 		return 0;
+ 	}
+ 
+-	/* There isn't extroot, so just try to mount "rootfs_data" */
++	/* There isn't extroot, so just try to mount data volume */
+ 	volume_init(data);
++	overlay_volume_fixup(data);
+ 	switch (volume_identify(data)) {
+ 	case FS_NONE:
+ 		ULOG_WARN("no usable overlay filesystem found, using tmpfs overlay\n");
+@@ -105,7 +351,7 @@
+ static int
+ done(int argc, char *argv[1])
+ {
+-	struct volume *v = volume_find("rootfs_data");
++	struct volume *v = overlay_volume_find_done();
+ 
+ 	if (!v)
+ 		return -1;
