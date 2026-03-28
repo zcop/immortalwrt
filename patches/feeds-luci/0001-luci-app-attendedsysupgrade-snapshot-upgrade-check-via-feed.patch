@@ -1,0 +1,206 @@
+diff --git a/applications/luci-app-attendedsysupgrade/htdocs/luci-static/resources/view/status/include/11_upgrades.js b/applications/luci-app-attendedsysupgrade/htdocs/luci-static/resources/view/status/include/11_upgrades.js
+index 39bb72c..8c1d71e 100644
+--- a/applications/luci-app-attendedsysupgrade/htdocs/luci-static/resources/view/status/include/11_upgrades.js
++++ b/applications/luci-app-attendedsysupgrade/htdocs/luci-static/resources/view/status/include/11_upgrades.js
+@@ -20,7 +20,7 @@ function setSetUpgradeCheck(pref) {
+ 		.then(L.bind(L.ui.changes.displayChanges, L.ui.changes));
+ }
+ 
+-function showUpgradeNotification(type, boardinfo, version, upgrade_info)
++function showUpgradeNotification(type, boardinfo, version, upgrade_info, release_notes_url)
+ {
+ 
+ 	// TODO show the toggle for _('Look online for upgrades upon status page load')...
+@@ -50,16 +50,22 @@ function showUpgradeNotification(type, boardinfo, version, upgrade_info)
+ 		]));
+ 	});
+ 
+-	const branch = version.split('.').slice(0, 2).join('.');
++	const links = [
++		_('Check') + ' ',
++		E('a', { href: '/cgi-bin/luci/admin/system/attendedsysupgrade' }, _('Attended Sysupgrade')),
++	];
++
++	if (release_notes_url) {
++		links.push(
++			' ' + _('and') + ' ',
++			E('a', { href: release_notes_url }, _('release notes'))
++		);
++	}
++
+ 	ui.addTimeLimitedNotification(_('New Firmware Available'), [
+ 		E('p', _('A new %s version of OpenWrt is available:').format(type)),
+ 		table,
+-		E('p', [
+-			_('Check') + ' ',
+-			E('a', {href: '/cgi-bin/luci/admin/system/attendedsysupgrade'}, _('Attended Sysupgrade')),
+-			' ' + _('and') + ' ',
+-			E('a', {href: `https://openwrt.org/releases/${branch}/notes-${version}`}, _('release notes')),
+-		]),
++		E('p', links),
+ 		E('div', { class: 'btn', click: () => setSetUpgradeCheck(false) }, _('Stop showing upgrade alerts')),
+ 	], 60000, 'notice');
+ }
+@@ -121,7 +127,39 @@ async function checkDeviceAvailable(boardinfo, new_version)
+ 			console.error('Failed to fetch firmware upgrade profile information:', error);
+ 			return [false, null];
+ 		});
+-};
++	};
++
++function getVersionRepoBase(apk_repos, opkg_feeds, target)
++{
++	if (!target)
++		return null;
++
++	const marker = `/targets/${target}/`;
++	const parseLines = function(raw, opkgStyle) {
++		if (!raw)
++			return null;
++
++		for (const ln of raw.split('\n')) {
++			const line = ln.trim();
++			if (!line || line.startsWith('#'))
++				continue;
++
++			let url = line;
++			if (opkgStyle) {
++				const fields = line.split(/\s+/);
++				url = fields[fields.length - 1];
++			}
++
++			const idx = url.indexOf(marker);
++			if (idx > 0)
++				return url.substring(0, idx);
++		}
++
++		return null;
++	};
++
++	return parseLines(apk_repos, false) || parseLines(opkg_feeds, true);
++}
+ 
+ return baseclass.extend({
+ 	title: '',
+@@ -130,52 +168,85 @@ return baseclass.extend({
+ 		return Promise.all([
+ 			L.resolveDefault(callSystemBoard(), {}),
+ 			uci.load(check_setting[0]),
++			L.resolveDefault(fs.trimmed('/etc/apk/repositories.d/distfeeds.list'), ''),
++			L.resolveDefault(fs.trimmed('/etc/opkg/distfeeds.conf'), ''),
+ 		]);
+ 	},
+ 
+ 
+-	oneshot: function(data) {
++	oneshot: async function(data) {
+ 		var boardinfo = data[0];
+ 		const check_upgrades = uci.get_bool(...check_setting);
+ 
+-		if (check_upgrades) {
+-			fetch('https://downloads.openwrt.org/.versions.json')
+-			.then(response => response.json())
+-			.then(async (versions) => {
+-				var label = null;
+-				var new_version = null;
+-
+-				const installed_version = boardinfo?.release?.version;
+-				const prev_version = versions?.oldstable_version;
+-				const curr_version = versions?.stable_version;
+-				const next_version = versions?.upcoming_version;  // Only available during "rc".
+-
+-				if (shouldUpgrade(installed_version, prev_version)) {
+-					// On old branch, and a newer 'old stable' is available.
+-					label = 'old stable';
+-					new_version = prev_version;
+-				} else if (shouldUpgrade(installed_version, curr_version)) {
+-					// On old stable or current branch, and newer stable is available.
+-					label = 'stable';
+-					new_version = curr_version;
+-				} else if (shouldUpgrade(installed_version, next_version)) {
+-					// On current stable or rc branch, a newer rc is available.
+-					label = 'release candidate';
+-					new_version = next_version;
++		if (!check_upgrades)
++			return;
++
++		const installed_version = boardinfo?.release?.version;
++		const installed_revision = boardinfo?.release?.revision;
++		const target = boardinfo?.release?.target;
++		const repo_base = getVersionRepoBase(data[2], data[3], target);
++
++		if (installed_version?.includes('SNAPSHOT') && repo_base) {
++			const version_url = `${repo_base}/targets/${target}/version.buildinfo`;
++			try {
++				const remote_revision = (await fetch(version_url).then(response => response.text())).trim();
++				if (get_revision_count(installed_revision) < get_revision_count(remote_revision)) {
++					showUpgradeNotification(
++						'snapshot',
++						boardinfo,
++						installed_version,
++						{
++							version_number: installed_version,
++							version_code: remote_revision,
++						},
++						null
++					);
+ 				}
++			} catch (error) {
++				console.error('Failed to fetch snapshot revision from feed:', error);
++			}
+ 
+-				if (new_version) {
+-					(async function(label, new_version) {
+-						const [available, upgrade_info] = await checkDeviceAvailable(boardinfo, new_version);
+-						if (available && upgrade_info)
+-							showUpgradeNotification(label, boardinfo, new_version, upgrade_info);
+-					})(label, new_version);
+-				}
++			return;
++		}
++
++		try {
++			const versions = await fetch('https://downloads.openwrt.org/.versions.json').then(response => response.json());
++			var label = null;
++			var new_version = null;
++
++			const prev_version = versions?.oldstable_version;
++			const curr_version = versions?.stable_version;
++			const next_version = versions?.upcoming_version;  // Only available during "rc".
++
++			if (shouldUpgrade(installed_version, prev_version)) {
++				// On old branch, and a newer 'old stable' is available.
++				label = 'old stable';
++				new_version = prev_version;
++			} else if (shouldUpgrade(installed_version, curr_version)) {
++				// On old stable or current branch, and newer stable is available.
++				label = 'stable';
++				new_version = curr_version;
++			} else if (shouldUpgrade(installed_version, next_version)) {
++				// On current stable or rc branch, a newer rc is available.
++				label = 'release candidate';
++				new_version = next_version;
++			}
+ 
+-			})
+-			.catch(error => {
+-					console.error('Failed to fetch firmware upgrade version information:', error);
+-			});
++			if (new_version) {
++				const [available, upgrade_info] = await checkDeviceAvailable(boardinfo, new_version);
++				if (available && upgrade_info) {
++					const branch = new_version.split('.').slice(0, 2).join('.');
++					showUpgradeNotification(
++						label,
++						boardinfo,
++						new_version,
++						upgrade_info,
++						`https://openwrt.org/releases/${branch}/notes-${new_version}`
++					);
++				}
++			}
++		} catch (error) {
++			console.error('Failed to fetch firmware upgrade version information:', error);
+ 		}
+ 	},
+ 

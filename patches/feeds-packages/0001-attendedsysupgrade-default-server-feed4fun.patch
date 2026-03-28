@@ -1,0 +1,13 @@
+diff --git a/utils/attendedsysupgrade-common/files/attendedsysupgrade.defaults b/utils/attendedsysupgrade-common/files/attendedsysupgrade.defaults
+index eedd1cc..7c3b1f5 100644
+--- a/utils/attendedsysupgrade-common/files/attendedsysupgrade.defaults
++++ b/utils/attendedsysupgrade-common/files/attendedsysupgrade.defaults
+@@ -6,7 +6,7 @@ touch /etc/config/attendedsysupgrade
+ 
+ uci -q batch <<EOF
+ set attendedsysupgrade.server=server
+-set attendedsysupgrade.server.url='https://sysupgrade.kyarucloud.moe'
++set attendedsysupgrade.server.url='https://feed.4fun.cyou'
+ 
+ set attendedsysupgrade.client=client
+ set attendedsysupgrade.client.upgrade_packages='1'
