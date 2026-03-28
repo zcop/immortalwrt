@@ -1,0 +1,49 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+. /lib/functions/ipv4.sh
+
+[ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
+[ "$(uci -q get network.lan.proto)" = "static" ] || exit 0
+
+raw="$(uci -q get network.lan.ipaddr || true)"
+raw="${raw%% *}"
+
+ipaddr=""
+netmask=""
+
+case "$raw" in
+*/*)
+	ipaddr="${raw%/*}"
+	suffix="${raw#*/}"
+	case "$suffix" in
+	*.*.*.*)
+		netmask="$suffix"
+		;;
+	*)
+		if [ "$suffix" -ge 0 ] 2>/dev/null && [ "$suffix" -le 32 ] 2>/dev/null; then
+			prefix2netmask netmask "$suffix"
+		fi
+		;;
+	esac
+	;;
+*)
+	ipaddr="$raw"
+	netmask="$(uci -q get network.lan.netmask || true)"
+	;;
+esac
+
+if ! str2ip __tmp "$ipaddr"; then
+	ipaddr="192.168.2.1"
+fi
+
+if ! str2ip __tmp "$netmask"; then
+	netmask="255.255.255.0"
+fi
+
+uci -q delete network.lan.ipaddr
+uci -q set network.lan.ipaddr="$ipaddr"
+uci -q set network.lan.netmask="$netmask"
+uci -q commit network
+
+exit 0
