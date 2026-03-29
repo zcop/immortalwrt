@@ -253,6 +253,16 @@ tracked here even where we do not yet have a stable board baseline value dump.
 - `p0=0x000000e2`, `p1=0x000001fa`, `p2=0x000000e2`, `p3=0x000000e2`, `p4=0x000001fa`
 - `p5=0x000000e2`, `p6=0x000000e2`, `p7=0x000000e2`, `p8=0x000001fa`, `p9=0x000000e2`, `p10=0x000001fa`
 
+Latest UART baseline (2026-03-29, per-port query via
+`/sys/kernel/debug/yt921x_cmd`, capture:
+`docs/yt921x/live/yt_uart_port_status_isolation_snapshot_2026-03-29.md`):
+- `PORTn_CTRL`:
+  - `p0=0x000007fa`, `p1=0x0000079a`, `p2=0x000007fa`, `p3=0x000007fa`, `p4=0x000005fa`
+  - `p5=0x000007fa`, `p6=0x000007fa`, `p7=0x000007fa`, `p8=0x000005fa`, `p9=0x000007fa`, `p10=0x000007fa`
+- `PORTn_STATUS`:
+  - `p0=0x000001fa`, `p1=0x0000019a`, `p2=0x000000e2`, `p3=0x000000e2`, `p4=0x000001fa`
+  - `p5=0x000000e2`, `p6=0x000000e2`, `p7=0x000000e2`, `p8=0x000001fa`, `p9=0x000000e2`, `p10=0x000001fa`
+
 Interpretation note:
 - Only part of status/control bit semantics is confirmed; values are stable and mapped, but exact link-bit behavior still needs controlled plug/unplug delta tests.
 
@@ -306,13 +316,16 @@ Conduit-switch signatures (`wan` port 3 moved between CPU conduits):
 - `wan@eth0` (secondary conduit): `0x1802a0=0x000007ef`,
   `0x1802a4=0x000006e0`, `0x1802b4=0x000007ff`,
   `0x1802b8=0x000006ef`, `0x08000c=0x0000c004`
-- key invariant on current CR881x mapping: both directions must be open
+  - key invariant on current CR881x mapping: both directions must be open
   (`port3<->port4`) for ARP/ICMP to pass on the secondary conduit.
 - row identity anchors used by current driver/runtime:
   - `lan3 (p2) -> 0x18029c`
   - `cpu2 (p4, eth0) -> 0x1802a4`
   - `cpu1 (p8, eth1) -> 0x1802b4`
   - `mcu (p10) -> 0x1802bc`
+- Latest UART baseline (2026-03-29):
+  - `p0=0x000006f9`, `p1=0x000006fa`, `p2=0x000006fc`, `p3=0x000007ef`, `p4=0x000007e7`
+  - `p5=0x000006ef`, `p6=0x000006ef`, `p7=0x000006ef`, `p8=0x000007f8`, `p9=0x000006ef`, `p10=0x000006ef`
 
 `PORTn_LEARN` (`0x1803d0 + 4*n`, ports `0..10`):
 - `p0=0x00000000`, `p1=0x00000000`, `p2=0x00000000`

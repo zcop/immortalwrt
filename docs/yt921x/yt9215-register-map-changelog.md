@@ -1,5 +1,31 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-29: UART-only baseline snapshot via `yt921x_cmd`
+
+Capture:
+- `docs/yt921x/live/yt_uart_port_status_isolation_snapshot_2026-03-29.md`
+
+What was confirmed:
+- On this image, live register access is available through debugfs
+  (`/sys/kernel/debug/yt921x_cmd`) even when `reg`/`ssdk_sh`/`devmem` are not
+  present in userspace.
+- Full per-port status (`p0..p10`) was collected without truncation using
+  per-port `port_status <n>` queries:
+  - notable active control/status signatures:
+    - `p4: ctrl=0x000005fa status=0x000001fa` (`cpu2/eth0`)
+    - `p8: ctrl=0x000005fa status=0x000001fa` (`cpu1/eth1`)
+    - `p10: ctrl=0x000007fa status=0x000001fa` (internal `mcu`)
+- `PORTn_ISOLATION` rows (`0x180294 + 4*n`) current snapshot:
+  - `p0=0x6f9`, `p1=0x6fa`, `p2=0x6fc`, `p3=0x7ef`, `p4=0x7e7`,
+    `p5=0x6ef`, `p6=0x6ef`, `p7=0x6ef`, `p8=0x7f8`, `p9=0x6ef`,
+    `p10=0x6ef`
+
+Interpretation update:
+- The CR881x identity anchors remain consistent with this runtime:
+  `p2=lan3`, `p4=cpu2`, `p8=cpu1`, `p10=mcu`.
+- This snapshot provides a UART-safe baseline for further directional pulses on
+  dark rows/ports.
+
 ## 2026-03-29: Port identity finalized (`lan3/cpu1/cpu2/mcu`)
 
 Capture:

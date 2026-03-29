@@ -22,6 +22,12 @@ targets correct rows.
   - `wan@eth0`  -> `portname p3`
 - `yt921x_cmd port_status` + `reg read` on `PORTn_ISOLATION` rows:
   - rows for `p4` and `p8` match dual-conduit behavior previously validated.
+  - UART snapshot (`docs/yt921x/live/yt_uart_port_status_isolation_snapshot_2026-03-29.md`)
+    confirms current baseline rows:
+    - `0x18029c (p2)=0x000006fc`
+    - `0x1802a4 (p4)=0x000007e7`
+    - `0x1802b4 (p8)=0x000007f8`
+    - `0x1802bc (p10)=0x000006ef`
 
 ## Final mapping
 - `p2` = `lan3`
