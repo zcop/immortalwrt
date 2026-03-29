@@ -65,6 +65,7 @@ Primary data:
 - `docs/yt921x/live/yt_ab_1805d4_mib_broadcast_20260325_1450.txt`
 - `docs/yt921x/live/yt_uu_ab_candidates_20260325_1500.txt`
 - `docs/yt921x/live/yt_uu_ab_dump_mib_20260325_1505.txt`
+- `docs/yt921x/live/yt_port_identity_map_cr881x_2026-03-29.md`
 - `docs/yt921x/yt9215-register-actionability-map-2026-03-17.md`
 - Driver symbols in `target/linux/generic/backport-6.12/830-02-v6.19-net-dsa-yt921x-Add-support-for-Motorcomm-YT921x.patch`
 - UART transition run:
@@ -74,6 +75,22 @@ Confidence key:
 - `High`: symbol + behavior + live value all align.
 - `Medium`: symbol aligns, behavior still needs delta tests.
 - `Low`: currently only positional hint.
+
+## Port Identity Map (CR881x, finalized 2026-03-29)
+- User ports:
+  - `p0=lan1`, `p1=lan2`, `p2=lan3`, `p3=wan`
+- CPU conduits:
+  - `p8=cpu1` (primary, `eth1`)
+  - `p4=cpu2` (secondary, `eth0`)
+- Internal-only:
+  - `p10=mcu`
+
+Evidence summary:
+- DTS binds `port@2` to `lan3`, `port@4` to `dp1/eth0`, `port@8` to `dp2/eth1`.
+- Driver picks `port8` as primary CPU when present and keeps `port10` in MCU
+  drop-mask handling.
+- Runtime DSA port names confirm `lan3 -> p2` and `wan -> p3`; conduit behavior
+  remains consistent with `cpu1=p8`, `cpu2=p4`.
 
 ## Block Map
 | Range | Current mapping | Confidence |
@@ -146,7 +163,7 @@ Confidence key:
 | `0x230010-0x23001c` | `YT921X_PORTn_VLAN_CTRL(0..3)` | dynamic (`0xc007ffc0` / `0xc0040040`) | flips to `0xc0040040` when `br-lan vlan_filtering=1` and restores on disable; confirms active per-port VLAN mode control coupling | High |
 | `0x23001c` | `YT921X_PORTn_VLAN_CTRL(3)` (WAN in this mapping) | dynamic | WAN PVID sensitivity maps as `PVID << 6` in this word (`20->0x0500`, `21->0x0540`, `30->0x0780`, `100->0x1900`) | High |
 | `0x230080-0x2300a8` | `YT921X_PORTn_VLAN_CTRL1(0..10)` | `0x00000000` (sampled) | remained zero across the `vlan_filtering` and VID10 add/del probe sequence | Medium |
-| `0x180294-0x1802bc` | `YT921X_PORTn_ISOLATION(n=0..10)` | dynamic | directional per-source destination block mask (`bit d` blocks `src n -> dst d`) used by bridge/conduit steering; low 11 bits are active while unrelated upper bits are preserved | High |
+| `0x180294-0x1802bc` | `YT921X_PORTn_ISOLATION(n=0..10)` | dynamic | directional per-source destination block mask (`bit d` blocks `src n -> dst d`) used by bridge/conduit steering; low 11 bits are active while unrelated upper bits are preserved. 2026-03-29 host-to-host confirmation (`lan1`/`lan2` up): pulsing `0x180294: 0x6f9->0x6fb` and `0x180298: 0x6fa->0x6fb` induced repeatable LAN horizontal loss (~25-29%) while simultaneous host->router control stayed `0%` loss | High |
 | `0x18028c` | unknown (portmask-like, pre-`PORTn_ISOLATION`) | `0x000007ff` | writable (`0x7ff <-> 0x0`); single-host LAN->router probe (`192.168.2.100 -> 192.168.2.1`) showed 0% ICMP loss, and one-hot gate-candidate sweeps did not unlock `0xdeadbeef` windows | Medium |
 | `0x18030c-0x180334` | unknown writable table (11 words) | baseline `0x00000000` | each word is writable with mask `0x000007ff`; values persist across bridge-membership toggles; per-word bit-coupling sweeps (`0x180310..0x180334`) showed no immediate deltas in sampled isolation/STP/learn words | Medium |
 | `0x1803cc` | unknown (portmask-like) | `0x000007ff` | all 11 ports set in baseline; one-hot gate-candidate sweeps did not unlock `0xdeadbeef` windows | Low |
@@ -158,7 +175,7 @@ Confidence key:
 | `0x180510` | `YT921X_FILTER_MCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400`; static MDB add/del test showed no direct delta here | High |
 | `0x180514` | `YT921X_FILTER_BCAST` | `0x00000400` (safe baseline) | 11-bit filter mask; `0x00000400` and `0x00000000` both passed single-host tests, while `0x000007ff` was observed in a bad runtime and correlated with host->router blackhole until restored to `0x00000400`; static MDB add/del test showed no direct delta here | High |
 | `0x180500` | unknown (global-policy candidate) | `0x00000000` | low-bit sweep (`bit0..bit7`) under synchronized broadcast load showed baseline-equivalent `lan1_rx` deltas for all trials; no measurable gating effect, restored to baseline after each trial | Low |
-| `0x1805d0..0x18068c` | unknown mask matrix | mostly `0x0000003f` (`0x1805d4`/`0x1805d8`=`0x0000023f`) | synchronized high-rate UDP broadcast probe kept these words static; A/B on `0x1805d0` (`0x3f` vs `0x3e`) and timed toggles on `0x18068c` showed no measurable broadcast policing effect on `lan1_rx` | Low |
+| `0x1805d0..0x18068c` | unknown mask matrix | mostly `0x0000003f` (`0x1805d4`/`0x1805d8`=`0x0000023f`) | synchronized high-rate UDP broadcast probe kept these words static; A/B on `0x1805d0` (`0x3f` vs `0x3e`) and timed toggles on `0x18068c` showed no measurable broadcast policing effect on `lan1_rx`. 2026-03-29 host-to-host pulses (`0x1805d4`/`0x1805d8` to `0x0`) also did not cut known-unicast LAN1<->LAN2 traffic | Low |
 | `0x1806b8` | unknown threshold-like word | `0x000007ff` | A/B test (`0x7ff` vs `0x0ff`) under identical broadcast bursts produced near-identical `lan1_rx` deltas (no observed limiter effect) | Low |
 | `0x1806bc` | unknown mode/selector-like word | `0x00000010` | static during synchronized broadcast probe | Low |
 | `0x355000` | unknown (QoS/global-enable candidate) | `0x00000000` | low-bit sweep (`bit0..bit7`) under synchronized broadcast load showed baseline-equivalent `lan1_rx` deltas for all trials; no measurable gating effect, restored to baseline after each trial | Low |
@@ -291,6 +308,11 @@ Conduit-switch signatures (`wan` port 3 moved between CPU conduits):
   `0x1802b8=0x000006ef`, `0x08000c=0x0000c004`
 - key invariant on current CR881x mapping: both directions must be open
   (`port3<->port4`) for ARP/ICMP to pass on the secondary conduit.
+- row identity anchors used by current driver/runtime:
+  - `lan3 (p2) -> 0x18029c`
+  - `cpu2 (p4, eth0) -> 0x1802a4`
+  - `cpu1 (p8, eth1) -> 0x1802b4`
+  - `mcu (p10) -> 0x1802bc`
 
 `PORTn_LEARN` (`0x1803d0 + 4*n`, ports `0..10`):
 - `p0=0x00000000`, `p1=0x00000000`, `p2=0x00000000`

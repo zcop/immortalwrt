@@ -1,5 +1,59 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-29: Port identity finalized (`lan3/cpu1/cpu2/mcu`)
+
+Capture:
+- `docs/yt921x/live/yt_port_identity_map_cr881x_2026-03-29.md`
+
+What was confirmed:
+- Final CR881x switch port identity:
+  - `p2=lan3`
+  - `p8=cpu1` (primary conduit, `eth1`)
+  - `p4=cpu2` (secondary conduit, `eth0`)
+  - `p10=mcu` (internal-only)
+- Isolation row anchors for this mapping:
+  - `lan3 -> 0x18029c`
+  - `cpu2 -> 0x1802a4`
+  - `cpu1 -> 0x1802b4`
+  - `mcu  -> 0x1802bc`
+
+Interpretation update:
+- `0x7ff` global masks map cleanly to an 11-port model (`0..10`).
+- Conduit/isolation tuning should continue to treat `p8` as primary CPU and
+  `p4` as secondary CPU on CR881x.
+
+## 2026-03-29: Host-to-host directional proof for `0x180294+`; negative confirmation for `0x1805d4/0x1805d8`
+
+Capture:
+- `docs/yt921x/live/yt_180294_host2host_directional_pulse_summary_2026-03-29.md`
+
+What was confirmed:
+- Runtime link state at test time:
+  - `lan1` up, `lan2` up, `lan3` down, `wan` down.
+- Isolation baseline rows:
+  - `0x180294=0x000006f9`
+  - `0x180298=0x000006fa`
+  - `0x18029c=0x000006fc`
+- Candidate matrix baseline:
+  - `0x1805d0..0x18068c` mostly `0x0000003f`
+  - outliers `0x1805d4=0x0000023f`, `0x1805d8=0x0000023f`.
+- Host-to-host pulses:
+  - `0x180294: 0x6f9 -> 0x6fb` caused repeatable LAN1<->LAN2 loss
+    (`80/60` and `70/51` received in two runs).
+  - `0x180298: 0x6fa -> 0x6fb` caused repeatable LAN1<->LAN2 loss
+    (`70/50` received).
+  - Simultaneous control ping to router (`192.168.2.1`) stayed `0%` loss.
+- Negative controls:
+  - `0x180298: 0x6fa -> 0x6fe` did not cut LAN1<->LAN2.
+  - `0x18029c: 0x6fc -> 0x6fd` and `0x6fc -> 0x6fe` did not cut LAN1<->LAN2.
+  - `0x1805d4` / `0x1805d8` pulses to `0x00000000` did not cut LAN1<->LAN2.
+
+Interpretation update:
+- `0x180294+` is the active directional isolation matrix for the tested LAN
+  forwarding path.
+- `0x1805d4` / `0x1805d8` are not the primary known-unicast LAN forwarding
+  matrix in this runtime; keep in lower-confidence policy/BUM candidate bucket.
+
 ## 2026-03-25: Unknown-unicast (UU) trap from `10.1.0.178` (`eth0`) + candidate A/B
 
 Captures:
