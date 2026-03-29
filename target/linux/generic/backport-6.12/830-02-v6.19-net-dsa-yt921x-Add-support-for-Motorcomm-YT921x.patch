@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6072 @@
+@@ -0,0 +1,6081 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -5010,6 +5010,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			 * steer traffic.
 +			 */
 +			res = yt921x_port_isolation_set(priv, port, 0);
++			if (res)
++				return res;
++
++			/* Prevent primary-CPU sourced frames from spilling into the
++			 * secondary conduit path.
++			 */
++			res = yt921x_reg_set_bits(priv,
++						  YT921X_PORTn_ISOLATION(port),
++						  BIT(priv->primary_cpu_port));
 +			if (res)
 +				return res;
 +		}
