@@ -4999,7 +4999,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			/* Primary conduit uses the YT921X tag format, so keep
 +			 * untagged egress from this CPU port blocked.
 +			 */
-+			ctrl = ~(u32)0;
++			/* Block all 11 modeled destinations, preserve unknown
++			 * upper bits for forward compatibility.
++			 */
++			ctrl = GENMASK(YT921X_PORT_NUM - 1, 0);
 +			res = yt921x_reg_write(priv, YT921X_PORTn_ISOLATION(port),
 +					       ctrl);
 +			if (res)
