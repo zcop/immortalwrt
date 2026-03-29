@@ -1,0 +1,12 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+[ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
+
+# Avoid auto-mounting internal UBI volumes (rootfs_data/userdata) under /mnt,
+# which confuses storage widgets when overlay already lives on UBI.
+uci -q set fstab.@global[0].anon_mount='0'
+uci -q commit fstab
+
+exit 0

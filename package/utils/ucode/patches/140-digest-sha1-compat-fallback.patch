@@ -1,0 +1,17 @@
+--- a/lib/digest.c
++++ b/lib/digest.c
+@@ -33,6 +33,14 @@
+ 
+ #include "ucode/module.h"
+ 
++#ifndef SHA1Data
++extern char *SHA1Data(const uint8_t *data, size_t len, char *buf);
++#endif
++
++#ifndef SHA1File
++extern char *SHA1File(const char *filename, char *buf);
++#endif
++
+ 
+ static uc_value_t *
+ uc_digest_calc_data(uc_value_t *str, char *(*fn)(const uint8_t *,size_t,char *))
