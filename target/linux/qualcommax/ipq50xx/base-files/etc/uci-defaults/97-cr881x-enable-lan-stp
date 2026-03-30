@@ -1,0 +1,26 @@
+#!/bin/sh
+
+[ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
+
+# Enable bridge STP by default on first boot to provide loop protection
+# via the existing yt921x DSA STP path.
+lan_dev="$(uci -q get network.lan.device)"
+[ -n "$lan_dev" ] || lan_dev='br-lan'
+
+applied=0
+for sec in $(uci -q show network | sed -n "s/^\(network\..*\)=device$/\1/p"); do
+	[ "$(uci -q get "$sec.name")" = "$lan_dev" ] || continue
+	if [ -z "$(uci -q get "$sec.stp")" ]; then
+		uci -q set "$sec.stp=1"
+	fi
+	applied=1
+done
+
+# Fallback for legacy layouts that may still read STP from interface section.
+if [ "$applied" -eq 0 ] && [ -z "$(uci -q get network.lan.stp)" ]; then
+	uci -q set network.lan.stp='1'
+fi
+
+uci -q commit network
+
+exit 0
