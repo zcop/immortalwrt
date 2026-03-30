@@ -2843,16 +2843,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +
 +	for (i = 0; i < YT921X_PRIO_NUM; i++) {
-+		u32 ucast_shift = 28 - 4 * i;
-+		u32 mcast_shift = 14 - 2 * i;
 +		u32 qid = map[i] & GENMASK(2, 0);
 +
-+		ucast &= ~(GENMASK(2, 0) << ucast_shift);
-+		ucast |= qid << ucast_shift;
++		ucast &= ~YT921X_STOCK_QOS_UCAST_QMAP_PRIO_M(i);
++		ucast |= YT921X_STOCK_QOS_UCAST_QMAP_PRIO(i, qid);
 +
 +		/* Stock mcast map field is 2-bit wide; keep best-effort map. */
-+		mcast &= ~(GENMASK(1, 0) << mcast_shift);
-+		mcast |= min_t(u32, qid, 3) << mcast_shift;
++		mcast &= ~YT921X_STOCK_QOS_MCAST_QMAP_PRIO_M(i);
++		mcast |= YT921X_STOCK_QOS_MCAST_QMAP_PRIO(i, min_t(u32, qid, 3));
 +	}
 +
 +	res = yt921x_reg_write(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), ucast);
@@ -7137,6 +7135,18 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	(YT921X_STOCK_QOS_QUEUE_MAP_UCAST + 4 * (port))
 +#define YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port) \
 +	(YT921X_STOCK_QOS_QUEUE_MAP_MCAST + 4 * (port))
++#define  YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(prio)	(28 - 4 * (prio))
++#define  YT921X_STOCK_QOS_UCAST_QMAP_PRIO_M(prio) \
++		(GENMASK(2, 0) << YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(prio))
++#define  YT921X_STOCK_QOS_UCAST_QMAP_PRIO(prio, qid) \
++		(((u32)(qid) & GENMASK(2, 0)) << \
++		 YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(prio))
++#define  YT921X_STOCK_QOS_MCAST_QMAP_PRIO_SHIFT(prio)	(14 - 2 * (prio))
++#define  YT921X_STOCK_QOS_MCAST_QMAP_PRIO_M(prio) \
++		(GENMASK(1, 0) << YT921X_STOCK_QOS_MCAST_QMAP_PRIO_SHIFT(prio))
++#define  YT921X_STOCK_QOS_MCAST_QMAP_PRIO(prio, qid) \
++		(((u32)(qid) & GENMASK(1, 0)) << \
++		 YT921X_STOCK_QOS_MCAST_QMAP_PRIO_SHIFT(prio))
 +#define YT921X_STOCK_MIRROR_PRIO_MAP		0x300304	/* tbl 0xd6 */
 +#define YT921X_STOCK_QOS_SCHED_SP		0x300400	/* tbl 0xd7 */
 +
@@ -7151,6 +7161,30 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STOCK_QOS_SCHED_DWRR		0x341000	/* tbl 0xe6 */
 +#define YT921X_STOCK_QOS_SCHED_DWRR_MODE0	0x342000	/* tbl 0xe7 */
 +#define YT921X_STOCK_QOS_SCHED_DWRR_MODE1	0x343000	/* tbl 0xe8 */
++/* tbl 0xe6/0xe7/0xe8 are flow-indexed scheduler tables.
++ * Decoded layout: 11 ports * 12 flows/port (8 unicast + 4 multicast) = 132 entries.
++ */
++#define YT921X_STOCK_QOS_SCHED_PORTS		11U
++#define YT921X_STOCK_QOS_SCHED_UCAST_FLOWS	8U
++#define YT921X_STOCK_QOS_SCHED_MCAST_FLOWS	4U
++#define YT921X_STOCK_QOS_SCHED_FLOWS_PER_PORT \
++		(YT921X_STOCK_QOS_SCHED_UCAST_FLOWS + YT921X_STOCK_QOS_SCHED_MCAST_FLOWS)
++#define YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, is_mcast) \
++		((port) * YT921X_STOCK_QOS_SCHED_FLOWS_PER_PORT + \
++		 ((is_mcast) ? (YT921X_STOCK_QOS_SCHED_UCAST_FLOWS + (qid)) : (qid)))
++#define YT921X_STOCK_QOS_SCHED_DWRRn(idx) \
++		(YT921X_STOCK_QOS_SCHED_DWRR + 4 * (idx))
++#define YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx) \
++		(YT921X_STOCK_QOS_SCHED_DWRR_MODE0 + 4 * (idx))
++#define YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx) \
++		(YT921X_STOCK_QOS_SCHED_DWRR_MODE1 + 4 * (idx))
++/* qsch_flow_map_tblm_field (tbl 0xe6) */
++#define  YT921X_STOCK_QOS_SCHED_FLOW_F0_M	GENMASK(27, 18)
++#define  YT921X_STOCK_QOS_SCHED_FLOW_F1_M	GENMASK(17, 8)
++#define  YT921X_STOCK_QOS_SCHED_FLOW_F2_M	GENMASK(7, 4)
++#define  YT921X_STOCK_QOS_SCHED_FLOW_F3_M	GENMASK(3, 0)
++/* qsch_e_dwrr_cfg_tblm_field / qsch_c_dwrr_cfg_tblm_field (tbl 0xe7/0xe8) */
++#define  YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN	BIT(0)
 +
 +#define YT921X_IPM_DSCPn(n)		(0x180000 + 4 * (n))	/* Internal Priority Map */
 +#define YT921X_IPM_PCPn(map, dei, pcp)	(0x180100 + 4 * (16 * (map) + 8 * (dei) + (pcp)))
