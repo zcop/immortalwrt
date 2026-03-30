@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6634 @@
+@@ -0,0 +1,6668 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -4232,7 +4232,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return 0;
 +
 +	mutex_lock(&priv->reg_lock);
-+	res = yt921x_vlan_filtering(priv, port, vlan_filtering);
++	do {
++		res = yt921x_vlan_filtering(priv, port, vlan_filtering);
++		if (res)
++			break;
++
++		/* Keep VLAN/FID transition clean: drop stale dynamic entries
++		 * learned under the previous filtering mode.
++		 */
++		res = yt921x_fdb_flush_port(priv, port, false);
++	} while (0);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -5727,6 +5736,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static void yt921x_dsa_port_disable(struct dsa_switch *ds, int port)
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u32 stp_ctrl;
++	u32 stp_mask;
 +	int res;
 +
 +	if (!dsa_is_user_port(ds, port))
@@ -5736,7 +5747,24 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	cancel_delayed_work_sync(&priv->ports[port].mib_read);
 +
 +	mutex_lock(&priv->reg_lock);
-+	res = yt921x_port_down(priv, port);
++	do {
++		res = yt921x_stp_encode_state(port, BR_STATE_BLOCKING, &stp_ctrl);
++		if (res)
++			break;
++
++		stp_mask = YT921X_STP_PORTn_M(port);
++		res = yt921x_reg_update_bits(priv, YT921X_STPn(0), stp_mask,
++					     stp_ctrl);
++		if (res)
++			break;
++
++		res = yt921x_reg_set_bits(priv, YT921X_PORTn_LEARN(port),
++					  YT921X_PORT_LEARN_DIS);
++		if (res)
++			break;
++
++		res = yt921x_port_down(priv, port);
++	} while (0);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	if (res)
@@ -6423,6 +6451,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	/* Miscellaneous */
 +	res = yt921x_reg_set_bits(priv, YT921X_SENSOR, YT921X_SENSOR_TEMP);
++	if (res)
++		return res;
++
++	/* Flush dynamic FDB entries on hardware link-down events. */
++	res = yt921x_reg_set_bits(priv, YT921X_FDB_HW_FLUSH,
++				  YT921X_FDB_HW_FLUSH_ON_LINKDOWN);
 +	if (res)
 +		return res;
 +
