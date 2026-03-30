@@ -1,5 +1,27 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-30: `0x080230` loop-detect safe bit sweep (live runtime)
+
+Capture:
+- `docs/yt921x/live/yt_080230_loop_detect_safe_bitsweep_2026-03-30.md`
+
+What was confirmed:
+- Baseline on this runtime:
+  - `0x080230 = 0x03266624`
+  - decoded fields: `f5=1`, `f6=0x9989`, `f8=0`, unit slices `f4=0`, `f3=1`, `f2=2`
+- Controlled pulses on bits `18, 0..8` all:
+  - latched to trial value (readback matched)
+  - restored to baseline cleanly
+  - showed `0%` packet loss on management ping path during each pulse
+
+Interpretation update:
+- `0x080230` behaves as an active writable control word in this runtime.
+- Bit-level writes in tested range are operationally safe for short pulses with restore.
+- This run does **not** prove BPDU classifier ownership yet:
+  - no external BPDU injector was used
+  - only `lan1` was link-up during test
+  - userspace `bridge` tool was unavailable on this image
+
 ## 2026-03-30: stock module reverse decode (`yt_switch.ko`) for storm/RMA/loop paths
 
 Capture and source:
