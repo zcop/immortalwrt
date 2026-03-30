@@ -241,7 +241,7 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_STOCK_RATE_METER_CONFIGn(n)` (`0x220800+0x10*n`) | decoded fields across words 0/1/2 | set with field RMW per decoded map (`meter_config_tblm_field` entries 0..13) | stock ingress meter cfg (`tbl 0xce`) |
 | `YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port)` (`0x300200+4*port`) | 8 slots, each `3-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x7) << shift_i)` where shifts=`28,24,20,16,12,8,4,0` | current `mqprio` offload programs this |
 | `YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port)` (`0x300280+4*port`) | 8 slots, each `2-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x3) << shift_i)` where shifts=`14,12,10,8,6,4,2,0` | current driver mirrors ucast map into this table |
-| `YT921X_STOCK_QOS_SCHED_SP` / `DWRR*` (`0x300400`, `0x341000..0x343000`) | scheduler policy fields (stock-only decode) | keep masked RMW only; runtime A/B pending before enabling in driver | scheduler parity gap |
+| `YT921X_STOCK_QOS_SCHED_SP` / `DWRR*` (`0x300400`, `0x341000..0x343000`) | scheduler policy fields (stock-only decode) | flow-indexed tables: `idx = port*12 + qid` (ucast), `idx = port*12 + 8 + qid` (mcast). `0xe6` decoded as `f0[27:18], f1[17:8], f2[7:4], f3[3:0]`; `0xe7/0xe8` have `bit0` cfg | scheduler parity gap |
 
 ## Notes And Usage Links
 Use these for full procedure, A/B deltas, and raw captures.

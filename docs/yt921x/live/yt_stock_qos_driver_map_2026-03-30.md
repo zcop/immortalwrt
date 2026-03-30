@@ -50,6 +50,11 @@ Implication:
   - `field1: 10@w0:8`
   - `field2: 4@w0:4`
   - `field3: 4@w0:0`
+- `tbl_reg_list` shape for `0xe6/0xe7/0xe8`: `132` entries (`0x84`), 1 word per entry.
+  - This matches `11 ports * 12 flows/port` where `12 = 8 unicast + 4 multicast`.
+  - Practical index model used by driver header macros:
+    - `idx = port * 12 + qid` (unicast `qid 0..7`)
+    - `idx = port * 12 + 8 + qid` (multicast `qid 0..3`)
 
 ### Queue shaper
 - `qsch_shp_cfg_tblm_field`:
