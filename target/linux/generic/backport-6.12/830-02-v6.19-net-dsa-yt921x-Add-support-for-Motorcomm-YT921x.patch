@@ -2861,6 +2861,67 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_mqprio_sched_apply(struct yt921x_priv *priv, int port,
++			  const u8 map[YT921X_PRIO_NUM])
++{
++	u16 used_ucast_qid = 0;
++	u16 used_mcast_qid = 0;
++	int qid;
++	int i;
++	int res;
++
++	if (port < 0 || port >= YT921X_STOCK_QOS_SCHED_PORTS)
++		return -ERANGE;
++
++	/* Scheduler tables are indexed by physical queue id (not by skb prio).
++	 * Build "queue used" masks from the prio->qid map programmed above.
++	 */
++	for (i = 0; i < YT921X_PRIO_NUM; i++) {
++		u32 uqid = map[i] & GENMASK(2, 0);
++		u32 mqid = min_t(u32, uqid, YT921X_STOCK_QOS_SCHED_MCAST_FLOWS - 1);
++
++		used_ucast_qid |= BIT(uqid);
++		used_mcast_qid |= BIT(mqid);
++	}
++
++	/* Stock decodes qsch_e/qsch_c dwrr cfg as bit0 in tables 0xe7/0xe8.
++	 * Apply a conservative baseline: enable DWRR on queues referenced by
++	 * current mqprio map, disable it on unused queues.
++	 */
++	for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS; qid++) {
++		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, false);
++		u32 en = (used_ucast_qid & BIT(qid)) ? YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN : 0;
++
++		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
++		if (res)
++			return res;
++
++		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
++		if (res)
++			return res;
++	}
++
++	for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_MCAST_FLOWS; qid++) {
++		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, true);
++		u32 en = (used_mcast_qid & BIT(qid)) ? YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN : 0;
++
++		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
++		if (res)
++			return res;
++
++		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
++		if (res)
++			return res;
++	}
++
++	return 0;
++}
++
++static int
 +yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 +			 enum tc_setup_type type, void *type_data)
 +{
@@ -2890,6 +2951,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +		mutex_lock(&priv->reg_lock);
 +		res = yt921x_mqprio_apply(priv, port, prio_qid_map);
++		if (!res)
++			res = yt921x_mqprio_sched_apply(priv, port, prio_qid_map);
 +		mutex_unlock(&priv->reg_lock);
 +		if (!res)
 +			mqprio->qopt.hw = TC_MQPRIO_HW_OFFLOAD_TCS;
