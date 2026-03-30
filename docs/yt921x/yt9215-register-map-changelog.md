@@ -1,5 +1,46 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-30: stock RMA control (`0x1805d0`) safe bit sweep
+
+Capture:
+- `docs/yt921x/live/yt_stock_rma_1805d0_bitsweep_2026-03-30.md`
+
+What was confirmed:
+- Baseline in this runtime: `0x1805d0 = 0x0000003f`
+- Bits `0..12` are writable and read back exactly as pulsed.
+- All bit pulses restored cleanly to baseline.
+- No management impact observed during pulses (`ping_loss=0%` per case).
+
+Interpretation update:
+- `0x1805d0` is operational and safe for controlled A/B probing in the tested range.
+- Semantic mapping of individual bits (RMA action/classifier meaning) remains pending classifier-aligned packet injection.
+
+## 2026-03-30: stock storm-control runtime A/B (`0x220100/0x220140/0x220200`)
+
+Capture:
+- `docs/yt921x/live/yt_stock_storm_2201xx_ab_2026-03-30.md`
+
+What was confirmed:
+- Baseline in this runtime:
+  - `0x220100=0x00000064`
+  - `0x220140=0x00000000`
+  - `0x220200=0x00000000`
+- All tested tuples latched and restored cleanly, including:
+  - enable-only (`0x220200 bit0`)
+  - mask-on-port0 (`0x220140=0x1`)
+  - low config tuples (`0x220200=0x9/0xb`)
+  - timeslot changes (`0x220100=0x1/0xfff`)
+- Management path remained stable (`ping loss 0%`) during all cases.
+
+Observed behavior under tested broadcast stimulus:
+- `RX_BROADCAST` delta on `p0` remained constant vs control (`~8`).
+- `RX_DROPPED` delta remained `0` in all cases.
+- No measurable drop/police signature from this tested path.
+
+Interpretation update:
+- Stock storm block is active/writable but not yet behavior-correlated under current stimulus.
+- Further reverse requires a stronger classifier-aligned generator (unknown-mcast/RMA-style feed) or additional stock table fields not yet pulsed.
+
 ## 2026-03-30: `0x080230` loop-detect safe bit sweep (live runtime)
 
 Capture:
