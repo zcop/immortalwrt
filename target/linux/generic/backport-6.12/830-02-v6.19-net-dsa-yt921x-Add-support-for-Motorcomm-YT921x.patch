@@ -365,6 +365,93 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return yt921x_reg_update_bits(priv, reg, mask, !set ? 0 : mask);
 +}
 +
++enum yt921x_stock_rma_action {
++	YT921X_STOCK_RMA_ACT_FORWARD = 0,
++	YT921X_STOCK_RMA_ACT_TRAP_TO_CPU = 1,
++	YT921X_STOCK_RMA_ACT_COPY_TO_CPU = 2,
++	YT921X_STOCK_RMA_ACT_DROP = 3,
++};
++
++static int yt921x_stock_rma_ctrl_action_set(u32 *ctrl,
++					    enum yt921x_stock_rma_action action)
++{
++	*ctrl &= ~(YT921X_STOCK_RMA_CTRL_F3 |
++		   YT921X_STOCK_RMA_CTRL_F4 |
++		   YT921X_STOCK_RMA_CTRL_FWD_MASK_M);
++
++	switch (action) {
++	case YT921X_STOCK_RMA_ACT_FORWARD:
++		*ctrl |= YT921X_STOCK_RMA_CTRL_FWD_MASK_ALL;
++		break;
++	case YT921X_STOCK_RMA_ACT_TRAP_TO_CPU:
++		*ctrl |= YT921X_STOCK_RMA_CTRL_F3 |
++			 YT921X_STOCK_RMA_CTRL_F4;
++		break;
++	case YT921X_STOCK_RMA_ACT_COPY_TO_CPU:
++		*ctrl |= YT921X_STOCK_RMA_CTRL_F4 |
++			 YT921X_STOCK_RMA_CTRL_FWD_MASK_ALL;
++		break;
++	case YT921X_STOCK_RMA_ACT_DROP:
++		*ctrl |= YT921X_STOCK_RMA_CTRL_F3;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int
++yt921x_stock_rma_ctrl_set(struct yt921x_priv *priv, u8 index,
++			  enum yt921x_stock_rma_action action,
++			  bool bypass_port_isolation, bool bypass_vlan_filter)
++{
++	u32 reg = YT921X_STOCK_RMA_CTRLn(index);
++	u32 ctrl;
++	int res;
++
++	if (index >= 0x30)
++		return -ERANGE;
++
++	res = yt921x_reg_read(priv, reg, &ctrl);
++	if (res)
++		return res;
++
++	res = yt921x_stock_rma_ctrl_action_set(&ctrl, action);
++	if (res)
++		return res;
++
++	ctrl = bypass_port_isolation ?
++		(ctrl | YT921X_STOCK_RMA_CTRL_F6) :
++		(ctrl & ~YT921X_STOCK_RMA_CTRL_F6);
++	ctrl = bypass_vlan_filter ?
++		(ctrl | YT921X_STOCK_RMA_CTRL_F5) :
++		(ctrl & ~YT921X_STOCK_RMA_CTRL_F5);
++
++	return yt921x_reg_write(priv, reg, ctrl);
++}
++
++static int yt921x_stock_rma_setup_locked(struct yt921x_priv *priv)
++{
++	/* 01:80:c2:00:00:xx low-byte indexes:
++	 *   0x00 BPDU, 0x02 Slow Protocols (LACP), 0x03 EAPOL, 0x0e LLDP.
++	 * Trap to CPU for software control-plane handling.
++	 */
++	static const u8 trap_to_cpu[] = { 0x00, 0x02, 0x03, 0x0e };
++	int i;
++	int res;
++
++	for (i = 0; i < ARRAY_SIZE(trap_to_cpu); i++) {
++		res = yt921x_stock_rma_ctrl_set(
++			priv, trap_to_cpu[i], YT921X_STOCK_RMA_ACT_TRAP_TO_CPU,
++			true, true);
++		if (res)
++			return res;
++	}
++
++	return 0;
++}
++
 +static int yt921x_apply_flood_filters_locked(struct yt921x_priv *priv)
 +{
 +	u32 mcast_mask = priv->flood_mcast_base_mask | priv->flood_storm_mask;
@@ -5891,6 +5978,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "cpu-copy");
 +#endif
 +
++	/* Program explicit handling for key 802.1 link-local RMAs. */
++	res = yt921x_stock_rma_setup_locked(priv);
++	if (res)
++		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "rma");
++#endif
++
 +	/* Unknown UC/MC egress drop mask:
 +	 * keep only internal MCU (port 10) blocked, allow CPU/LAN/WAN delivery.
 +	 * 0x7ff blackholes unknown unicast destined for router MAC on this board.
@@ -6637,11 +6732,61 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_STOCK_RMA_CTRL_F0		BIT(12)
 +#define  YT921X_STOCK_RMA_CTRL_F1		BIT(11)
 +#define  YT921X_STOCK_RMA_CTRL_F2		BIT(10)
-+#define  YT921X_STOCK_RMA_CTRL_F3		BIT(9)
-+#define  YT921X_STOCK_RMA_CTRL_F4		BIT(8)
-+#define  YT921X_STOCK_RMA_CTRL_F5		BIT(7)
-+#define  YT921X_STOCK_RMA_CTRL_F6		BIT(6)
-+#define  YT921X_STOCK_RMA_CTRL_ACTION_M		GENMASK(5, 0)	/* field7 */
++#define  YT921X_STOCK_RMA_CTRL_F3		BIT(9)		/* action bit 1 (field3) */
++#define  YT921X_STOCK_RMA_CTRL_F4		BIT(8)		/* action bit 0 (field4) */
++#define  YT921X_STOCK_RMA_CTRL_F5		BIT(7)		/* bypass vlan filter (field5) */
++#define  YT921X_STOCK_RMA_CTRL_F6		BIT(6)		/* bypass port isolation (field6) */
++#define  YT921X_STOCK_RMA_CTRL_FWD_MASK_M	GENMASK(5, 0)	/* forward/copy portmask (field7) */
++#define   YT921X_STOCK_RMA_CTRL_FWD_MASK_ALL	YT921X_STOCK_RMA_CTRL_FWD_MASK_M
++
++/* Additional stock table bases (reverse-mapped from yt_switch.ko).
++ * These are kept for header parity and further reverse-engineering.
++ * They are intentionally not wired into active DSA code paths yet.
++ */
++#define YT921X_STOCK_VLAN_IGR_TRANS_CTRL	0x2100e0	/* tbl 0x20 */
++
++#define YT921X_STOCK_VLAN_TRANS_UNTAG_PVID_IGNORE	0x230108	/* tbl 0x2f */
++#define YT921X_STOCK_VLAN_TRANS_RANGE_PROFILE		0x230200	/* tbl 0x30 */
++#define YT921X_STOCK_VLAN_IGR_TRANS_TABLE0		0x230400	/* tbl 0x32 */
++#define YT921X_STOCK_VLAN_IGR_TRANS_TABLE1		0x230600	/* tbl 0x33 */
++
++#define YT921X_STOCK_L2_PORT_LEARNLIMIT_CNT		0x180404	/* tbl 0x7f */
++#define YT921X_STOCK_L2_SYSTEM_LEARNLIMIT		0x180438	/* tbl 0x80 */
++#define YT921X_STOCK_L2_FDB_UCAST_CNT		0x18043c	/* tbl 0x81 */
++#define YT921X_STOCK_L2_FDB_AGING_PORT_EN		0x180448	/* tbl 0x83 */
++#define YT921X_STOCK_MCAST_STATIC_ROUTER_PORT	0x180468	/* tbl 0x89 */
++#define YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT	0x18046c	/* tbl 0x8a */
++#define YT921X_STOCK_MCAST_ROUTER_PORT_AGE_A	0x180474	/* tbl 0x8c */
++#define YT921X_STOCK_MCAST_ROUTER_PORT_AGE_B	0x180478	/* tbl 0x8d */
++#define YT921X_STOCK_MCAST_FWD_POLICY		0x18047c	/* tbl 0x8e */
++#define YT921X_STOCK_MCAST_PORT_POLICY		0x180480	/* tbl 0x8f */
++#define YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_STAT	0x1804bc	/* tbl 0x93 */
++#define YT921X_STOCK_MCAST_LEARNLIMIT		0x180500	/* tbl 0x96 */
++#define YT921X_STOCK_L2_FDB_MCAST_CNT		0x180504	/* tbl 0x97 */
++#define YT921X_STOCK_MCAST_IPMC_BYPASS_ISO	0x1805a4	/* tbl 0xa0 */
++#define YT921X_STOCK_MCAST_ROUTER_PORT_AGE_C	0x1806bc	/* tbl 0xaa */
++#define YT921X_STOCK_MCAST_VLAN_TABLE		0x180700	/* tbl 0xab */
++#define YT921X_STOCK_LAG_LEARNLIMIT		0x180808	/* tbl 0xaf */
++
++#define YT921X_STOCK_RATE_IGR_BW_CTRL		0x220104	/* tbl 0xc7 */
++#define YT921X_STOCK_RATE_IGR_BW_ENABLE		0x220108	/* tbl 0xc8 */
++
++#define YT921X_STOCK_QOS_QUEUE_MAP_UCAST	0x300200	/* tbl 0xd3 */
++#define YT921X_STOCK_QOS_QUEUE_MAP_MCAST	0x300280	/* tbl 0xd4 */
++#define YT921X_STOCK_MIRROR_PRIO_MAP		0x300304	/* tbl 0xd6 */
++#define YT921X_STOCK_QOS_SCHED_SP		0x300400	/* tbl 0xd7 */
++
++#define YT921X_STOCK_QOS_REMARK_PORT		0x100080	/* tbl 0xda */
++#define YT921X_STOCK_QOS_REMARK_DSCP		0x100100	/* tbl 0xdb */
++#define YT921X_STOCK_QOS_REMARK_CPRI_SPRI	0x100200	/* tbl 0xdc */
++#define YT921X_STOCK_VLAN_EGR_TRANS_TABLE0	0x100320	/* tbl 0xde */
++#define YT921X_STOCK_VLAN_EGR_TRANS_TABLE1	0x1003a0	/* tbl 0xdf */
++#define YT921X_STOCK_VLAN_EGR_TRANS_TABLE2	0x100420	/* tbl 0xe0 */
++#define YT921X_STOCK_VLAN_EGR_TRANSPARENT	0x1004a8	/* tbl 0xe1 */
++
++#define YT921X_STOCK_QOS_SCHED_DWRR		0x341000	/* tbl 0xe6 */
++#define YT921X_STOCK_QOS_SCHED_DWRR_MODE0	0x342000	/* tbl 0xe7 */
++#define YT921X_STOCK_QOS_SCHED_DWRR_MODE1	0x343000	/* tbl 0xe8 */
 +
 +#define YT921X_IPM_DSCPn(n)		(0x180000 + 4 * (n))	/* Internal Priority Map */
 +#define YT921X_IPM_PCPn(map, dei, pcp)	(0x180100 + 4 * (16 * (map) + 8 * (dei) + (pcp)))
