@@ -1,5 +1,34 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-30: stock QoS field decode + driver mapping consolidation
+
+Artifacts:
+- `docs/yt921x/live/yt_stock_qos_field_decode_2026-03-30.tsv`
+- `docs/yt921x/live/yt_stock_qos_driver_map_2026-03-30.md`
+- `tools/yt921x/stock_field_decode.sh`
+
+What was confirmed:
+- Added reusable decoder for `*_field` symbols in stock module `.rodata`
+  (tuple format: `field,width,word,lsb`).
+- Decoder now handles overlapping symbol aliases by using the next **different**
+  symbol address as the span terminator.
+- Decoded QoS/rate field families for:
+  - queue maps (`int_prio_to_{u,m}cast_qid_mapnm_field`)
+  - scheduler helpers (`qsch_{c,e}_dwrr_cfg_tblm_field`, `qsch_flow_map_tblm_field`)
+  - queue/port shaper and slot-time fields (`qsch_*`, `psch_*`)
+  - ingress meter controls (`meter_config_tblm_field`, `port_meter_ctrlnm_field`, `meter_timeslotm_field`)
+  - QoS merge/port precedence (`qos_merge_precedence_ctrlnm_field`, `qos_port_ctrlnm_field`)
+
+Driver-state interpretation update:
+- Current backport now has baseline QoS offload parity for:
+  - mqprio queue map (`0xd3/0xd4`)
+  - port tbf shaper (`0xeb`)
+  - ingress policer (`0xc7/0xc8/0xce`)
+- Main remaining QoS gaps are:
+  - scheduler policy (`0xd7/0xe6/0xe7/0xe8`)
+  - queue shaping path (`0xe9/0xea/0xe4`)
+  - remark path (`0xd9/0xda/0xdb/0xdc`)
+
 ## 2026-03-30: ingress-meter decode refinement (`0xc7/0xc8/0xce`)
 
 Source:

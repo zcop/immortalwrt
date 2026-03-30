@@ -101,6 +101,10 @@ Expanded extraction artifacts:
   - `docs/yt921x/live/yt_stock_tableid_base_func_summary_2026-03-30.tsv`
 - Clustered summary of newly surfaced vendor blocks:
   - `docs/yt921x/live/yt_stock_feature_tableid_clusters_2026-03-30.md`
+- QoS-focused stock field decode (`*_field` tuples):
+  - `docs/yt921x/live/yt_stock_qos_field_decode_2026-03-30.tsv`
+- QoS pipeline -> Linux driver integration map:
+  - `docs/yt921x/live/yt_stock_qos_driver_map_2026-03-30.md`
 
 Expanded findings (beyond prior minimal set):
 - Recovered 73 valid table IDs used by stock feature paths.
@@ -210,25 +214,32 @@ Already covered (high level):
 - FDB/MDB
 - LAG
 - Port mirror
+- QoS queue map offload (`mqprio` prio->qid via `0xd3/0xd4`)
+- Port shaper offload (`tbf` path on `0xeb`)
+- Ingress policer wired to stock ingress-meter path (`0xc7/0xc8/0xce`)
 
 Not equivalent to stock vendor feature path:
-- Hardware storm policer model (`yt_storm_ctrl_*`)
-  - Current tree uses software storm guard behavior, not stock hardware storm engine.
+- Full scheduler policy path (`0xd7/0xe6/0xe7/0xe8`: SP/DWRR)
+- Queue-level shaping path (`0xe9/0xea/0xe4`)
+- Egress remark path (`0xd9/0xda/0xdb/0xdc`)
 - Dedicated loop-detect feature path (`yt_loop_detect_*`)
 - Full reserved multicast/control packet policy mapping (`yt_rma_*`, `yt_ctrlpkt_*`)
 
 ## Practical Conclusion
 - Stock does more than basic DSA bridging:
-  - It has dedicated hardware engines for loop-detect, RMA/ctrlpkt policy, and storm control.
-- Current DSA driver is strong on standard switchdev/DSA functions, but vendor-specific control-plane features above are the main remaining gap.
+  - It has dedicated hardware engines for queue scheduling/shaping, loop-detect, and RMA/ctrlpkt policy.
+- Current DSA driver already covers the base QoS offload primitives (mqprio queue map, port tbf shaper, ingress policer), and the remaining gap is mainly advanced scheduler/remark/control-plane parity.
 
 ## Recommended Next Reverse Targets
-1. Map `yt_storm_ctrl_*` register path first (hardware policer model).
-2. Map `yt_rma_*` + `yt_ctrlpkt_*` action encodings (reserved multicast handling).
-3. Map `yt_loop_detect_*` control registers and safe default mode.
+1. Complete scheduler parity (`SP/DWRR` tables `0xd7/0xe6/0xe7/0xe8`).
+2. Map queue-level shaping (`0xe9/0xea/0xe4`) for queue tc offload.
+3. Map `yt_rma_*` + `yt_ctrlpkt_*` action encodings (reserved multicast handling).
+4. Map `yt_loop_detect_*` control registers and safe default mode.
 
 ## Notes
 - This document records reverse evidence only.
 - It does not imply all stock features should be enabled by default in OpenWrt; each requires policy decisions and safe integration path.
 - Repro helper script (table-id decode):
   - `tools/yt921x/stock_table_decode.sh`
+- Repro helper script (field decode):
+  - `tools/yt921x/stock_field_decode.sh`
