@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6852 @@
+@@ -0,0 +1,7021 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -2940,6 +2940,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (port < 0 || port >= YT921X_STOCK_QOS_SCHED_PORTS)
 +		return -ERANGE;
 +
++	/* Keep plain mqprio in fully fair mode unless explicitly overridden
++	 * by ETS offload.
++	 */
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_SPn(port),
++				     YT921X_STOCK_QOS_SCHED_SP_MASK, 0);
++	if (res)
++		return res;
++
 +	/* Scheduler tables are indexed by physical queue id (not by skb prio).
 +	 * Build "queue used" masks from the prio->qid map programmed above.
 +	 */
@@ -2992,11 +3000,147 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return 0;
 +}
 +
++static int yt921x_ets_supported_port(struct dsa_switch *ds, int port)
++{
++	return dsa_is_user_port(ds, port) &&
++	       port < YT921X_STOCK_QOS_SCHED_PORTS;
++}
++
++static int
++yt921x_ets_band_weight(const struct tc_ets_qopt_offload_replace_params *p,
++		       int band, u32 *weight)
++{
++	u32 quanta = p->quanta[band];
++	u32 wb = p->weights[band];
++
++	if (!quanta && !wb) {
++		*weight = 0;
++		return 0;
++	}
++
++	/* Prefer quanta when present, fall back to weights. */
++	*weight = quanta ? quanta : wb;
++	if (!*weight)
++		return -EINVAL;
++
++	return 0;
++}
++
++static int
++yt921x_ets_validate(struct tc_ets_qopt_offload *qopt)
++{
++	struct tc_ets_qopt_offload_replace_params *p = &qopt->replace_params;
++	int band;
++	int i;
++
++	if (qopt->parent != TC_H_ROOT)
++		return -EOPNOTSUPP;
++
++	if (qopt->command == TC_ETS_DESTROY)
++		return 0;
++
++	if (qopt->command != TC_ETS_REPLACE)
++		return -EOPNOTSUPP;
++
++	if (!p->bands || p->bands > YT921X_PRIO_NUM)
++		return -EOPNOTSUPP;
++
++	for (i = 0; i <= TC_PRIO_MAX; i++) {
++		if (p->priomap[i] >= p->bands)
++			return -EINVAL;
++	}
++
++	for (band = 0; band < p->bands; band++) {
++		u32 weight;
++		int res;
++
++		res = yt921x_ets_band_weight(p, band, &weight);
++		if (res)
++			return res;
++	}
++
++	return 0;
++}
++
++static int
++yt921x_ets_apply(struct yt921x_priv *priv, int port,
++		 const struct tc_ets_qopt_offload_replace_params *p)
++{
++	u32 sp = 0;
++	int qid;
++	int res;
++
++	for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS; qid++) {
++		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, false);
++		u32 en = 0;
++		u32 weight = 0;
++
++		if (qid < p->bands) {
++			res = yt921x_ets_band_weight(p, qid, &weight);
++			if (res)
++				return res;
++		}
++
++		if (qid < p->bands && !weight) {
++			sp |= BIT(qid);
++		} else if (qid < p->bands) {
++			u32 w = min_t(u32, weight, (u32)GENMASK(9, 0));
++
++			res = yt921x_reg_update_bits(priv,
++						     YT921X_STOCK_QOS_SCHED_DWRRn(idx),
++						     YT921X_STOCK_QOS_SCHED_FLOW_F0_M |
++						     YT921X_STOCK_QOS_SCHED_FLOW_F1_M,
++						     YT921X_STOCK_QOS_SCHED_FLOW_F0(w) |
++						     YT921X_STOCK_QOS_SCHED_FLOW_F1(w));
++			if (res)
++				return res;
++			en = YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN;
++		}
++
++		res = yt921x_reg_update_bits(priv,
++					     YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
++					     en);
++		if (res)
++			return res;
++
++		res = yt921x_reg_update_bits(priv,
++					     YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
++					     en);
++		if (res)
++			return res;
++	}
++
++	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_SPn(port),
++				      YT921X_STOCK_QOS_SCHED_SP_MASK, sp);
++}
++
++static int
++yt921x_ets_destroy(struct yt921x_priv *priv, int port)
++{
++	u8 map[YT921X_PRIO_NUM];
++	u32 ucast;
++	int i;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), &ucast);
++	if (res)
++		return res;
++
++	for (i = 0; i < YT921X_PRIO_NUM; i++)
++		map[i] = (ucast >> YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(i)) &
++			 GENMASK(2, 0);
++
++	return yt921x_mqprio_sched_apply(priv, port, map);
++}
++
 +static int
 +yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 +			 enum tc_setup_type type, void *type_data)
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct tc_ets_qopt_offload *ets;
 +	struct tc_mqprio_qopt_offload *mqprio;
 +	struct tc_tbf_qopt_offload *qopt;
 +	u8 prio_qid_map[YT921X_PRIO_NUM];
@@ -3027,6 +3171,31 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		mutex_unlock(&priv->reg_lock);
 +		if (!res)
 +			mqprio->qopt.hw = TC_MQPRIO_HW_OFFLOAD_TCS;
++		break;
++	case TC_SETUP_QDISC_ETS:
++		if (!yt921x_ets_supported_port(ds, port))
++			return -EOPNOTSUPP;
++
++		ets = type_data;
++		res = yt921x_ets_validate(ets);
++		if (res)
++			return res;
++
++		mutex_lock(&priv->reg_lock);
++		switch (ets->command) {
++		case TC_ETS_REPLACE:
++			res = yt921x_ets_apply(priv, port, &ets->replace_params);
++			break;
++		case TC_ETS_DESTROY:
++			res = yt921x_ets_destroy(priv, port);
++			break;
++		case TC_ETS_STATS:
++		case TC_ETS_GRAFT:
++		default:
++			res = -EOPNOTSUPP;
++			break;
++		}
++		mutex_unlock(&priv->reg_lock);
 +		break;
 +	case TC_SETUP_QDISC_TBF:
 +		if (!yt921x_tbf_supported_port(ds, port))
@@ -6914,7 +7083,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,858 @@
+@@ -0,0 +1,865 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -7358,6 +7527,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		 YT921X_STOCK_QOS_MCAST_QMAP_PRIO_SHIFT(prio))
 +#define YT921X_STOCK_MIRROR_PRIO_MAP		0x300304	/* tbl 0xd6 */
 +#define YT921X_STOCK_QOS_SCHED_SP		0x300400	/* tbl 0xd7 */
++#define YT921X_STOCK_QOS_SCHED_SPn(port) \
++	(YT921X_STOCK_QOS_SCHED_SP + 4 * (port))
++#define  YT921X_STOCK_QOS_SCHED_SP_MASK		GENMASK(7, 0)
 +
 +#define YT921X_STOCK_QOS_REMARK_PORT		0x100080	/* tbl 0xda */
 +#define YT921X_STOCK_QOS_REMARK_DSCP		0x100100	/* tbl 0xdb */
@@ -7392,6 +7564,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_STOCK_QOS_SCHED_FLOW_F1_M	GENMASK(17, 8)
 +#define  YT921X_STOCK_QOS_SCHED_FLOW_F2_M	GENMASK(7, 4)
 +#define  YT921X_STOCK_QOS_SCHED_FLOW_F3_M	GENMASK(3, 0)
++#define  YT921X_STOCK_QOS_SCHED_FLOW_F0(x) \
++		FIELD_PREP(YT921X_STOCK_QOS_SCHED_FLOW_F0_M, (x))
++#define  YT921X_STOCK_QOS_SCHED_FLOW_F1(x) \
++		FIELD_PREP(YT921X_STOCK_QOS_SCHED_FLOW_F1_M, (x))
 +/* qsch_e_dwrr_cfg_tblm_field / qsch_c_dwrr_cfg_tblm_field (tbl 0xe7/0xe8) */
 +#define  YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN	BIT(0)
 +
