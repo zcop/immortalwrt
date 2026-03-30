@@ -1,5 +1,31 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-30: ingress-meter decode refinement (`0xc7/0xc8/0xce`)
+
+Source:
+- stock module disassembly + `.rodata` field table decode from
+  `Collection-Data/cr881x/mtd22_rootfs/lib/modules/4.4.60/yt_switch.ko`
+
+What was corrected/confirmed:
+- Field tuple format in stock field tables is:
+  - `byte0=index`, `byte1=width`, `byte2=word`, `byte3=lsb`
+  (not `byte2` reserved).
+- Ingress meter related tables:
+  - `0xc7` (`0x220104`): `meter_timeslotm_field`, `field0=12@w0:0`
+  - `0xc8` (`0x220108`): `port_meter_ctrlnm_field`
+    - `field0=1@w0:4` (enable)
+    - `field1=4@w0:0` (meter-id)
+  - `0xce` (`0x220800`): `meter_config_tblm_field`, 14 fields across
+    `word2/word1/word0` (full map captured in stock reverse doc).
+
+Driver/header alignment updated:
+- Backport patch proc table decoders now include `0xc8` and corrected `0xc7`
+  width/name for live debugfs decode parity with stock.
+- Added stock ingress-meter macro scaffolding for:
+  - `0x220104` timeslot field
+  - `0x220108` enable/meter-id fields
+  - selected `0x220800` token/CIR/CBS field masks
+
 ## 2026-03-30: bulk stock feature extraction (`fal_tiger_*` -> table-id -> MMIO)
 
 Capture/artifacts:

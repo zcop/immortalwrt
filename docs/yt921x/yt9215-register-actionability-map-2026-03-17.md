@@ -43,7 +43,7 @@ Classification:
 | `0x18038c` (`STPn(0)` runtime word) | Changed with bridge membership (`lan2` out: `...f3 -> ...ff`, `wan` in: `...f3 -> ...33`, combined: `...3f`). Direct write/readback works, but bridge events rewrite it to derived value. | Treat as coupled policy/state word; do not use as persistent config source. Capture before/after topology changes only. |
 | `0x180510` (`FILTER_MCAST`), `0x180514` (`FILTER_BCAST`) | `0x00000400` is a safe runtime baseline on tested boots; a bad runtime was observed with both words at `0x000007ff`, correlating with host->router blackhole/asymmetric reachability until reset to `0x00000400`. 2026-03-29 UU boundary recheck (`docs/yt921x/live/yt_bum_boundary_probe_uu_2026-03-29.md`) showed low-nibble toggles around baseline (`0x401/0x402/0x404/0x408`) did not change observed UU flood delivery on `lan1/lan2` (`2/2` each case). Full-mask sweep (`0x000/0x400/0x7ff`) with UU+multicast also stayed invariant (`lan1=2`, `lan2=2`, `lan3=0`, `wan=0`). WAN-linked direct capture on Pi `eth0` with `0x180510=0x7ff` and `0x180514=0x7ff` also captured `0` target UU/MC packets. | Treat as high-impact policy words. Initialize to `0x00000400` and avoid broad all-port masks in normal runtime (`docs/yt921x/live/yt_180510_180514_blackhole_recovery_20260319_1655.txt`). |
 | `0x180734-0x180738` (`ACT_UNK_*`) | 2026-03-23 sweep (`docs/yt921x/live/yt_180734_180738_action_probe_20260323_204904.txt`) shows only `0x180734[9:8]` is action-sensitive in WAN->`eth0` scenario: action `1/2` blocks router->Pi ICMP; action `0/3` passes. 2026-03-29 CPU8 LAN UU matrix (`docs/yt921x/live/yt_uu_cpu8_action_matrix_2026-03-29.md`) shows `[17:16]` actions on both `0x180734` and `0x180738` do not change observed flood to `lan1/lan2` (all cases `4/4`). Additional bit22 isolation on `0x180738` (`0x00420000` vs `0x00020000`, `[17:16]=2`) also showed no effect for UU or multicast (`4/4` both ports in all cases). Baseline in current image: `0x180734=0x00020000`, `0x180738=0x00420000`. Stock disassembly confirms table-role split: `0x180734` is unknown-ucast action table (`tbl 0xad` field0), `0x180738` is unknown-mcast/bypass table (`tbl 0xae`: field2 action, field1 IGMP bypass, field0 RMA bypass). | Keep defaults unless actively probing. Do not rely on `0x180738` for steering fixes; treat `0x180734[9:8]` as scenario-specific sensitive field (WAN/CPU4 path only, as observed so far). |
-| `0x220800..` (`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
+| `0x220104/0x220108/0x220800` (`METER_TIMESLOT`/`PORT_METER_CTRL`/`METER_CFG`) and `0x34c000..` (`QSCH_SHAPER`) | Structurally decodable from stock (`0xc7/0xc8/0xce`) but lane coupling is still incomplete. | Keep debug-access only until lane mapping is proven per-port. |
 
 ## C. Writable But Low-Confidence Semantics
 | Range / register | Notes |
@@ -81,7 +81,7 @@ Interpretation:
   is identified (direct reads alone show no command-state behavior).
 - First fix/validate an independent low-level read backend.
 - 2026-03-29 `tbl info 0x00..0xff` scan also showed debug table IDs are limited
-  to QoS/meter/shaper (`0xc7/0xce/0xe4/0xe5/0xe9/0xea/0xeb/0xec`), so VTU/FDB
+  to QoS/meter/shaper (`0xc7/0xc8/0xce/0xe4/0xe5/0xe9/0xea/0xeb/0xec`), so VTU/FDB
   is not currently reachable through the exposed `tbl` map.
 
 ## F. Data/Counter Window (Not Hidden Control)

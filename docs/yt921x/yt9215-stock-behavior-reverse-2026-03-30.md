@@ -114,21 +114,24 @@ Expanded findings (beyond prior minimal set):
 Descriptor format observed in stock blob: 4-byte tuples per field:
 - byte0 = field index
 - byte1 = field width (bits)
-- byte2 = reserved (`0x00` in sampled tables)
-- byte3 = lsb position
+- byte2 = word index (within table entry words)
+- byte3 = lsb position (within that word)
 
 Decoded tables:
 
-| Field table symbol | Decoded fields (`index: width@lsb`) |
+| Field table symbol | Decoded fields (`index: width@word:lsb`) |
 |---|---|
-| `storm_ctrl_config_tblm_field` | `0:19@13`, `1:10@3`, `2:1@2`, `3:1@1`, `4:1@0` |
-| `storm_ctrl_mc_type_ctrlm_field` | `0:11@0` |
-| `storm_ctrl_timeslotm_field` | `0:12@0` |
-| `cpu_copy_dst_ctrlm_field` | `0:1@2`, `1:1@1`, `2:1@0` |
-| `rma_ctrlnm_field` | `0:1@12`, `1:1@11`, `2:1@10`, `3:1@9`, `4:1@8`, `5:1@7`, `6:1@6`, `7:6@0` |
-| `l2_unknown_mcast_filter_maskm_field` | `0:11@0` |
-| `l2_unknown_ucast_filter_maskm_field` | `0:11@0` |
-| `loop_detect_top_ctrlm_field` | `0:2@26`, `1:1@25`, `2:2@23`, `3:2@21`, `4:2@19`, `5:1@18`, `6:16@2`, `7:1@1`, `8:1@0` |
+| `storm_ctrl_config_tblm_field` | `0:19@w0:13`, `1:10@w0:3`, `2:1@w0:2`, `3:1@w0:1`, `4:1@w0:0` |
+| `storm_ctrl_mc_type_ctrlm_field` | `0:11@w0:0` |
+| `storm_ctrl_timeslotm_field` | `0:12@w0:0` |
+| `port_meter_ctrlnm_field` | `0:1@w0:4`, `1:4@w0:0` |
+| `meter_timeslotm_field` | `0:12@w0:0` |
+| `meter_config_tblm_field` | `0:1@w2:14`, `1:1@w2:13`, `2:2@w2:11`, `3:1@w2:10`, `4:3@w2:7`, `5:1@w2:6`, `6:1@w2:5`, `7:1@w2:4`, `8:4@w2:0`, `9:12@w1:20`, `10:18@w1:2`, `11:2@w1:0`, `12:14@w0:18`, `13:18@w0:0` |
+| `cpu_copy_dst_ctrlm_field` | `0:1@w0:2`, `1:1@w0:1`, `2:1@w0:0` |
+| `rma_ctrlnm_field` | `0:1@w0:12`, `1:1@w0:11`, `2:1@w0:10`, `3:1@w0:9`, `4:1@w0:8`, `5:1@w0:7`, `6:1@w0:6`, `7:6@w0:0` |
+| `l2_unknown_mcast_filter_maskm_field` | `0:11@w0:0` |
+| `l2_unknown_ucast_filter_maskm_field` | `0:11@w0:0` |
+| `loop_detect_top_ctrlm_field` | `0:2@w0:26`, `1:1@w0:25`, `2:2@w0:23`, `3:2@w0:21`, `4:2@w0:19`, `5:1@w0:18`, `6:16@w0:2`, `7:1@w0:1`, `8:1@w0:0` |
 
 ## Function -> Register Path (What Stock Actually Programs)
 Extracted from ARM disassembly (`fal_tiger_*`):
@@ -145,6 +148,24 @@ Extracted from ARM disassembly (`fal_tiger_*`):
   - reads table `0xc6` (`0x220100`) field `0`
   - reads table `0xcc` field `3` (mode)
   - writes computed values to table `0xcc` fields `0` and `1`
+
+### Ingress meter / ingress bandwidth control
+- `fal_tiger_rate_igrBandwidthCtrlEnable_set/get`:
+  - table `0xc8` (`0x220108`)
+  - field `0` = enable bit, field `1` = meter-id selector
+- `fal_tiger_rate_igrBandwidthCtrlMode_set/get`:
+  - table `0xce` (`0x220800`)
+  - set/get fields `6` and `5`
+- `fal_tiger_rate_igrBandwidthCtrlRate_set/get`:
+  - reads table `0xc7` (`0x220104`) field `0` (`meter_timeslot`)
+  - writes/reads table `0xce` fields tied to token config (`4`, `10`, plus mode fields via `6`)
+- `fal_tiger_rate_meter_enable_set/get`:
+  - table `0xce`, field `0`
+- `fal_tiger_rate_meter_mode_set/get`:
+  - table `0xce`, fields `7/6/3/2/5/1`
+- `fal_tiger_rate_meter_rate_set/get`:
+  - reads table `0xc7` field `0`
+  - writes/reads table `0xce` fields `0x0d` and `0x0a` (plus mode-dependent fields)
 
 ### Reserved multicast / ctrlpkt / unknown filters
 - `fal_tiger_ctrlpkt_unknown_ucast_act_set`:
