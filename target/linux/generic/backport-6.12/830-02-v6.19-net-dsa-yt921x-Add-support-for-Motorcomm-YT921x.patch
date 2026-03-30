@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6729 @@
+@@ -0,0 +1,6730 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -6757,6 +6757,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	ds->dscp_prio_mapping_is_global = true;
 +	ds->num_lag_ids = YT921X_LAG_NUM;
 +	ds->num_ports = YT921X_PORT_NUM;
++	ds->num_tx_queues = YT921X_PRIO_NUM;
 +
 +	mdiodev_set_drvdata(mdiodev, priv);
 +
