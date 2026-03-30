@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,7021 @@
+@@ -0,0 +1,7073 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -3063,27 +3063,85 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_qos_read_ucast_prio_qid_map(struct yt921x_priv *priv, int port,
++				   u8 map[YT921X_PRIO_NUM])
++{
++	u32 ucast;
++	int i;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), &ucast);
++	if (res)
++		return res;
++
++	for (i = 0; i < YT921X_PRIO_NUM; i++)
++		map[i] = (ucast >> YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(i)) &
++			 GENMASK(2, 0);
++
++	return 0;
++}
++
++static int
++yt921x_ets_build_qid_band_map(const struct tc_ets_qopt_offload_replace_params *p,
++			      const u8 prio_qid_map[YT921X_PRIO_NUM],
++			      s8 qid_band[YT921X_PRIO_NUM])
++{
++	int prio;
++
++	memset(qid_band, -1, sizeof(s8) * YT921X_PRIO_NUM);
++
++	/* ETS priomap has 16 entries, while queue-map is defined on priorities
++	 * 0..7. Build queue ownership from priorities 0..7 only.
++	 */
++	for (prio = 0; prio < YT921X_PRIO_NUM; prio++) {
++		u8 qid = prio_qid_map[prio] & GENMASK(2, 0);
++		u8 band = p->priomap[prio];
++
++		if (band >= p->bands)
++			continue;
++
++		if (qid_band[qid] >= 0 && qid_band[qid] != band)
++			return -EOPNOTSUPP;
++
++		qid_band[qid] = band;
++	}
++
++	return 0;
++}
++
++static int
 +yt921x_ets_apply(struct yt921x_priv *priv, int port,
 +		 const struct tc_ets_qopt_offload_replace_params *p)
 +{
 +	u32 sp = 0;
++	s8 qid_band[YT921X_PRIO_NUM];
++	u8 prio_qid_map[YT921X_PRIO_NUM];
 +	int qid;
 +	int res;
++
++	res = yt921x_qos_read_ucast_prio_qid_map(priv, port, prio_qid_map);
++	if (res)
++		return res;
++
++	res = yt921x_ets_build_qid_band_map(p, prio_qid_map, qid_band);
++	if (res)
++		return res;
 +
 +	for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS; qid++) {
 +		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, false);
 +		u32 en = 0;
 +		u32 weight = 0;
++		s8 band = qid_band[qid];
 +
-+		if (qid < p->bands) {
-+			res = yt921x_ets_band_weight(p, qid, &weight);
++		if (band >= 0) {
++			res = yt921x_ets_band_weight(p, band, &weight);
 +			if (res)
 +				return res;
 +		}
 +
-+		if (qid < p->bands && !weight) {
++		if (band >= 0 && !weight) {
 +			sp |= BIT(qid);
-+		} else if (qid < p->bands) {
++		} else if (band >= 0) {
 +			u32 w = min_t(u32, weight, (u32)GENMASK(9, 0));
 +
 +			res = yt921x_reg_update_bits(priv,
@@ -3120,17 +3178,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +yt921x_ets_destroy(struct yt921x_priv *priv, int port)
 +{
 +	u8 map[YT921X_PRIO_NUM];
-+	u32 ucast;
-+	int i;
 +	int res;
 +
-+	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), &ucast);
++	res = yt921x_qos_read_ucast_prio_qid_map(priv, port, map);
 +	if (res)
 +		return res;
-+
-+	for (i = 0; i < YT921X_PRIO_NUM; i++)
-+		map[i] = (ucast >> YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(i)) &
-+			 GENMASK(2, 0);
 +
 +	return yt921x_mqprio_sched_apply(priv, port, map);
 +}
