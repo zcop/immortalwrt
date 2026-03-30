@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6730 @@
+@@ -0,0 +1,6852 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -255,6 +255,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_PSCH_EBS_UNIT_BYTES	64ULL
 +#define YT921X_PSCH_EBS_MAX		GENMASK(13, 0)
 +#define YT921X_PSCH_SHP_PORTS		5U
++#define YT921X_QSCH_SHP_QUEUES		8U
++#define YT921X_QSCH_SHP_ENTRIES		9U
 +
 +#define YT921X_STORM_GUARD_DEFAULT_PPS		20000U
 +#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
@@ -643,24 +645,48 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +/* TODO: SPI/I2C */
 +
-+static int yt921x_intif_wait(struct yt921x_priv *priv)
++static u32 yt921x_mbus_op_reg(bool extif)
++{
++	return extif ? YT921X_EXT_MBUS_OP : YT921X_INT_MBUS_OP;
++}
++
++static u32 yt921x_mbus_ctrl_reg(bool extif)
++{
++	return extif ? YT921X_EXT_MBUS_CTRL : YT921X_INT_MBUS_CTRL;
++}
++
++static u32 yt921x_mbus_dout_reg(bool extif)
++{
++	return extif ? YT921X_EXT_MBUS_DOUT : YT921X_INT_MBUS_DOUT;
++}
++
++static u32 yt921x_mbus_din_reg(bool extif)
++{
++	return extif ? YT921X_EXT_MBUS_DIN : YT921X_INT_MBUS_DIN;
++}
++
++static int yt921x_mbus_wait(struct yt921x_priv *priv, bool extif)
 +{
 +	u32 val = 0;
 +
-+	return yt921x_reg_wait(priv, YT921X_INT_MBUS_OP, YT921X_MBUS_OP_START,
-+			       &val);
++	return yt921x_reg_wait(priv, yt921x_mbus_op_reg(extif),
++			       YT921X_MBUS_OP_START, &val);
 +}
 +
 +static int
-+yt921x_intif_read(struct yt921x_priv *priv, int port, int reg, u16 *valp)
++yt921x_mbus_read(struct yt921x_priv *priv, bool extif, int port, int reg,
++		 u16 *valp)
 +{
 +	struct device *dev = to_device(priv);
++	u32 op_reg = yt921x_mbus_op_reg(extif);
++	u32 ctrl_reg = yt921x_mbus_ctrl_reg(extif);
++	u32 din_reg = yt921x_mbus_din_reg(extif);
 +	u32 mask;
 +	u32 ctrl;
 +	u32 val;
 +	int res;
 +
-+	res = yt921x_intif_wait(priv);
++	res = yt921x_mbus_wait(priv, extif);
 +	if (res)
 +		return res;
 +
@@ -668,36 +694,49 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	       YT921X_MBUS_CTRL_OP_M;
 +	ctrl = YT921X_MBUS_CTRL_PORT(port) | YT921X_MBUS_CTRL_REG(reg) |
 +	       YT921X_MBUS_CTRL_READ;
-+	res = yt921x_reg_update_bits(priv, YT921X_INT_MBUS_CTRL, mask, ctrl);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_INT_MBUS_OP, YT921X_MBUS_OP_START);
++	if (extif) {
++		mask |= YT921X_MBUS_CTRL_TYPE_M;
++		ctrl |= YT921X_MBUS_CTRL_TYPE_C22;
++	}
++
++	res = yt921x_reg_update_bits(priv, ctrl_reg, mask, ctrl);
 +	if (res)
 +		return res;
 +
-+	res = yt921x_intif_wait(priv);
++	res = yt921x_reg_write(priv, op_reg, YT921X_MBUS_OP_START);
 +	if (res)
 +		return res;
-+	res = yt921x_reg_read(priv, YT921X_INT_MBUS_DIN, &val);
++
++	res = yt921x_mbus_wait(priv, extif);
++	if (res)
++		return res;
++
++	res = yt921x_reg_read(priv, din_reg, &val);
 +	if (res)
 +		return res;
 +
 +	if ((u16)val != val)
 +		dev_info(dev,
 +			 "%s: port %d, reg 0x%x: Expected u16, got 0x%08x\n",
-+			 __func__, port, reg, val);
++			 extif ? "yt921x_extif_read" : "yt921x_intif_read",
++			 port, reg, val);
 +	*valp = (u16)val;
++
 +	return 0;
 +}
 +
 +static int
-+yt921x_intif_write(struct yt921x_priv *priv, int port, int reg, u16 val)
++yt921x_mbus_write(struct yt921x_priv *priv, bool extif, int port, int reg,
++		  u16 val)
 +{
++	u32 op_reg = yt921x_mbus_op_reg(extif);
++	u32 ctrl_reg = yt921x_mbus_ctrl_reg(extif);
++	u32 dout_reg = yt921x_mbus_dout_reg(extif);
 +	u32 mask;
 +	u32 ctrl;
 +	int res;
 +
-+	res = yt921x_intif_wait(priv);
++	res = yt921x_mbus_wait(priv, extif);
 +	if (res)
 +		return res;
 +
@@ -705,17 +744,36 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	       YT921X_MBUS_CTRL_OP_M;
 +	ctrl = YT921X_MBUS_CTRL_PORT(port) | YT921X_MBUS_CTRL_REG(reg) |
 +	       YT921X_MBUS_CTRL_WRITE;
-+	res = yt921x_reg_update_bits(priv, YT921X_INT_MBUS_CTRL, mask, ctrl);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_INT_MBUS_DOUT, val);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_INT_MBUS_OP, YT921X_MBUS_OP_START);
++	if (extif) {
++		mask |= YT921X_MBUS_CTRL_TYPE_M;
++		ctrl |= YT921X_MBUS_CTRL_TYPE_C22;
++	}
++
++	res = yt921x_reg_update_bits(priv, ctrl_reg, mask, ctrl);
 +	if (res)
 +		return res;
 +
-+	return yt921x_intif_wait(priv);
++	res = yt921x_reg_write(priv, dout_reg, val);
++	if (res)
++		return res;
++
++	res = yt921x_reg_write(priv, op_reg, YT921X_MBUS_OP_START);
++	if (res)
++		return res;
++
++	return yt921x_mbus_wait(priv, extif);
++}
++
++static int
++yt921x_intif_read(struct yt921x_priv *priv, int port, int reg, u16 *valp)
++{
++	return yt921x_mbus_read(priv, false, port, reg, valp);
++}
++
++static int
++yt921x_intif_write(struct yt921x_priv *priv, int port, int reg, u16 val)
++{
++	return yt921x_mbus_write(priv, false, port, reg, val);
 +}
 +
 +static int yt921x_mbus_int_read(struct mii_bus *mbus, int port, int reg)
@@ -780,79 +838,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return 0;
 +}
 +
-+static int yt921x_extif_wait(struct yt921x_priv *priv)
-+{
-+	u32 val = 0;
-+
-+	return yt921x_reg_wait(priv, YT921X_EXT_MBUS_OP, YT921X_MBUS_OP_START,
-+			       &val);
-+}
-+
 +static int
 +yt921x_extif_read(struct yt921x_priv *priv, int port, int reg, u16 *valp)
 +{
-+	struct device *dev = to_device(priv);
-+	u32 mask;
-+	u32 ctrl;
-+	u32 val;
-+	int res;
-+
-+	res = yt921x_extif_wait(priv);
-+	if (res)
-+		return res;
-+
-+	mask = YT921X_MBUS_CTRL_PORT_M | YT921X_MBUS_CTRL_REG_M |
-+	       YT921X_MBUS_CTRL_TYPE_M | YT921X_MBUS_CTRL_OP_M;
-+	ctrl = YT921X_MBUS_CTRL_PORT(port) | YT921X_MBUS_CTRL_REG(reg) |
-+	       YT921X_MBUS_CTRL_TYPE_C22 | YT921X_MBUS_CTRL_READ;
-+	res = yt921x_reg_update_bits(priv, YT921X_EXT_MBUS_CTRL, mask, ctrl);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_EXT_MBUS_OP, YT921X_MBUS_OP_START);
-+	if (res)
-+		return res;
-+
-+	res = yt921x_extif_wait(priv);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_read(priv, YT921X_EXT_MBUS_DIN, &val);
-+	if (res)
-+		return res;
-+
-+	if ((u16)val != val)
-+		dev_info(dev,
-+			 "%s: port %d, reg 0x%x: Expected u16, got 0x%08x\n",
-+			 __func__, port, reg, val);
-+	*valp = (u16)val;
-+	return 0;
++	return yt921x_mbus_read(priv, true, port, reg, valp);
 +}
 +
 +static int
 +yt921x_extif_write(struct yt921x_priv *priv, int port, int reg, u16 val)
 +{
-+	u32 mask;
-+	u32 ctrl;
-+	int res;
-+
-+	res = yt921x_extif_wait(priv);
-+	if (res)
-+		return res;
-+
-+	mask = YT921X_MBUS_CTRL_PORT_M | YT921X_MBUS_CTRL_REG_M |
-+	       YT921X_MBUS_CTRL_TYPE_M | YT921X_MBUS_CTRL_OP_M;
-+	ctrl = YT921X_MBUS_CTRL_PORT(port) | YT921X_MBUS_CTRL_REG(reg) |
-+	       YT921X_MBUS_CTRL_TYPE_C22 | YT921X_MBUS_CTRL_WRITE;
-+	res = yt921x_reg_update_bits(priv, YT921X_EXT_MBUS_CTRL, mask, ctrl);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_EXT_MBUS_DOUT, val);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_EXT_MBUS_OP, YT921X_MBUS_OP_START);
-+	if (res)
-+		return res;
-+
-+	return yt921x_extif_wait(priv);
++	return yt921x_mbus_write(priv, true, port, reg, val);
 +}
 +
 +static int yt921x_mbus_ext_read(struct mii_bus *mbus, int port, int reg)
@@ -2761,9 +2756,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 ebs;
 +	int res;
 +
-+	if (qopt->parent != TC_H_ROOT)
-+		return -EOPNOTSUPP;
-+
 +	res = yt921x_tbf_rate_to_eir(params->rate.rate_bytes_ps, &eir);
 +	if (res)
 +		return res;
@@ -2788,6 +2780,81 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port),
 +				YT921X_PSCH_SHP_EN |
 +				YT921X_PSCH_SHP_METER_ID(0));
++}
++
++static int yt921x_qsch_queue_from_parent(u32 parent, u8 *qidp)
++{
++	u32 classid = parent;
++	u32 qid;
++
++	if (classid == TC_H_ROOT)
++		return -EINVAL;
++
++	qid = TC_H_MIN(classid);
++	if (!qid || qid > YT921X_QSCH_SHP_QUEUES)
++		return -EOPNOTSUPP;
++
++	*qidp = qid - 1;
++	return 0;
++}
++
++static int yt921x_qsch_tbf_del(struct yt921x_priv *priv, u8 qid)
++{
++	int res;
++
++	if (qid >= YT921X_QSCH_SHP_QUEUES || qid >= YT921X_QSCH_SHP_ENTRIES)
++		return -ERANGE;
++
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(qid), 0);
++	if (res)
++		return res;
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(qid), 0);
++	if (res)
++		return res;
++
++	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(qid), 0);
++}
++
++static int
++yt921x_qsch_tbf_add(struct yt921x_priv *priv, u8 qid,
++		       struct tc_tbf_qopt_offload *qopt)
++{
++	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
++	u32 cir;
++	u32 cbs;
++	int res;
++
++	if (qid >= YT921X_QSCH_SHP_QUEUES || qid >= YT921X_QSCH_SHP_ENTRIES)
++		return -ERANGE;
++
++	res = yt921x_tbf_rate_to_eir(params->rate.rate_bytes_ps, &cir);
++	if (res)
++		return res;
++
++	res = yt921x_tbf_burst_to_ebs(params->max_size, &cbs);
++	if (res)
++		return res;
++
++	/* Program single-rate queue shaper profile. Keep meter-id at 0 and
++	 * mirror CIR/CBS into EIR/EBS for hardware variants that consult both.
++	 */
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(qid), 0);
++	if (res)
++		return res;
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(qid),
++			       YT921X_QSCH_SHP_EIR(cir) |
++			       YT921X_QSCH_SHP_EBS(cbs));
++	if (res)
++		return res;
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(qid),
++			       YT921X_QSCH_SHP_CIR(cir) |
++			       YT921X_QSCH_SHP_CBS(cbs));
++	if (res)
++		return res;
++
++	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(qid),
++				YT921X_QSCH_SHP_EN |
++				YT921X_QSCH_SHP_METER_ID(0));
 +}
 +
 +static int
@@ -2888,32 +2955,36 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	 * Apply a conservative baseline: enable DWRR on queues referenced by
 +	 * current mqprio map, disable it on unused queues.
 +	 */
-+	for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS; qid++) {
-+		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, false);
-+		u32 en = (used_ucast_qid & BIT(qid)) ? YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN : 0;
++	for (qid = 0;
++	     qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS +
++		   YT921X_STOCK_QOS_SCHED_MCAST_FLOWS;
++	     qid++) {
++		bool is_mcast = qid >= YT921X_STOCK_QOS_SCHED_UCAST_FLOWS;
++		u32 local_qid = is_mcast ? qid - YT921X_STOCK_QOS_SCHED_UCAST_FLOWS :
++					   qid;
++		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, local_qid, is_mcast);
++		u32 en = 0;
 +
-+		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
-+					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
++		if (is_mcast)
++			en = (used_mcast_qid & BIT(local_qid)) ?
++				      YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN :
++				      0;
++		else
++			en = (used_ucast_qid & BIT(local_qid)) ?
++				      YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN :
++				      0;
++
++		res = yt921x_reg_update_bits(priv,
++					     YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
++					     en);
 +		if (res)
 +			return res;
 +
-+		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
-+					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
-+		if (res)
-+			return res;
-+	}
-+
-+	for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_MCAST_FLOWS; qid++) {
-+		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, true);
-+		u32 en = (used_mcast_qid & BIT(qid)) ? YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN : 0;
-+
-+		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
-+					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
-+		if (res)
-+			return res;
-+
-+		res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
-+					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN, en);
++		res = yt921x_reg_update_bits(priv,
++					     YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
++					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
++					     en);
 +		if (res)
 +			return res;
 +	}
@@ -2965,17 +3036,47 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		mutex_lock(&priv->reg_lock);
 +		switch (qopt->command) {
 +		case TC_TBF_REPLACE:
-+			res = yt921x_tbf_add(priv, port, qopt);
++			if (qopt->parent == TC_H_ROOT) {
++				res = yt921x_tbf_add(priv, port, qopt);
++			} else {
++				u8 qid;
++
++				res = yt921x_qsch_queue_from_parent(qopt->parent, &qid);
++				if (!res)
++					res = yt921x_qsch_tbf_add(priv, qid, qopt);
++			}
 +			break;
 +		case TC_TBF_DESTROY:
-+			res = yt921x_tbf_del(priv, port);
++			if (qopt->parent == TC_H_ROOT) {
++				res = yt921x_tbf_del(priv, port);
++			} else {
++				u8 qid;
++
++				res = yt921x_qsch_queue_from_parent(qopt->parent, &qid);
++				if (!res)
++					res = yt921x_qsch_tbf_del(priv, qid);
++			}
 +			break;
 +		case TC_TBF_GRAFT:
-+			/* Child qdisc is software-only; detach tears down port shaper. */
-+			if (!qopt->child_handle || qopt->child_handle == TC_H_UNSPEC)
-+				res = yt921x_tbf_del(priv, port);
-+			else
-+				res = 0;
++			if (qopt->parent == TC_H_ROOT) {
++				/* Root tbf detach tears down port shaper. */
++				if (!qopt->child_handle ||
++				    qopt->child_handle == TC_H_UNSPEC)
++					res = yt921x_tbf_del(priv, port);
++				else
++					res = 0;
++			} else {
++				u8 qid;
++
++				res = yt921x_qsch_queue_from_parent(qopt->parent, &qid);
++				if (res)
++					break;
++				if (!qopt->child_handle ||
++				    qopt->child_handle == TC_H_UNSPEC)
++					res = yt921x_qsch_tbf_del(priv, qid);
++				else
++					res = 0;
++			}
 +			break;
 +		case TC_TBF_STATS:
 +			res = 0;
@@ -5698,6 +5799,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct yt921x_priv *priv = to_yt921x_priv(ds);
 +	struct dsa_port *dp = dsa_to_port(ds, port);
++	struct dsa_port *user_dp;
 +	int old_cpu_port;
 +	int new_cpu_port;
 +	u32 val;
@@ -5721,6 +5823,25 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		/* Fallback when hardware state is not yet canonical. */
 +		old_cpu_port = dp->cpu_dp->index;
 +		res = 0;
++	}
++
++	/* Secondary conduit receives untagged Ethernet frames. The tagger can
++	 * only steer those frames back to one user port, so reject mappings
++	 * that would place multiple user ports on the secondary conduit.
++	 */
++	if (yt921x_is_secondary_cpu_port(priv, new_cpu_port) &&
++	    new_cpu_port != old_cpu_port) {
++		dsa_switch_for_each_user_port(user_dp, ds) {
++			if (user_dp->index == port)
++				continue;
++			if (dsa_upstream_port(ds, user_dp->index) != new_cpu_port)
++				continue;
++
++			NL_SET_ERR_MSG_MOD(extack,
++					   "secondary conduit supports only one user port");
++			res = -EOPNOTSUPP;
++			goto out_unlock;
++		}
 +	}
 +
 +	res = yt921x_userport_cpu_isolation_set(priv, port, new_cpu_port);
@@ -5764,6 +5885,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +					 FIELD_GET(YT921X_EXT_CPU_PORT_PORT_M, val));
 +		}
 +	}
++out_unlock:
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -6792,7 +6914,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,835 @@
+@@ -0,0 +1,858 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -7088,6 +7210,29 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_PSCH_SHP_DUAL_RATE		BIT(3)
 +#define  YT921X_PSCH_SHP_METER_ID_M		GENMASK(2, 0)
 +#define   YT921X_PSCH_SHP_METER_ID(x)			FIELD_PREP(YT921X_PSCH_SHP_METER_ID_M, (x))
++
++#define YT921X_QSCH_SHP_CFG			0x34c000	/* tbl 0xe9 */
++#define YT921X_QSCH_SHP_ENTRY_STRIDE		0x10
++#define YT921X_QSCH_SHP_WORD0(qid) \
++	(YT921X_QSCH_SHP_CFG + YT921X_QSCH_SHP_ENTRY_STRIDE * (qid))
++#define YT921X_QSCH_SHP_WORD1(qid) \
++	(YT921X_QSCH_SHP_WORD0(qid) + 0x4)
++#define YT921X_QSCH_SHP_WORD2(qid) \
++	(YT921X_QSCH_SHP_WORD0(qid) + 0x8)
++#define  YT921X_QSCH_SHP_CIR_M			GENMASK(17, 0)
++#define   YT921X_QSCH_SHP_CIR(x)			FIELD_PREP(YT921X_QSCH_SHP_CIR_M, (x))
++#define  YT921X_QSCH_SHP_CBS_M			GENMASK(31, 18)
++#define   YT921X_QSCH_SHP_CBS(x)			FIELD_PREP(YT921X_QSCH_SHP_CBS_M, (x))
++#define  YT921X_QSCH_SHP_EIR_M			GENMASK(17, 0)
++#define   YT921X_QSCH_SHP_EIR(x)			FIELD_PREP(YT921X_QSCH_SHP_EIR_M, (x))
++#define  YT921X_QSCH_SHP_EBS_M			GENMASK(31, 18)
++#define   YT921X_QSCH_SHP_EBS(x)			FIELD_PREP(YT921X_QSCH_SHP_EBS_M, (x))
++#define  YT921X_QSCH_SHP_METER_ID_M		GENMASK(2, 0)
++#define   YT921X_QSCH_SHP_METER_ID(x)			FIELD_PREP(YT921X_QSCH_SHP_METER_ID_M, (x))
++#define  YT921X_QSCH_SHP_MODE			BIT(3)
++#define  YT921X_QSCH_SHP_COUPLE			BIT(4)
++#define  YT921X_QSCH_SHP_DUAL_RATE		BIT(5)
++#define  YT921X_QSCH_SHP_EN			BIT(6)
 +
 +/* Stock table-id 0x0d (loop-detect top control), reverse-mapped from yt_switch.ko.
 + * Kept for header parity; not wired into active DSA path yet.
