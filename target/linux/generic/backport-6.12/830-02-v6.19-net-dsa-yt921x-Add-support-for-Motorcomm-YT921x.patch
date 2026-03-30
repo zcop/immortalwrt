@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6081 @@
+@@ -0,0 +1,6241 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -258,6 +258,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STORM_GUARD_DEFAULT_PPS		20000U
 +#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
 +#define YT921X_STORM_GUARD_DEFAULT_INTERVAL_MS	1000U
++#define YT921X_STORM_RATE_UNITS_MAX		((1ULL << 29) - 1)
 +
 +struct yt921x_reg_mdio {
 +	struct mii_bus *bus;
@@ -2712,6 +2713,160 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
++}
++
++static bool yt921x_storm_policer_supported_port(struct dsa_switch *ds, int port)
++{
++	return dsa_is_user_port(ds, port);
++}
++
++static int
++yt921x_storm_rate_to_fields(struct yt921x_priv *priv, u64 rate_bytes_per_sec,
++			    u32 *rate_f0, u32 *rate_f1)
++{
++	u64 units_per_sec;
++	u32 io;
++	u32 slot;
++	int res;
++
++	if (!rate_bytes_per_sec)
++		return -EINVAL;
++
++	/* Stock code derives storm config fields from this timeslot register.
++	 * Keep using the same source and encode as a 29-bit split value
++	 * ([31:13] + [12:3]) expected by 0x220200.
++	 */
++	res = yt921x_reg_read(priv, YT921X_STOCK_STORM_RATE_IO, &io);
++	if (res)
++		return res;
++
++	slot = FIELD_GET(YT921X_STOCK_STORM_RATE_IO_TIMESLOT_M, io);
++	if (!slot)
++		slot = 1;
++
++	units_per_sec = DIV_ROUND_UP_ULL(rate_bytes_per_sec, slot);
++	units_per_sec = clamp_t(u64, units_per_sec, 1, YT921X_STORM_RATE_UNITS_MAX);
++
++	*rate_f0 = (u32)(units_per_sec >> 10);
++	*rate_f1 = (u32)(units_per_sec & GENMASK(9, 0));
++
++	return 0;
++}
++
++static int yt921x_storm_policer_apply(struct yt921x_priv *priv)
++{
++	u32 storm_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
++	u32 cfg;
++	u32 f0;
++	u32 f1;
++	int res;
++
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_STORM_MC_TYPE_CTRL,
++				     YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS_M,
++				     YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS(storm_ports));
++	if (res)
++		return res;
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_STORM_CONFIG, &cfg);
++	if (res)
++		return res;
++
++	if (!storm_ports) {
++		cfg &= ~YT921X_STOCK_STORM_CONFIG_EN;
++		return yt921x_reg_write(priv, YT921X_STOCK_STORM_CONFIG, cfg);
++	}
++
++	res = yt921x_storm_rate_to_fields(priv, priv->storm_policer_rate_bytes_per_sec,
++					  &f0, &f1);
++	if (res)
++		return res;
++
++	cfg &= ~(YT921X_STOCK_STORM_CONFIG_RATE_F0_M |
++		 YT921X_STOCK_STORM_CONFIG_RATE_F1_M);
++	cfg |= YT921X_STOCK_STORM_CONFIG_RATE_F0(f0) |
++	       YT921X_STOCK_STORM_CONFIG_RATE_F1(f1) |
++	       YT921X_STOCK_STORM_CONFIG_EN;
++
++	return yt921x_reg_write(priv, YT921X_STOCK_STORM_CONFIG, cfg);
++}
++
++static int
++yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
++			    struct dsa_mall_policer_tc_entry *policer)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u64 old_rate_bytes_per_sec;
++	u16 old_ports;
++	u32 old_burst;
++	int res = 0;
++
++	if (!yt921x_storm_policer_supported_port(ds, port))
++		return -EOPNOTSUPP;
++	if (!policer->rate_bytes_per_sec)
++		return -EINVAL;
++
++	mutex_lock(&priv->reg_lock);
++
++	old_ports = priv->storm_policer_ports;
++	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
++	old_burst = priv->storm_policer_burst;
++
++	if (old_ports &&
++	    (old_rate_bytes_per_sec != policer->rate_bytes_per_sec ||
++	     old_burst != policer->burst)) {
++		res = -EOPNOTSUPP;
++		goto out_unlock;
++	}
++
++	priv->storm_policer_ports |= BIT(port);
++	priv->storm_policer_rate_bytes_per_sec = policer->rate_bytes_per_sec;
++	priv->storm_policer_burst = policer->burst;
++
++	res = yt921x_storm_policer_apply(priv);
++	if (res) {
++		priv->storm_policer_ports = old_ports;
++		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
++		priv->storm_policer_burst = old_burst;
++	}
++
++out_unlock:
++	mutex_unlock(&priv->reg_lock);
++	return res;
++}
++
++static void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	u64 old_rate_bytes_per_sec;
++	u16 old_ports;
++	u32 old_burst;
++	int res;
++
++	if (!yt921x_storm_policer_supported_port(ds, port))
++		return;
++
++	mutex_lock(&priv->reg_lock);
++
++	old_ports = priv->storm_policer_ports;
++	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
++	old_burst = priv->storm_policer_burst;
++
++	priv->storm_policer_ports &= ~BIT(port);
++	if (!priv->storm_policer_ports) {
++		priv->storm_policer_rate_bytes_per_sec = 0;
++		priv->storm_policer_burst = 0;
++	}
++
++	res = yt921x_storm_policer_apply(priv);
++	if (res) {
++		priv->storm_policer_ports = old_ports;
++		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
++		priv->storm_policer_burst = old_burst;
++		dev_warn(to_device(priv), "storm policer remove failed on port %d: %d\n",
++			 port, res);
++	}
++
++	mutex_unlock(&priv->reg_lock);
 +}
 +
 +static int
@@ -5954,6 +6109,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	.set_mac_eee		= yt921x_dsa_set_mac_eee,
 +	/* tc */
 +	.port_setup_tc		= yt921x_dsa_port_setup_tc,
++	.port_policer_add	= yt921x_dsa_port_policer_add,
++	.port_policer_del	= yt921x_dsa_port_policer_del,
 +	/* dcb */
 +	.port_get_default_prio	= yt921x_dsa_port_get_default_prio,
 +	.port_set_default_prio	= yt921x_dsa_port_set_default_prio,
@@ -6146,7 +6303,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,670 @@
+@@ -0,0 +1,690 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -6441,6 +6598,23 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_PSCH_SHP_DUAL_RATE		BIT(3)
 +#define  YT921X_PSCH_SHP_METER_ID_M		GENMASK(2, 0)
 +#define   YT921X_PSCH_SHP_METER_ID(x)			FIELD_PREP(YT921X_PSCH_SHP_METER_ID_M, (x))
++
++#define YT921X_STOCK_STORM_RATE_IO		0x220100
++#define  YT921X_STOCK_STORM_RATE_IO_TIMESLOT_M	GENMASK(11, 0)
++#define YT921X_STOCK_STORM_MC_TYPE_CTRL	0x220140
++#define  YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS_M	GENMASK(10, 0)
++#define   YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS(x) \
++		FIELD_PREP(YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS_M, (x))
++#define YT921X_STOCK_STORM_CONFIG		0x220200
++#define  YT921X_STOCK_STORM_CONFIG_RATE_F0_M	GENMASK(31, 13)
++#define   YT921X_STOCK_STORM_CONFIG_RATE_F0(x) \
++		FIELD_PREP(YT921X_STOCK_STORM_CONFIG_RATE_F0_M, (x))
++#define  YT921X_STOCK_STORM_CONFIG_RATE_F1_M	GENMASK(12, 3)
++#define   YT921X_STOCK_STORM_CONFIG_RATE_F1(x) \
++		FIELD_PREP(YT921X_STOCK_STORM_CONFIG_RATE_F1_M, (x))
++#define  YT921X_STOCK_STORM_CONFIG_INCLUDE_GAP	BIT(2)
++#define  YT921X_STOCK_STORM_CONFIG_MODE		BIT(1)
++#define  YT921X_STOCK_STORM_CONFIG_EN		BIT(0)
 +
 +#define YT921X_IPM_DSCPn(n)		(0x180000 + 4 * (n))	/* Internal Priority Map */
 +#define YT921X_IPM_PCPn(map, dei, pcp)	(0x180100 + 4 * (16 * (map) + 8 * (dei) + (pcp)))
@@ -6814,6 +6988,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u16 flood_mcast_base_mask;
 +	u16 flood_bcast_base_mask;
 +	u16 flood_storm_mask;
++	u16 storm_policer_ports;
++	u64 storm_policer_rate_bytes_per_sec;
++	u32 storm_policer_burst;
 +};
 +
 +#endif
