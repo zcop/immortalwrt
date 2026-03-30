@@ -6599,6 +6599,20 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_PSCH_SHP_METER_ID_M		GENMASK(2, 0)
 +#define   YT921X_PSCH_SHP_METER_ID(x)			FIELD_PREP(YT921X_PSCH_SHP_METER_ID_M, (x))
 +
++/* Stock table-id 0x0d (loop-detect top control), reverse-mapped from yt_switch.ko.
++ * Kept for header parity; not wired into active DSA path yet.
++ */
++#define YT921X_STOCK_LOOP_DETECT_TOP_CTRL	0x080230
++#define  YT921X_STOCK_LOOP_DETECT_F0_M		GENMASK(27, 26)
++#define  YT921X_STOCK_LOOP_DETECT_F1		BIT(25)
++#define  YT921X_STOCK_LOOP_DETECT_UNIT_ID2_M	GENMASK(24, 23)	/* field2 */
++#define  YT921X_STOCK_LOOP_DETECT_UNIT_ID1_M	GENMASK(22, 21)	/* field3 */
++#define  YT921X_STOCK_LOOP_DETECT_UNIT_ID0_M	GENMASK(20, 19)	/* field4 */
++#define  YT921X_STOCK_LOOP_DETECT_EN		BIT(18)		/* field5 */
++#define  YT921X_STOCK_LOOP_DETECT_TPID_M	GENMASK(17, 2)	/* field6 */
++#define  YT921X_STOCK_LOOP_DETECT_F7		BIT(1)
++#define  YT921X_STOCK_LOOP_DETECT_GEN_WAY	BIT(0)		/* field8 */
++
 +#define YT921X_STOCK_STORM_RATE_IO		0x220100
 +#define  YT921X_STOCK_STORM_RATE_IO_TIMESLOT_M	GENMASK(11, 0)
 +#define YT921X_STOCK_STORM_MC_TYPE_CTRL	0x220140
@@ -6615,6 +6629,19 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_STOCK_STORM_CONFIG_INCLUDE_GAP	BIT(2)
 +#define  YT921X_STOCK_STORM_CONFIG_MODE		BIT(1)
 +#define  YT921X_STOCK_STORM_CONFIG_EN		BIT(0)
++
++/* Stock table-id 0xa3 (RMA control), reverse-mapped from yt_switch.ko.
++ * Kept for header parity; not wired into active DSA path yet.
++ */
++#define YT921X_STOCK_RMA_CTRLn(n)		(0x1805d0 + 4 * (n))
++#define  YT921X_STOCK_RMA_CTRL_F0		BIT(12)
++#define  YT921X_STOCK_RMA_CTRL_F1		BIT(11)
++#define  YT921X_STOCK_RMA_CTRL_F2		BIT(10)
++#define  YT921X_STOCK_RMA_CTRL_F3		BIT(9)
++#define  YT921X_STOCK_RMA_CTRL_F4		BIT(8)
++#define  YT921X_STOCK_RMA_CTRL_F5		BIT(7)
++#define  YT921X_STOCK_RMA_CTRL_F6		BIT(6)
++#define  YT921X_STOCK_RMA_CTRL_ACTION_M		GENMASK(5, 0)	/* field7 */
 +
 +#define YT921X_IPM_DSCPn(n)		(0x180000 + 4 * (n))	/* Internal Priority Map */
 +#define YT921X_IPM_PCPn(map, dei, pcp)	(0x180100 + 4 * (16 * (map) + 8 * (dei) + (pcp)))
