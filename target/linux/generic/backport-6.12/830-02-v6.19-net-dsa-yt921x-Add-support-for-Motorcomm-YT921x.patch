@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,7073 @@
+@@ -0,0 +1,7094 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -256,7 +256,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_PSCH_EBS_MAX		GENMASK(13, 0)
 +#define YT921X_PSCH_SHP_PORTS		5U
 +#define YT921X_QSCH_SHP_QUEUES		8U
-+#define YT921X_QSCH_SHP_ENTRIES		9U
++#define YT921X_QSCH_SHP_PORTS		11U
++#define YT921X_QSCH_SHP_FLOWS_PER_PORT	12U
++#define YT921X_QSCH_SHP_ENTRIES \
++		(YT921X_QSCH_SHP_PORTS * YT921X_QSCH_SHP_FLOWS_PER_PORT)
 +
 +#define YT921X_STORM_GUARD_DEFAULT_PPS		20000U
 +#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
@@ -2798,34 +2801,52 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return 0;
 +}
 +
-+static int yt921x_qsch_tbf_del(struct yt921x_priv *priv, u8 qid)
++static int yt921x_qsch_flow_index(int port, u8 qid, u32 *idxp)
 +{
-+	int res;
-+
-+	if (qid >= YT921X_QSCH_SHP_QUEUES || qid >= YT921X_QSCH_SHP_ENTRIES)
++	if (port < 0 || port >= YT921X_QSCH_SHP_PORTS)
++		return -ERANGE;
++	if (qid >= YT921X_QSCH_SHP_QUEUES)
 +		return -ERANGE;
 +
-+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(qid), 0);
-+	if (res)
-+		return res;
-+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(qid), 0);
++	*idxp = (u32)port * YT921X_QSCH_SHP_FLOWS_PER_PORT + qid;
++	if (*idxp >= YT921X_QSCH_SHP_ENTRIES)
++		return -ERANGE;
++
++	return 0;
++}
++
++static int yt921x_qsch_tbf_del(struct yt921x_priv *priv, int port, u8 qid)
++{
++	u32 idx;
++	int res;
++
++	res = yt921x_qsch_flow_index(port, qid, &idx);
 +	if (res)
 +		return res;
 +
-+	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(qid), 0);
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx), 0);
++	if (res)
++		return res;
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx), 0);
++	if (res)
++		return res;
++
++	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx), 0);
 +}
 +
 +static int
-+yt921x_qsch_tbf_add(struct yt921x_priv *priv, u8 qid,
++yt921x_qsch_tbf_add(struct yt921x_priv *priv, int port, u8 qid,
 +		       struct tc_tbf_qopt_offload *qopt)
 +{
 +	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
 +	u32 cir;
 +	u32 cbs;
++	u32 idx;
 +	int res;
 +
-+	if (qid >= YT921X_QSCH_SHP_QUEUES || qid >= YT921X_QSCH_SHP_ENTRIES)
-+		return -ERANGE;
++	res = yt921x_qsch_flow_index(port, qid, &idx);
++	if (res)
++		return res;
 +
 +	res = yt921x_tbf_rate_to_eir(params->rate.rate_bytes_ps, &cir);
 +	if (res)
@@ -2838,21 +2859,21 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	/* Program single-rate queue shaper profile. Keep meter-id at 0 and
 +	 * mirror CIR/CBS into EIR/EBS for hardware variants that consult both.
 +	 */
-+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(qid), 0);
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx), 0);
 +	if (res)
 +		return res;
-+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(qid),
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx),
 +			       YT921X_QSCH_SHP_EIR(cir) |
 +			       YT921X_QSCH_SHP_EBS(cbs));
 +	if (res)
 +		return res;
-+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(qid),
++	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx),
 +			       YT921X_QSCH_SHP_CIR(cir) |
 +			       YT921X_QSCH_SHP_CBS(cbs));
 +	if (res)
 +		return res;
 +
-+	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(qid),
++	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx),
 +				YT921X_QSCH_SHP_EN |
 +				YT921X_QSCH_SHP_METER_ID(0));
 +}
@@ -3264,7 +3285,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +				res = yt921x_qsch_queue_from_parent(qopt->parent, &qid);
 +				if (!res)
-+					res = yt921x_qsch_tbf_add(priv, qid, qopt);
++					res = yt921x_qsch_tbf_add(priv, port, qid, qopt);
 +			}
 +			break;
 +		case TC_TBF_DESTROY:
@@ -3275,7 +3296,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +				res = yt921x_qsch_queue_from_parent(qopt->parent, &qid);
 +				if (!res)
-+					res = yt921x_qsch_tbf_del(priv, qid);
++					res = yt921x_qsch_tbf_del(priv, port, qid);
 +			}
 +			break;
 +		case TC_TBF_GRAFT:
@@ -3294,7 +3315,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +					break;
 +				if (!qopt->child_handle ||
 +				    qopt->child_handle == TC_H_UNSPEC)
-+					res = yt921x_qsch_tbf_del(priv, qid);
++					res = yt921x_qsch_tbf_del(priv, port, qid);
 +				else
 +					res = 0;
 +			}
