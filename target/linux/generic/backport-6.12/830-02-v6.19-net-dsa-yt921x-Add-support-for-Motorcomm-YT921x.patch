@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,6445 @@
+@@ -0,0 +1,6634 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -260,6 +260,11 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
 +#define YT921X_STORM_GUARD_DEFAULT_INTERVAL_MS	1000U
 +#define YT921X_STORM_RATE_UNITS_MAX		((1ULL << 29) - 1)
++#define YT921X_STOCK_RATE_SCALE_PER_SEC		1000000000ULL
++#define YT921X_STOCK_RATE_CIR_MAX		GENMASK(17, 0)
++#define YT921X_STOCK_RATE_METER_NUM		14U
++#define YT921X_STOCK_RATE_METER_STRIDE		0x10U
++#define YT921X_STOCK_RATE_METER_DEFAULT_ID	0U
 +
 +struct yt921x_reg_mdio {
 +	struct mii_bus *bus;
@@ -1309,8 +1314,18 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_PROC_FIELD(_width, _word, _shift, _name)	\
 +	{ .width = (_width), .word = (_word), .shift = (_shift), .name = (_name) }
 +
++/* Stock ingress-meter tables (reverse-mapped from yt_switch.ko):
++ *  - tbl 0xc7: meter_timeslotm_field
++ *  - tbl 0xc8: port_meter_ctrlnm_field
++ *  - tbl 0xce: meter_config_tblm_field
++ */
 +static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_c7[] = {
-+	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
++	YT921X_PROC_FIELD(12, 0, 0, "meter_timeslot"),
++};
++
++static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_c8[] = {
++	YT921X_PROC_FIELD(1, 0, 4, "enable"),
++	YT921X_PROC_FIELD(4, 0, 0, "meter_id"),
 +};
 +
 +static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ce[] = {
@@ -1372,6 +1387,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		.entry_words = 1, .rw_words = 1, .entries = 1,
 +		.fields = yt921x_tbl_fields_c7,
 +		.nfields = ARRAY_SIZE(yt921x_tbl_fields_c7),
++	},
++	{
++		.id = 0xc8, .name = "port-meter-ctrl", .base = 0x220108,
++		.entry_words = 1, .rw_words = 1, .entries = 11,
++		.fields = yt921x_tbl_fields_c8,
++		.nfields = ARRAY_SIZE(yt921x_tbl_fields_c8),
 +	},
 +	{
 +		.id = 0xce, .name = "meter-config", .base = 0x220800,
@@ -2987,6 +3008,174 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_stock_ingress_meter_token_level(struct yt921x_priv *priv, u32 *token_level)
++{
++	u32 chip_id;
++	u32 io;
++	u32 timeslot;
++	u32 token_bytes;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_RATE_IGR_BW_CTRL, &io);
++	if (res)
++		return res;
++
++	timeslot = FIELD_GET(YT921X_STOCK_RATE_IGR_BW_CTRL_TIMESLOT_M, io);
++	if (!timeslot)
++		timeslot = 1;
++
++	res = yt921x_reg_read(priv, YT921X_CHIP_ID, &chip_id);
++	if (res)
++		return res;
++
++	token_bytes = (FIELD_GET(YT921X_CHIP_ID_MINOR, chip_id) == 0x9001) ? 7 : 8;
++	*token_level = token_bytes * (timeslot << 3);
++	if (!*token_level)
++		return -ERANGE;
++
++	return 0;
++}
++
++static int
++yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
++				 u32 meter_f4, bool meter_f6, u32 *cirp)
++{
++	u64 rate_bits_per_sec;
++	u64 scaled;
++	u64 cir;
++	int shift;
++
++	if (!rate_bytes_per_sec || !token_level)
++		return -EINVAL;
++	if (rate_bytes_per_sec > U64_MAX / 8)
++		return -ERANGE;
++
++	/* Stock helper uses 1e9 scaling in bit/s domain. */
++	rate_bits_per_sec = rate_bytes_per_sec * 8;
++	if (rate_bits_per_sec > U64_MAX / token_level)
++		return -ERANGE;
++	scaled = rate_bits_per_sec * token_level;
++
++	shift = (meter_f4 ? 21 : 11) - (meter_f6 ? 2 : 0);
++	if (shift > 0) {
++		if (scaled > (U64_MAX >> shift))
++			return -ERANGE;
++		scaled <<= shift;
++	} else if (shift < 0) {
++		scaled >>= -shift;
++	}
++
++	cir = div_u64(scaled, YT921X_STOCK_RATE_SCALE_PER_SEC);
++	if (!cir)
++		cir = 1;
++	if (cir > YT921X_STOCK_RATE_CIR_MAX)
++		return -ERANGE;
++
++	*cirp = (u32)cir;
++	return 0;
++}
++
++static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
++{
++	u32 policer_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
++	unsigned long targets_mask = yt921x_non_cpu_port_mask(priv);
++	u32 meter_word1;
++	u32 meter_word2;
++	u32 token_level;
++	u32 cir;
++	u32 c8;
++	u32 f4;
++	bool f6;
++	int port;
++	int res;
++
++	if (YT921X_STOCK_RATE_METER_DEFAULT_ID >= YT921X_STOCK_RATE_METER_NUM)
++		return -EINVAL;
++
++	if (!policer_ports)
++		goto disable_port_ctrl;
++
++	res = yt921x_stock_ingress_meter_token_level(priv, &token_level);
++	if (res)
++		return res;
++
++	res = yt921x_reg_read(priv,
++			      YT921X_STOCK_RATE_METER_CONFIG_WORD2(YT921X_STOCK_RATE_METER_DEFAULT_ID),
++			      &meter_word2);
++	if (res)
++		return res;
++
++	f4 = FIELD_GET(YT921X_STOCK_RATE_METER_CFG_F4_M, meter_word2);
++	f6 = !!(meter_word2 & YT921X_STOCK_RATE_METER_CFG_F6);
++
++	res = yt921x_stock_ingress_rate_to_cir(priv->storm_policer_rate_bytes_per_sec,
++					       token_level, f4, f6, &cir);
++	if (res)
++		return res;
++
++	res = yt921x_reg_read(priv,
++			      YT921X_STOCK_RATE_METER_CONFIG_WORD1(YT921X_STOCK_RATE_METER_DEFAULT_ID),
++			      &meter_word1);
++	if (res)
++		return res;
++
++	meter_word1 &= ~YT921X_STOCK_RATE_METER_CFG_CIR_M;
++	meter_word1 |= YT921X_STOCK_RATE_METER_CFG_CIR(cir);
++	res = yt921x_reg_write(priv,
++			       YT921X_STOCK_RATE_METER_CONFIG_WORD1(YT921X_STOCK_RATE_METER_DEFAULT_ID),
++			       meter_word1);
++	if (res)
++		return res;
++
++disable_port_ctrl:
++	for_each_set_bit(port, &targets_mask, YT921X_PORT_NUM) {
++		if (!dsa_is_user_port(&priv->ds, port))
++			continue;
++
++		res = yt921x_reg_read(priv, YT921X_STOCK_RATE_IGR_BW_ENABLE + 4 * port, &c8);
++		if (res)
++			return res;
++
++		c8 &= ~(YT921X_STOCK_RATE_IGR_BW_ENABLE_EN |
++			YT921X_STOCK_RATE_IGR_BW_ENABLE_METER_ID_M);
++		if (policer_ports & BIT(port))
++			c8 |= YT921X_STOCK_RATE_IGR_BW_ENABLE_EN |
++			      YT921X_STOCK_RATE_IGR_BW_ENABLE_METER_ID(
++				      YT921X_STOCK_RATE_METER_DEFAULT_ID);
++
++		res = yt921x_reg_write(priv, YT921X_STOCK_RATE_IGR_BW_ENABLE + 4 * port, c8);
++		if (res)
++			return res;
++	}
++
++	/* Keep legacy storm-path disabled when ingress-meter path is active. */
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_STORM_MC_TYPE_CTRL,
++				     YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS_M, 0);
++	if (res)
++		return res;
++
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_STORM_CONFIG,
++				     YT921X_STOCK_STORM_CONFIG_EN, 0);
++	if (res)
++		return res;
++
++	return 0;
++}
++
++static int yt921x_dsa_policer_apply(struct yt921x_priv *priv)
++{
++	int res;
++
++	res = yt921x_ingress_meter_policer_apply(priv);
++	if (!res)
++		return 0;
++
++	dev_warn(to_device(priv),
++		 "ingress policer apply failed (%d), fallback to storm path\n", res);
++	return yt921x_storm_policer_apply(priv);
++}
++
++static int
 +yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 +			    struct dsa_mall_policer_tc_entry *policer)
 +{
@@ -3018,7 +3207,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	priv->storm_policer_rate_bytes_per_sec = policer->rate_bytes_per_sec;
 +	priv->storm_policer_burst = policer->burst;
 +
-+	res = yt921x_storm_policer_apply(priv);
++	res = yt921x_dsa_policer_apply(priv);
 +	if (res) {
 +		priv->storm_policer_ports = old_ports;
 +		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
@@ -3053,12 +3242,12 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		priv->storm_policer_burst = 0;
 +	}
 +
-+	res = yt921x_storm_policer_apply(priv);
++	res = yt921x_dsa_policer_apply(priv);
 +	if (res) {
 +		priv->storm_policer_ports = old_ports;
 +		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
 +		priv->storm_policer_burst = old_burst;
-+		dev_warn(to_device(priv), "storm policer remove failed on port %d: %d\n",
++		dev_warn(to_device(priv), "policer remove failed on port %d: %d\n",
 +			 port, res);
 +	}
 +
@@ -6507,7 +6696,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,771 @@
+@@ -0,0 +1,799 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -6539,6 +6728,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_FUNC_MIB			BIT(1)
 +#define YT921X_CHIP_ID			0x80008
 +#define  YT921X_CHIP_ID_MAJOR			GENMASK(31, 16)
++#define  YT921X_CHIP_ID_MINOR			GENMASK(15, 0)
 +#define YT921X_EXT_CPU_PORT		0x8000c
 +#define  YT921X_EXT_CPU_PORT_TAG_EN		BIT(15)
 +#define  YT921X_EXT_CPU_PORT_PORT_EN		BIT(14)
@@ -6878,7 +7068,34 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STOCK_LAG_LEARNLIMIT		0x180808	/* tbl 0xaf */
 +
 +#define YT921X_STOCK_RATE_IGR_BW_CTRL		0x220104	/* tbl 0xc7 */
++#define  YT921X_STOCK_RATE_IGR_BW_CTRL_TIMESLOT_M	GENMASK(11, 0)	/* field0 */
 +#define YT921X_STOCK_RATE_IGR_BW_ENABLE		0x220108	/* tbl 0xc8 */
++#define  YT921X_STOCK_RATE_IGR_BW_ENABLE_EN		BIT(4)		/* field0 */
++#define  YT921X_STOCK_RATE_IGR_BW_ENABLE_METER_ID_M	GENMASK(3, 0)	/* field1 */
++#define   YT921X_STOCK_RATE_IGR_BW_ENABLE_METER_ID(x) \
++		FIELD_PREP(YT921X_STOCK_RATE_IGR_BW_ENABLE_METER_ID_M, (x))
++#define YT921X_STOCK_RATE_METER_CONFIG		0x220800	/* tbl 0xce */
++#define YT921X_STOCK_RATE_METER_CONFIGn(n) \
++	(YT921X_STOCK_RATE_METER_CONFIG + YT921X_STOCK_RATE_METER_STRIDE * (n))
++#define YT921X_STOCK_RATE_METER_CONFIG_WORD1(n) \
++	(YT921X_STOCK_RATE_METER_CONFIGn(n) + 0x4)
++#define YT921X_STOCK_RATE_METER_CONFIG_WORD2(n) \
++	(YT921X_STOCK_RATE_METER_CONFIGn(n) + 0x8)
++
++/* tbl 0xce selected fields used by stock ingress-meter path */
++#define  YT921X_STOCK_RATE_METER_CFG_TOKEN_UNIT_M	GENMASK(1, 0)	/* field11, word1 */
++#define   YT921X_STOCK_RATE_METER_CFG_TOKEN_UNIT(x) \
++		FIELD_PREP(YT921X_STOCK_RATE_METER_CFG_TOKEN_UNIT_M, (x))
++#define  YT921X_STOCK_RATE_METER_CFG_CIR_M		GENMASK(19, 2)	/* field10, word1 */
++#define   YT921X_STOCK_RATE_METER_CFG_CIR(x) \
++		FIELD_PREP(YT921X_STOCK_RATE_METER_CFG_CIR_M, (x))
++#define  YT921X_STOCK_RATE_METER_CFG_CBS_M		GENMASK(31, 20)	/* field9, word1 */
++#define   YT921X_STOCK_RATE_METER_CFG_CBS(x) \
++		FIELD_PREP(YT921X_STOCK_RATE_METER_CFG_CBS_M, (x))
++#define  YT921X_STOCK_RATE_METER_CFG_F4_M		GENMASK(9, 7)	/* field4, word2 */
++#define   YT921X_STOCK_RATE_METER_CFG_F4(x) \
++		FIELD_PREP(YT921X_STOCK_RATE_METER_CFG_F4_M, (x))
++#define  YT921X_STOCK_RATE_METER_CFG_F6		BIT(5)		/* field6, word2 */
 +
 +#define YT921X_STOCK_QOS_QUEUE_MAP_UCAST	0x300200	/* tbl 0xd3 */
 +#define YT921X_STOCK_QOS_QUEUE_MAP_MCAST	0x300280	/* tbl 0xd4 */
