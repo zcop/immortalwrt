@@ -92,6 +92,24 @@ Method:
 | `0xc9` | `0x00220140` | storm multicast-type control mask |
 | `0xcc` | `0x00220200` | storm global config table |
 
+Expanded extraction artifacts:
+- Full `tbl_reg_list` decode (`0x00..0xec` valid entries):
+  - `docs/yt921x/live/yt_stock_tbl_reg_list_full_decode_2026-03-30.tsv`
+- Feature-family function mapping (`fal_tiger_*` -> table IDs):
+  - `docs/yt921x/live/yt_stock_feature_function_tableids_2026-03-30.tsv`
+- Aggregated table-id/base/function summary:
+  - `docs/yt921x/live/yt_stock_tableid_base_func_summary_2026-03-30.tsv`
+- Clustered summary of newly surfaced vendor blocks:
+  - `docs/yt921x/live/yt_stock_feature_tableid_clusters_2026-03-30.md`
+
+Expanded findings (beyond prior minimal set):
+- Recovered 73 valid table IDs used by stock feature paths.
+- Major additional MMIO clusters now evidence-linked by function paths:
+  - QoS map/scheduler: `0x180000..0x180200`, `0x300200..0x300400`, `0x341000..0x343000`
+  - Rate/meter/shaper: `0x220104/0x220108/0x220800`, `0x34c000/0x34f000/0x354000/0x357000`
+  - VLAN translation/remark: `0x230010..0x230600`, `0x188000`, `0x100000..0x1004a8`
+  - Multicast/IGMP policy surfaces: `0x180468..0x180700`
+
 ## Field Descriptor Decode (From `.rodata` Field Tables)
 Descriptor format observed in stock blob: 4-byte tuples per field:
 - byte0 = field index

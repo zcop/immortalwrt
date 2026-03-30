@@ -1,5 +1,26 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-30: bulk stock feature extraction (`fal_tiger_*` -> table-id -> MMIO)
+
+Capture/artifacts:
+- `docs/yt921x/live/yt_stock_tbl_reg_list_full_decode_2026-03-30.tsv`
+- `docs/yt921x/live/yt_stock_feature_function_tableids_2026-03-30.tsv`
+- `docs/yt921x/live/yt_stock_tableid_base_func_summary_2026-03-30.tsv`
+- `docs/yt921x/live/yt_stock_feature_tableid_clusters_2026-03-30.md`
+
+What was confirmed:
+- Parsed full valid `tbl_reg_list` window (`0x00..0xec`, 237 entries).
+- Extracted table-id candidates from stock feature functions (`fal_tiger_*`) and intersected with valid `tbl_reg_list` IDs.
+- Recovered **73 valid table IDs** actively referenced by stock feature paths, including substantial new blocks beyond the earlier minimal set:
+  - QoS map/scheduler: `0x180000..0x180200`, `0x300200..0x300400`, `0x341000..0x343000`
+  - Rate/meter/shaper: `0x220104/0x220108/0x220800`, `0x34c000/0x34f000/0x354000/0x357000`
+  - VLAN translation/remark: `0x230010..0x230600`, `0x188000`, `0x100000..0x1004a8`
+  - Multicast/IGMP control surfaces: `0x180468..0x180700`
+
+Interpretation update:
+- Vendor feature coverage in stock blob is materially wider than the previously decoded subset (`0x0d/0x98/0x99/0xa3/0xad/0xae/0xc6/0xc9/0xcc`).
+- We now have a concrete static map to prioritize live probing of high-value vendor blocks (mirror QoS map, scheduler, shaper, ingress meter, VLAN translation interactions).
+
 ## 2026-03-30: stock RMA control (`0x1805d0`) safe bit sweep
 
 Capture:

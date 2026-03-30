@@ -1,0 +1,108 @@
+=== fal_tiger_rma_action_set ===
+table_id_candidate: 0xa3
+call: 13:│           0x0802a374      9f59ffeb       bl sym.hal_table_reg_read
+call: 78:│      ││   0x0802a448      2e59ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_rma_action_get ===
+table_id_candidate: 0xa3
+call: 11:│           0x0802a47c      5d59ffeb       bl sym.hal_table_reg_read
+
+=== fal_tiger_rma_bypass_port_isolation_set ===
+table_id_candidate: 0xa3
+call: 13:│           0x0802a528      3259ffeb       bl sym.hal_table_reg_read
+call: 26:│       │   0x0802a55c      e958ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_rma_bypass_vlan_filter_set ===
+table_id_candidate: 0xa3
+call: 13:│           0x0802a5e8      0259ffeb       bl sym.hal_table_reg_read
+call: 26:│       │   0x0802a61c      b958ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_mirror_port_set ===
+table_id_candidate: 0xd5
+call: 81:│           0x08016034      33aaffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_mirror_port_get ===
+table_id_candidate: 0xd5
+call: 14:│           0x08016074      5faaffeb       bl sym.hal_table_reg_read
+
+=== fal_tiger_loop_detect_enable_set ===
+call: 12:│           0x08015538      2eadffeb       bl sym.hal_table_reg_read
+call: 26:│       │   0x08015570      e4acffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_storm_ctrl_enable_set ===
+table_id_candidate: 0xc9
+table_id_candidate: 0xcc
+call: 36:│       │   0x0802c070      6052ffeb       bl sym.hal_table_reg_read
+call: 49:│      ││   0x0802c0a4      1752ffeb       bl sym.hal_table_reg_write
+call: 59:│    ││││   0x0802c0cc      4952ffeb       bl sym.hal_table_reg_read
+call: 82:│   │││││   0x0802c128      f651ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_storm_ctrl_rate_set ===
+table_id_candidate: 0xc6
+table_id_candidate: 0xcc
+call: 20:│       │   0x0802c4ac      5151ffeb       bl sym.hal_table_reg_read
+call: 35:│      ││   0x0802c4e8      4251ffeb       bl sym.hal_table_reg_read
+call: 108:│    ││││   0x0802c608      be50ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_storm_ctrl_rate_get ===
+table_id_candidate: 0xc6
+table_id_candidate: 0xcc
+call: 20:│       │   0x0802c664      e350ffeb       bl sym.hal_table_reg_read
+call: 39:│     │││   0x0802c6b0      d050ffeb       bl sym.hal_table_reg_read
+
+=== fal_tiger_qos_schedule_sp_set ===
+table_id_candidate: 0xd7
+table_id_candidate: 0xe6
+call: 55:│     │││   0x08023368      6675ffeb       bl sym.hal_table_reg_write
+call: 64:│   ╎││││   0x0802338c      9975ffeb       bl sym.hal_table_reg_read
+call: 90:│   │││││   0x080233f4      7f75ffeb       bl sym.hal_table_reg_read
+call: 108:│  ││││││   0x0802343c      3175ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_qos_schedule_dwrr_set ===
+table_id_candidate: 0xe6
+call: 23:│       │   0x08023708      ba74ffeb       bl sym.hal_table_reg_read
+call: 42:│      ││   0x08023754      6b74ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_rate_meter_enable_set ===
+table_id_candidate: 0xce
+call: 30:│     ││    0x08027444      6b65ffeb       bl sym.hal_table_reg_read
+call: 43:│     │││   0x08027478      2265ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_rate_meter_rate_set ===
+table_id_candidate: 0xc7
+table_id_candidate: 0xce
+call: 31:│     ││    0x0802785c      6564ffeb       bl sym.hal_table_reg_read
+call: 52:│    ││││   0x080278b0      5064ffeb       bl sym.hal_table_reg_read
+call: 122:│ │ │││││   0x080279c4      cf63ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_stat_mib_enable_set ===
+call: 16:│           0x0802abc0      8c57ffeb       bl sym.hal_table_reg_read
+call: 30:│       │   0x0802abf8      4257ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_stat_mib_port_get ===
+
+=== fal_tiger_multicast_igmp_opmode_set ===
+table_id_candidate: 0x8e
+call: 12:│           0x08016474      5fa9ffeb       bl sym.hal_table_reg_read
+call: 26:│       │   0x080164ac      15a9ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_multicast_vlan_add ===
+table_id_candidate: 0xab
+call: 15:│       ╎   0x08017364      a3a5ffeb       bl sym.hal_table_reg_read
+call: 79:│ │╎╎│││╎   0x08017460      28a5ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_port_isolation_set ===
+table_id_candidate: 0x78
+call: 46:│           0x08020784      9b80ffeb       bl sym.hal_table_reg_read
+call: 59:│       │   0x080207b8      5280ffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_stp_state_set ===
+table_id_candidate: 0x7a
+call: 43:│     ││    0x0802d26c      e14dffeb       bl sym.hal_table_reg_read
+call: 66:│     │││   0x0802d2c8      8e4dffeb       bl sym.hal_table_reg_write
+
+=== fal_tiger_vlan_port_set ===
+table_id_candidate: 0xbb
+call: 56:│           0x0802da20      f44bffeb       bl sym.hal_table_reg_read
+call: 75:│       │   0x0802da6c      a54bffeb       bl sym.hal_table_reg_write
+
