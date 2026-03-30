@@ -157,6 +157,10 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_LAG_HASH` | `0x210090` | dynamic / see probes | Global LAG hash key-select bits (MAC/IP/L4/src-port). | Medium |
 | `YT921X_PORTn_VLAN_CTRL(port)` | `(0x230010 + 4 * (port))` | dynamic / see probes | Per-port default VLAN control. PVID = (value >> 6) & 0xFFF. | High |
 | `YT921X_PORTn_VLAN_CTRL1(port)` | `(0x230080 + 4 * (port))` | 0x00000000 (sampled) | VLAN range/drop control: range-en bit8, profile `[7:4]`, drop tagged/untagged bits for C/S-VLAN at `[3:0]`. | High |
+| `YT921X_STOCK_LOOP_DETECT_TOP_CTRL` | `0x00080230` | stock-path only | Stock loop-detect control table (`tbl id 0x0d`). Decoded fields: `f5=1@18` enable, `f6=16@2` TPID, `f8=1@0` generate-way, `f4/f3/f2` unit-id slices. | Medium |
+| `YT921X_STOCK_STORM_RATE_IO` | `0x00220100` | stock-path only | Stock storm table (`tbl id 0xc6`) used by `fal_tiger_storm_ctrl_rate_set/get` as rate/timeslot input side. | Medium |
+| `YT921X_STOCK_STORM_MC_TYPE_CTRL` | `0x00220140` | stock-path only | Stock storm multicast-type mask table (`tbl id 0xc9`), decoded `11@0` port/type mask field. | Medium |
+| `YT921X_STOCK_STORM_CONFIG` | `0x00220200` | stock-path only | Stock storm global config (`tbl id 0xcc`), decoded fields: `f4=bit0` enable, `f3=bit1` mode, `f2=bit2` include-gap, plus rate fields `f1=10@3`, `f0=19@13`. | Medium |
 | `YT921X_MIRROR` | `0x300300` | dynamic / see probes | Mirror routing: ingress-src mask `[26:16]`, egress-src mask `[14:4]`, destination port `[3:0]`. | High |
 | `YT921X_PSCH_SHPn_EBS_EIR(port)` | `(0x354000 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper EBS/EIR word. Used with `tc tbf` offload mapping on `wan`. | High |
 | `YT921X_PSCH_SHPn_CTRL(port)` | `(0x354004 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper enable/mode control word. | High |
@@ -190,6 +194,9 @@ Concrete examples from CR881x live tests.
 | `YT921X_FDB_HW_FLUSH` (`0x180958`) | `bit0=1` | Enable auto FDB flush on link-down events. | policy-dependent |
 | `YT921X_PORTn_VLAN_CTRL(p)` (`0x230010 + 4*p`) | set CVID field: `value = (value & ~0x0003ffc0) | (VID << 6)` | Changes port PVID/CVID. Example: `VID=100` writes `0x1900` into `[17:6]`. | restore prior snapshot value |
 | `YT921X_VLANn_CTRL(vid)` (`0x188000 + 8*vid`) | word0 membership bits + word1 untag bits | Programs VLAN member ports and egress-untag behavior for that VID. | restore original 2-word pair |
+| `YT921X_STOCK_STORM_CONFIG` (`0x220200`) | `bit0=1` (`f4`) | Stock enables hardware storm engine on this control bit (from `fal_tiger_storm_ctrl_enable_set`). | keep other bits unchanged |
+| `YT921X_STOCK_STORM_CONFIG` (`0x220200`) | `bit1=mode` (`f3`), `bit2=include_gap` (`f2`) | Stock mode/include-gap toggles map to these fields (`fal_tiger_storm_ctrl_rate_mode_set`, `...include_gap_set`). | preserve `f0/f1` |
+| `YT921X_STOCK_LOOP_DETECT_TOP_CTRL` (`0x00080230`) | `f5=1`, `f6=tpid`, `f8=gen_way` | Stock loop-detect enable/tpid/generate-way path fields (`fal_tiger_loop_detect_*_set`). | preserve `f4/f3/f2` unless changing unit-id |
 | `YT921X_FUNC` (`0x080004`) bit5 | set bit5 | Hazardous on CR881x runtime: `0xdeaddead` readback + management collapse. | avoid; reboot recovery |
 
 ## Read-Modify-Write Snippets (Mask/Set/Clear)
@@ -213,6 +220,9 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_VLANn_CTRL(vid)` word0 (`0x188000 + 8*vid`) | member field `[17:7]` | `w0 = (w0 & ~0x0003ff80) | ((member_mask & 0x7ff) << 7)` | VLAN members `p0,p1,p8`: `mask=0x103` |
 | `YT921X_VLANn_CTRL(vid)` word1 (`0x188004 + 8*vid`) | untag field `[18:8]` (maps global bits `[50:40]`) | `w1 = (w1 & ~0x0007ff00) | ((untag_mask & 0x7ff) << 8)` | untag egress on `p0,p1`: `mask=0x003` |
 | `YT921X_MIRROR` (`0x300300`) | igr-src `[26:16]`, egr-src `[14:4]`, dst `[3:0]` | `v = (v & ~0x07ff7fff) | ((igr&0x7ff)<<16) | ((egr&0x7ff)<<4) | (dst&0xf)` | mirror ingress `p0` to `p8`: `igr=0x001,dst=8` |
+| `YT921X_STOCK_STORM_CONFIG` (`0x220200`) | `f4:bit0`, `f3:bit1`, `f2:bit2`, `f1:[12:3]`, `f0:[31:13]` | `v=(v&~BIT(0))|en`; `v=(v&~BIT(1))|(mode<<1)`; `v=(v&~BIT(2))|(ig<<2)`; `v=(v&~GENMASK(12,3))|((f1&0x3ff)<<3)`; `v=(v&~GENMASK(31,13))|((f0&0x7ffff)<<13)` | stock uses table-api field IDs `4/3/2/1/0` |
+| `YT921X_STOCK_STORM_MC_TYPE_CTRL` (`0x220140`) | mask `[10:0]` | `v = (v & ~0x000007ff) | (mask & 0x7ff)` | driven by stock table `0xc9` field `0` |
+| `YT921X_STOCK_LOOP_DETECT_TOP_CTRL` (`0x00080230`) | `f5:bit18`, `f6:[17:2]`, `f8:bit0`, `f4:[20:19]`, `f3:[22:21]`, `f2:[24:23]` | `enable: v=(v&~BIT(18))|(en<<18)`; `tpid: v=(v&~GENMASK(17,2))|((tpid&0xffff)<<2)`; `gen: v=(v&~BIT(0))|(g<<0)`; unit-id: set `f4/f3/f2` | stock table id `0x0d` |
 
 ## Notes And Usage Links
 Use these for full procedure, A/B deltas, and raw captures.
@@ -240,3 +250,5 @@ Use these for full procedure, A/B deltas, and raw captures.
 - Table-id/window scans and MCU/MIB follow-up:
   - `docs/yt921x/live/yt_tbl_info_id_scan_2026-03-29.md`
   - `docs/yt921x/live/yt_p10_mcu_trap_mib_ab_uart_2026-03-30.md`
+- Stock reverse (table-id decode + disassembly mapping):
+  - `docs/yt921x/yt9215-stock-behavior-reverse-2026-03-30.md`

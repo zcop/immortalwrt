@@ -1,5 +1,291 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-30: stock module reverse decode (`yt_switch.ko`) for storm/RMA/loop paths
+
+Capture and source:
+- `docs/yt921x/yt9215-stock-behavior-reverse-2026-03-30.md`
+- stock module: `Collection-Data/cr881x/mtd22_rootfs/lib/modules/4.4.60/yt_switch.ko`
+
+What was confirmed:
+- Decoded `tbl_reg_list` entries (table-id -> base MMIO):
+  - `0x0d -> 0x00080230` (loop-detect top control)
+  - `0x98 -> 0x00180508` (unknown-ucast filter mask)
+  - `0x99 -> 0x0018050c` (unknown-mcast filter mask)
+  - `0xa3 -> 0x001805d0` (RMA control)
+  - `0xad -> 0x00180734` (unknown-ucast action)
+  - `0xae -> 0x00180738` (unknown-mcast action/bypass)
+  - `0xc6 -> 0x00220100` (storm rate input/timeslot side)
+  - `0xc9 -> 0x00220140` (storm mc-type mask)
+  - `0xcc -> 0x00220200` (storm global config)
+- ARM disassembly (`fal_tiger_*`) mapped concrete field-id usage:
+  - storm:
+    - `enable_set`: `tbl 0xcc field4` (+ `tbl 0xc9 field0` for type==2 path)
+    - `rate_mode_set`: `tbl 0xcc field3`
+    - `rate_include_gap_set`: `tbl 0xcc field2`
+    - `rate_set`: reads `tbl 0xc6 field0` + `tbl 0xcc field3`, writes `tbl 0xcc field0/field1`
+  - ctrlpkt/RMA:
+    - `unknown_ucast_act_set`: `tbl 0xad field0`
+    - `unknown_mcast_act_set`: `tbl 0xae field2`
+    - `rma_bypass_unknown_mcast_filter_set`: `tbl 0xae field0`
+    - `igmp_bypass_unknown_mcast_filter_set`: `tbl 0xae field1`
+    - `l2_filter_unknown_ucast_set`: `tbl 0x98 field0`
+    - `l2_filter_unknown_mcast_set`: `tbl 0x99 field0`
+    - `rma_action_set`: `tbl 0xa3` fields `4/3/7`
+  - loop detect:
+    - `enable_set`: `tbl 0x0d field5`
+    - `tpid_set`: `tbl 0x0d field6`
+    - `generate_way_set`: `tbl 0x0d field8`
+    - `unitID_set`: `tbl 0x0d fields 4/3/2`
+- Decoded field descriptors from `.rodata` for these tables:
+  - `storm_ctrl_config_tblm_field`: `0:19@13`, `1:10@3`, `2:1@2`, `3:1@1`, `4:1@0`
+  - `loop_detect_top_ctrlm_field`: `0:2@26`, `1:1@25`, `2:2@23`, `3:2@21`, `4:2@19`, `5:1@18`, `6:16@2`, `7:1@1`, `8:1@0`
+  - `rma_ctrlnm_field`: `0..6` as single bits `@12..@6`, `7:6@0`
+  - unknown filter masks (`ucast`/`mcast`): `11@0`
+
+Interpretation update:
+- Prior storm-control probing on `0x1805d0..0x1806bc` targeted the wrong hardware block for stock policer logic.
+- Stock hardware storm path is in `0x2201xx/0x2202xx`.
+- `0x180734/0x180738` split roles are now confirmed by disassembly, not only by runtime behavior.
+- Loop-detect programming anchor is now concretely identified at `0x80230`.
+
+## 2026-03-29: egress-tagging coupling (`VTU word1` vs `PORTn_VLAN_CTRL1`)
+
+Capture:
+- `docs/yt921x/live/yt_egress_tagging_vtu_vs_ctrl1_2026-03-29.md`
+
+What was confirmed:
+- `0x230080 + 4*p` (`PORTn_VLAN_CTRL1`, `p0..p10`) stayed `0x00000000` across
+  tested tagged/untagged VLAN-42 states.
+- `VID42` VTU words changed as expected for tagged vs untagged+PVID:
+  - tagged (`lan1:t`): `0x188150=0x15008080`, `0x188154=0x00000000`
+  - untagged+PVID (`lan1:u*`): `0x188150=0x15008080`, `0x188154=0x00000100`
+
+Interpretation update:
+- Egress untag behavior in this path is carried by VTU untag bitmap
+  (`YT921X_VLANn_CTRL` word1), not by `0x230080`.
+
+## 2026-03-29: `wan -> br-wan(vlan_filtering=1)` bind probe (`0x230010/0x230080`)
+
+Capture:
+- `docs/yt921x/live/yt_br_wan_bind_pvid_probe_2026-03-29.md`
+
+What was confirmed:
+- Baseline (`vf=0`): all ports `PVID=4095`.
+- After runtime bind `wan` (`p3`) into `br-wan`:
+  - `p3` changed to `CTRL=0xc0040040` (`PVID=1`)
+  - `p0..p2`, `p4..p10` unchanged (`PVID=4095`)
+  - `CTRL1` stayed `0` for all ports.
+- Cleanup restored baseline for all ports.
+- Conduit/isolation sanity words stayed constant across pre/bind/post:
+  - `0x08000c=0x0000c008`
+  - `0x1802a0=0x000007ef`
+  - `0x1802a4=0x000007e7`
+  - `0x1802b4=0x000007f8`
+
+Interpretation update:
+- User WAN port membership is reflected directly in `PORTn_VLAN_CTRL` PVID field.
+- CPU conduit ports (`p4`,`p8`) did not show direct changes in this register
+  family during this bind event.
+- Sampled conduit selector/isolation words also did not change in this event.
+
+## 2026-03-29: full-port `0x230010/0x230080` map under `vlan_filtering 0->1->0`
+
+Capture:
+- `docs/yt921x/live/yt_port_vlan_ctrl_full_ports_vf_toggle_2026-03-29.md`
+
+What was confirmed:
+- `state_pre` (`vf=0`): `p0..p10` all at
+  - `CTRL=0xc007ffc0` => `PVID=4095` (`VID_UNWARE`)
+  - `CTRL1=0x00000000`
+- `state_on` (`vf=1`): only `p0..p2` changed to
+  - `CTRL=0xc0040040` => `PVID=1`
+  - `CTRL1=0x00000000`
+  while `p3..p10` stayed VLAN-unaware (`PVID=4095`).
+- `state_post` (`vf=0`): all ports returned to baseline.
+
+Interpretation update:
+- Per-port PVID programming is directly visible and profile-dependent:
+  only ports participating in current `br-lan` membership transition to
+  awareness/PVID during `vlan_filtering=1`.
+
+## 2026-03-29: `tbl info` ID scan (`0x00..0xff`)
+
+Capture:
+- `docs/yt921x/live/yt_tbl_info_id_scan_2026-03-29.md`
+
+What was confirmed:
+- Runtime `tbl` map exposes only these IDs:
+  - `0xc7`, `0xce`, `0xe4`, `0xe5`, `0xe9`, `0xea`, `0xeb`, `0xec`
+- All other IDs in `0x00..0xff` returned `err=-2`.
+
+Interpretation update:
+- Current `yt921x_cmd` table path is QoS/meter/shaper-only.
+- VTU/FDB/ACL tables are not exposed via this `tbl` ID map in current patch.
+
+## 2026-03-29: safe `vlan_filtering` toggle (`0->1->0`) vs `0x2c01xx/0x31c0xx/0x1880xx`
+
+Capture:
+- `docs/yt921x/live/yt_vlan_filter_toggle_2c01_31c0_1880_probe_2026-03-29.md`
+
+What was confirmed:
+- Bridge state changed as expected:
+  - `pre`: `vlan_filtering 0`
+  - `on`: `vlan_filtering 1`
+  - `post`: `vlan_filtering 0`
+- Snapshot diffs across all 48 sampled words showed no deltas in:
+  - `0x2c0100..0x2c013c`
+  - `0x31c000..0x31c03c`
+  - `0x188000..0x18803c`
+- Runtime sanity control in the same sequence:
+  - `0x180280` toggled `0x00000000 -> 0x00000007 -> 0x00000000`
+  - `0x180598` stayed `0x00000000`
+  - `0x188000/0x188004` (VID0) stayed `0x0043ff80/0x00000000`
+
+Interpretation update:
+- `vlan_filtering` coupling is present at known ingress filter control
+  (`0x180280`) but not observed in sampled `0x2c01xx`, `0x31c0xx`, or `0x1880xx`
+  direct-read windows for this transition.
+
+## 2026-03-29: `0x2c0100..0x2c013c` idle/traffic poll (read-only)
+
+Capture:
+- `docs/yt921x/live/yt_2c0100_idle_traffic_poll_2026-03-29.md`
+
+What was confirmed:
+- Full 16-word dump (`0x2c0100..0x2c013c`) is stable and reproducible.
+- `0x2c0100` polled x200:
+  - idle: single value (`0xf2f6685b`)
+  - under WAN traffic load: same single value
+- All 16 words polled x50 snapshots at idle and x50 under load:
+  - every address had `unique=1`
+  - idle and traffic values matched exactly.
+
+Interpretation update:
+- In this runtime, direct read path does not reveal active command/busy
+  behavior for the `0x2c01xx` window.
+- Treat as opaque/read-only until a separate selector/trigger backend is found.
+
+## 2026-03-29: `0x180690` bit sweep (`0..10`) with WAN+CPU capture deltas
+
+Capture:
+- `docs/yt921x/live/yt_cpu_copy_180690_sweep_2026-03-29.md`
+
+What was confirmed:
+- Baseline neighborhood:
+  - `0x180688=0x0000003f`
+  - `0x18068c=0x0000003f`
+  - `0x180690=0x00000001`
+  - `0x180694/0x180698/0x18069c=0xdeadbeef`
+  - `0x1806a0=0x00000000`
+- For each test case (`base`, then `b0..b10`), UU+multicast stimulus was
+  generated and register restored to baseline after each pulse.
+- WAN-side capture (`Pi eth0`, target-filtered UU/MC) stayed `0` packets for
+  all tested bits.
+- Router-side captures showed small deltas on `eth1` in all cases and stronger
+  `eth0` deltas for `b9` (`0x00000201`) and `b10` (`0x00000401`).
+- Follow-up split runs (`UU-only` vs `MC-only`) on `b9/b10`:
+  - `b9_uu`: `pi=0`, `eth0=0`, `eth1=4`
+  - `b9_mc`: `pi=0`, `eth0=6`, `eth1=7`
+  - `b10_uu`: `pi=0`, `eth0=0`, `eth1=6`
+  - `b10_mc`: `pi=0`, `eth0=6`, `eth1=8`
+
+Interpretation update:
+- In this runtime, `0x180690` bit flips `0..10` did not expose the probe stream
+  on WAN side.
+- Bits `9/10` remain interesting candidates for CPU-side exception/copy
+  behavior; in this probe they correlated with MC-side deltas on router `eth0`.
+
+## 2026-03-29: WAN-linked direct-capture boundary recheck (no leak under mask overrides)
+
+Capture:
+- `docs/yt921x/live/yt_bum_boundary_probe_uu_2026-03-29.md`
+
+What was confirmed:
+- With `wan` physically linked to Pi (`eth0`, `172.16.9.1/24`), direct WAN-side
+  capture was used as the oracle:
+  - `tcpdump -ni eth0 "icmp and (host 192.168.2.199 or host 239.1.2.3)"`
+- Under UU + multicast stimulus from router CPU/LAN side, these temporary
+  overrides produced zero captured packets on WAN:
+  - `0x180510 -> 0x000007ff`
+  - `0x180514 -> 0x000007ff`
+  - `0x1805d4 -> 0x00000000`
+  - `0x1805d8 -> 0x00000000`
+- Additional isolation hole-punch test:
+  - `0x1802b4: 0x000007f8 -> 0x000007f0` (clear bit3, `p8 -> p3`), still no
+    observed WAN-side UU/MC packets.
+- Post-test restore verified:
+  - `0x180510=0x00000400`
+  - `0x180514=0x00000400`
+  - `0x1805d4=0x0000023f`
+  - `0x1805d8=0x0000023f`
+  - `0x1802b4=0x000007f8`
+
+Interpretation update:
+- In this runtime path, these candidate words are not sufficient to breach the
+  LAN->WAN BUM boundary, even with WAN link up and direct packet capture.
+- There is at least one additional gate (likely outside these tested words)
+  governing WAN-side BUM visibility.
+
+## 2026-03-29: UU boundary recheck for `0x1805d4/0x1805d8` and `0x180510/0x180514`
+
+Capture:
+- `docs/yt921x/live/yt_bum_boundary_probe_uu_2026-03-29.md`
+
+What was confirmed:
+- Baseline constants used/restored:
+  - `0x180510=0x00000400`
+  - `0x180514=0x00000400`
+  - `0x1805d4=0x0000023f`
+  - `0x1805d8=0x0000023f`
+- Under unknown-unicast stimulus (`192.168.2.199` fake dst MAC),
+  tcpdump counts on `lan1/lan2` remained unchanged for:
+  - `0x1805d4 -> 0x00000000`
+  - `0x1805d8 -> 0x00000000`
+  - both zeroed together
+  - low-nibble toggles around `0x180510/0x180514`
+    (`0x401`, `0x402`, `0x404`, `0x408`)
+- Every case observed the same flood delivery signature (`2/2` ICMP requests on
+  both `lan1` and `lan2`).
+- Full-mask sweep on both registers (`0x000`, `0x400`, `0x7ff`) with UU and
+  multicast (`239.1.2.3`) also stayed invariant:
+  - `lan1=2`, `lan2=2`, `lan3=0`, `wan=0` in all cases.
+
+Interpretation update:
+- In this runtime/workload, these tested values/bits did not act as direct UU
+  flood gates.
+- In this runtime/workload, full-mask extremes on these two words did not
+  breach observed flood traffic into `lan3`/`wan`.
+
+## 2026-03-29: `ACT_UNK_*` CPU8 matrix on LAN unknown-unicast path
+
+Capture:
+- `docs/yt921x/live/yt_uu_cpu8_action_matrix_2026-03-29.md`
+
+What was confirmed:
+- Baseline at test time:
+  - `0x180734=0x00020000`
+  - `0x180738=0x00420000`
+- For CPU8 (`eth1`) unknown-unicast source path (`br-lan` -> fake dst MAC),
+  sweeping action values `0..3` on `[17:16]` produced identical observed flood
+  behavior:
+  - `0x180734`: all actions gave `lan1=4`, `lan2=4` ICMP requests captured.
+  - `0x180738`: all actions gave `lan1=4`, `lan2=4` ICMP requests captured.
+- Restore was verified:
+  - `0x180734=0x00020000`
+  - `0x180738=0x00420000`
+- Bit22 isolation (`0x00400000`) on `0x180738` with `[17:16]=2` held constant
+  also showed no effect in this workload:
+  - unknown-unicast: on=`4/4`, off=`4/4`
+  - multicast (`239.1.2.3`): on=`4/4`, off=`4/4`
+
+Interpretation update:
+- In this workload, CPU8 action fields on `0x180734/0x180738` did not alter
+  LAN unknown-unicast flood behavior.
+- In this workload, `0x180738` bit22 did not act as a visible master on/off
+  gate for either UU or multicast flooding.
+- This is consistent with prior evidence that only `0x180734[9:8]` was
+  action-sensitive in the WAN/CPU4 scenario.
+
 ## 2026-03-29: UART-only baseline snapshot via `yt921x_cmd`
 
 Capture:
