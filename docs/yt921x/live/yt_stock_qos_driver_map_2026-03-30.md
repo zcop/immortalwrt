@@ -44,6 +44,17 @@ Implication:
 - Ucast map supports queue IDs up to `0..7`.
 - Mcast map supports queue IDs up to `0..3` in this table format.
 
+### Mirror control + mirror-prio maps
+- `mirror_ctrlm_field` (`tbl 0xd5`):
+  - `field0: 11@w0:16` (ingress source port mask)
+  - `field1: 11@w0:4` (egress source port mask)
+  - `field2: 4@w0:0` (mirror destination port id)
+- `mirror_qos_ctrlm_field` (`tbl 0xd6`):
+  - `field0: 1@w0:7` (igr mirror map enable)
+  - `field1: 3@w0:4` (igr mirror mapped priority)
+  - `field2: 1@w0:3` (egr mirror map enable)
+  - `field3: 3@w0:0` (egr mirror mapped priority)
+
 ### Scheduler / DWRR helpers
 - `qsch_e_dwrr_cfg_tblm_field`: `field0: 1@w0:0`
 - `qsch_c_dwrr_cfg_tblm_field`: `field0: 1@w0:0`

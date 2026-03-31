@@ -178,7 +178,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_STOCK_QOS_REMARK_PORT` | `0x00100080` | stock-path decoded / not actively programmed | Egress port VLAN policy (`tbl id 0xda`): decoded `egr_port_vlan_ctrlnm_field` with mode fields `[29:27]`/`[14:12]` and default-VID fields `[26:15]`/`[11:0]`; stock `egrTagMode` uses field IDs `2/4`, `egrDefaultVid` uses `3/5`. | Medium |
 | `YT921X_STOCK_QOS_REMARK_DSCP` | `0x00100100` | dynamic / remark-default-mapped | Egress DSCP remark table (`tbl id 0xdb`); stock DSCP set/get path uses field ID `0` with dynamic table index. | Medium |
 | `YT921X_STOCK_QOS_REMARK_CPRI_SPRI` | `0x00100200` | dynamic / remark-default-mapped | Egress CPRI/SPRI remark table (`tbl id 0xdc`); stock CPRI/SPRI paths use fields `1` and `0` (paired with `0xd9:f7/f8`). | Medium |
-| `YT921X_MIRROR` | `0x300300` | dynamic / see probes | Mirror routing: ingress-src mask `[26:16]`, egress-src mask `[14:4]`, destination port `[3:0]`. | High |
+| `YT921X_MIRROR` | `0x300300` | dynamic / see probes | Mirror routing (`tbl id 0xd5`): ingress-src mask `[26:16]`, egress-src mask `[14:4]`, destination port `[3:0]`; stock API uses fields `f2/f0/f1`. | High |
 | `YT921X_STOCK_MIRROR_QOS_CTRL` | `0x300304` | stock-path decoded / not actively programmed | Mirror QoS map control (`tbl id 0xd6`): igrMirror uses fields `1/0`, egrMirror uses fields `3/2`. | Medium |
 | `YT921X_PSCH_SHPn_EBS_EIR(port)` | `(0x354000 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper EBS/EIR word. Used with `tc tbf` offload mapping on `wan`. | High |
 | `YT921X_PSCH_SHPn_CTRL(port)` | `(0x354004 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper enable/mode control word. | High |

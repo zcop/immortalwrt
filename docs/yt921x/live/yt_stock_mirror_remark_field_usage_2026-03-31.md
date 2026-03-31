@@ -13,6 +13,10 @@
 ### `fal_tiger_mirror_port_set/get` -> `tbl 0xd5` (`0x300300`)
 - `set` uses field IDs: `2`, `0`, `1`.
 - `get` uses field IDs: `2`, `0`, `1`.
+- `mirror_ctrlm_field` decode:
+  - `field0: 11@w0:16` (ingress source mask)
+  - `field1: 11@w0:4` (egress source mask)
+  - `field2: 4@w0:0` (destination port id)
 - Correlates with decoded mirror routing bits:
   - ingress source mask
   - egress source mask

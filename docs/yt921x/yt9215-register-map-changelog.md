@@ -12,6 +12,8 @@ Decode context:
 
 What was confirmed:
 - `0xd5` (`0x300300`) mirror-port path uses field IDs `2`, `0`, `1`.
+- `0xd5` field table (`mirror_ctrlm_field`) decode:
+  - `field0=11@w0:16`, `field1=11@w0:4`, `field2=4@w0:0`
 - `0xd6` (`0x300304`) mirror-prio maps:
   - igrMirror uses fields `1`, `0`
   - egrMirror uses fields `3`, `2`
@@ -25,6 +27,8 @@ What was confirmed:
 Docs impact:
 - Added focused artifact:
   - `docs/yt921x/live/yt_stock_mirror_remark_field_usage_2026-03-31.md`
+- Refreshed field-decode TSV to include `mirror_ctrlm_field`:
+  - `docs/yt921x/live/yt_stock_qos_field_decode_2026-03-31.tsv`
 - Updated unified register map rows for:
   - mirror QoS table (`0x300304`)
   - remark field usage (`0xd9/0xdb/0xdc`) with explicit field IDs.
