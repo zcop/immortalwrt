@@ -393,6 +393,33 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	YT921X_STOCK_RMA_ACT_DROP = 3,
 +};
 +
++#define YT921X_STOCK_LOOP_DETECT_DEFAULT_TPID	0x9989
++
++static int yt921x_stock_loop_detect_setup_locked(struct yt921x_priv *priv)
++{
++	u32 ctrl;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL, &ctrl);
++	if (res)
++		return res;
++
++	/* Keep stock-programmed unit-id/slice fields as-is.
++	 * Force loop-detect enable, keep generate-way off by default, and seed a
++	 * sane TPID only when firmware left it zero.
++	 */
++	ctrl |= YT921X_STOCK_LOOP_DETECT_EN;
++	ctrl &= ~YT921X_STOCK_LOOP_DETECT_GEN_WAY;
++
++	if (!FIELD_GET(YT921X_STOCK_LOOP_DETECT_TPID_M, ctrl)) {
++		ctrl &= ~YT921X_STOCK_LOOP_DETECT_TPID_M;
++		ctrl |= FIELD_PREP(YT921X_STOCK_LOOP_DETECT_TPID_M,
++				   YT921X_STOCK_LOOP_DETECT_DEFAULT_TPID);
++	}
++
++	return yt921x_reg_write(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL, ctrl);
++}
++
 +static int yt921x_stock_rma_ctrl_action_set(u32 *ctrl,
 +					    enum yt921x_stock_rma_action action)
 +{
@@ -1033,6 +1060,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  get_flood_filter\n"
 +				 "  set_flood_filter <mcast|bcast|both> <mask>\n"
 +				 "  port_status [port]\n"
++				 "  loop_detect show\n"
++				 "  loop_detect set <0|1> [tpid] [gen_way]\n"
 +				 "  storm_guard show\n"
 +				 "  storm_guard set <0|1> <pps> <hold_ms> <interval_ms>\n"
 +				 "  mirror\n"
@@ -1226,6 +1255,32 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 FIELD_GET(YT921X_PORT_VLAN_CTRL_SVID_M, ctrl),
 +				 !!(ctrl1 & YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_TAGGED),
 +				 !!(ctrl1 & YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_UNTAGGED));
++
++	return 0;
++}
++
++static int yt921x_proc_reply_loop_detect(struct yt921x_priv *priv)
++{
++	u32 ctrl;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL, &ctrl);
++	if (res)
++		return res;
++
++	yt921x_proc_reply_append(
++		priv,
++		"loop_detect reg=0x%06x val=0x%08x en=%u tpid=0x%04x gen_way=%u f0=%u f1=%u unit={%u,%u,%u} f7=%u\n",
++		YT921X_STOCK_LOOP_DETECT_TOP_CTRL, ctrl,
++		!!(ctrl & YT921X_STOCK_LOOP_DETECT_EN),
++		(u16)FIELD_GET(YT921X_STOCK_LOOP_DETECT_TPID_M, ctrl),
++		!!(ctrl & YT921X_STOCK_LOOP_DETECT_GEN_WAY),
++		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_F0_M, ctrl),
++		!!(ctrl & YT921X_STOCK_LOOP_DETECT_F1),
++		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_UNIT_ID0_M, ctrl),
++		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_UNIT_ID1_M, ctrl),
++		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_UNIT_ID2_M, ctrl),
++		!!(ctrl & YT921X_STOCK_LOOP_DETECT_F7));
 +
 +	return 0;
 +}
@@ -1729,6 +1784,72 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				break;
 +		}
 +		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "loop_detect")) {
++		if (argc == 1 || !strcmp(argv[1], "show")) {
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_proc_reply_loop_detect(priv);
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		if (!strcmp(argv[1], "set") && argc >= 3) {
++			u32 enable;
++			u32 tpid = 0;
++			u32 gen_way = 0;
++			u32 ctrl;
++
++			res = yt921x_proc_parse_u32(argv[2], &enable);
++			if (res)
++				goto out;
++			if (argc >= 4) {
++				res = yt921x_proc_parse_u32(argv[3], &tpid);
++				if (res)
++					goto out;
++				if (tpid > 0xffff) {
++					res = -ERANGE;
++					goto out;
++				}
++			}
++			if (argc >= 5) {
++				res = yt921x_proc_parse_u32(argv[4], &gen_way);
++				if (res)
++					goto out;
++				if (gen_way > 1) {
++					res = -ERANGE;
++					goto out;
++				}
++			}
++
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_reg_read(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL,
++					      &ctrl);
++			if (!res) {
++				ctrl = enable ? (ctrl | YT921X_STOCK_LOOP_DETECT_EN) :
++						(ctrl & ~YT921X_STOCK_LOOP_DETECT_EN);
++				if (argc >= 4) {
++					ctrl &= ~YT921X_STOCK_LOOP_DETECT_TPID_M;
++					ctrl |= FIELD_PREP(YT921X_STOCK_LOOP_DETECT_TPID_M,
++							   tpid);
++				}
++				if (argc >= 5) {
++					ctrl = gen_way ?
++						(ctrl | YT921X_STOCK_LOOP_DETECT_GEN_WAY) :
++						(ctrl & ~YT921X_STOCK_LOOP_DETECT_GEN_WAY);
++				}
++				res = yt921x_reg_write(priv,
++						       YT921X_STOCK_LOOP_DETECT_TOP_CTRL,
++						       ctrl);
++			}
++			if (!res)
++				res = yt921x_proc_reply_loop_detect(priv);
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		res = -EINVAL;
 +		goto out;
 +	}
 +
@@ -7207,6 +7328,14 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "cpu-copy");
++#endif
++
++	/* Keep stock loop-detect block enabled with safe defaults. */
++	res = yt921x_stock_loop_detect_setup_locked(priv);
++	if (res)
++		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "loop-detect");
 +#endif
 +
 +	/* Program explicit handling for key 802.1 link-local RMAs. */
