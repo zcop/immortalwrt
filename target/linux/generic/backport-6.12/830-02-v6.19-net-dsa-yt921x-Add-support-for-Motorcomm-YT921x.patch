@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,7249 @@
+@@ -0,0 +1,7302 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -3701,11 +3701,37 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
++yt921x_mirror_prio_map_apply(struct yt921x_priv *priv, bool enable)
++{
++	u32 val;
++	u32 ctrl = 0;
++	int res;
++
++	if (enable) {
++		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_IGR_EN;
++		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_IGR_PRIO
++			(YT921X_STOCK_MIRROR_PRIO_MAP_DEFAULT_PRIO);
++		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_EGR_EN;
++		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_EGR_PRIO
++			(YT921X_STOCK_MIRROR_PRIO_MAP_DEFAULT_PRIO);
++	}
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_MIRROR_PRIO_MAP, &val);
++	if (res)
++		return res;
++	if (val == ctrl)
++		return 0;
++
++	return yt921x_reg_write(priv, YT921X_STOCK_MIRROR_PRIO_MAP, ctrl);
++}
++
++static int
 +yt921x_mirror_del(struct yt921x_priv *priv, int port, bool ingress)
 +{
 +	u32 src_mask;
 +	u32 val;
 +	u32 ctrl;
++	bool mirror_active;
 +	int res;
 +
 +	if (ingress)
@@ -3718,12 +3744,20 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +
 +	ctrl = val & ~src_mask;
-+	if (!(ctrl & (YT921X_MIRROR_EGR_PORTS_M | YT921X_MIRROR_IGR_PORTS_M)))
++	mirror_active = ctrl & (YT921X_MIRROR_EGR_PORTS_M |
++				YT921X_MIRROR_IGR_PORTS_M);
++	if (!mirror_active)
 +		ctrl &= ~YT921X_MIRROR_PORT_M;
-+	if (ctrl == val)
-+		return 0;
++	if (ctrl != val) {
++		res = yt921x_reg_write(priv, YT921X_MIRROR, ctrl);
++		if (res)
++			return res;
++	}
 +
-+	return yt921x_reg_write(priv, YT921X_MIRROR, ctrl);
++	if (!mirror_active)
++		return yt921x_mirror_prio_map_apply(priv, false);
++
++	return 0;
 +}
 +
 +static int
@@ -3734,6 +3768,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	u32 ctrl;
 +	u32 val;
 +	u32 dst;
++	bool changed;
 +	int res;
 +
 +	if (ingress)
@@ -3758,11 +3793,19 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	ctrl = val & ~YT921X_MIRROR_PORT_M;
 +	ctrl |= srcs;
 +	ctrl |= dst;
++	changed = ctrl != val;
 +
-+	if (ctrl == val)
-+		return 0;
++	if (changed) {
++		res = yt921x_reg_write(priv, YT921X_MIRROR, ctrl);
++		if (res)
++			return res;
++	}
 +
-+	return yt921x_reg_write(priv, YT921X_MIRROR, ctrl);
++	res = yt921x_mirror_prio_map_apply(priv, true);
++	if (res && changed)
++		yt921x_reg_write(priv, YT921X_MIRROR, val);
++
++	return res;
 +}
 +
 +static void
@@ -6844,6 +6887,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mirror-reset");
 +#endif
 +
++	/* Reset mirror-priority map. Keep it disabled until mirror rules are
++	 * installed, then enable with a safe low-priority class.
++	 */
++	res = yt921x_reg_write(priv, YT921X_STOCK_MIRROR_PRIO_MAP, 0);
++	if (res)
++		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mirror-prio-reset");
++#endif
++
 +	/* Tagged VID 0 should be treated as untagged, which confuses the
 +	 * hardware a lot
 +	 */
@@ -7311,7 +7364,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,892 @@
+@@ -0,0 +1,901 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -7763,6 +7816,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		(((u32)(qid) & GENMASK(1, 0)) << \
 +		 YT921X_STOCK_QOS_MCAST_QMAP_PRIO_SHIFT(prio))
 +#define YT921X_STOCK_MIRROR_PRIO_MAP		0x300304	/* tbl 0xd6 */
++#define  YT921X_STOCK_MIRROR_PRIO_MAP_IGR_EN	BIT(7)		/* field0 */
++#define  YT921X_STOCK_MIRROR_PRIO_MAP_IGR_PRIO_M	GENMASK(6, 4)	/* field1 */
++#define   YT921X_STOCK_MIRROR_PRIO_MAP_IGR_PRIO(x) \
++		FIELD_PREP(YT921X_STOCK_MIRROR_PRIO_MAP_IGR_PRIO_M, (x))
++#define  YT921X_STOCK_MIRROR_PRIO_MAP_EGR_EN	BIT(3)		/* field2 */
++#define  YT921X_STOCK_MIRROR_PRIO_MAP_EGR_PRIO_M	GENMASK(2, 0)	/* field3 */
++#define   YT921X_STOCK_MIRROR_PRIO_MAP_EGR_PRIO(x) \
++		FIELD_PREP(YT921X_STOCK_MIRROR_PRIO_MAP_EGR_PRIO_M, (x))
++#define  YT921X_STOCK_MIRROR_PRIO_MAP_DEFAULT_PRIO	0
 +#define YT921X_STOCK_QOS_SCHED_SP		0x300400	/* tbl 0xd7 */
 +#define YT921X_STOCK_QOS_SCHED_SPn(port) \
 +	(YT921X_STOCK_QOS_SCHED_SP + 4 * (port))
