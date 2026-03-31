@@ -1,5 +1,35 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-31: extracted stock mirror/remark field usage (`0xd5/0xd6/0xd9/0xdb/0xdc`)
+
+Decode context:
+- Source module: `Collection-Data/cr881x/mtd22_rootfs/lib/modules/4.4.60/yt_switch.ko`
+- Symbols:
+  - `fal_tiger_mirror_port_{set,get}`
+  - `fal_tiger_qos_intPri_map_{igr,egr}Mirror_{set,get}`
+  - `fal_tiger_qos_remark_{port,dscp,cpri,spri}_{set,get}`
+  - `fal_tiger_vlan_port_egrTpidIdx_{set,get}`
+
+What was confirmed:
+- `0xd5` (`0x300300`) mirror-port path uses field IDs `2`, `0`, `1`.
+- `0xd6` (`0x300304`) mirror-prio maps:
+  - igrMirror uses fields `1`, `0`
+  - egrMirror uses fields `3`, `2`
+- `0xd9` (`0x100000`) remark-port path uses fields `4`, `1`, `3`, `0`, `2`.
+- `0xdb` (`0x100100`) DSCP remark path uses field `0`.
+- `0xdc` (`0x100200`) CPRI/SPRI map path uses fields `1`, `0`.
+- `0xd9` also carries:
+  - CPRI/SPRI toggles on fields `7`/`8`
+  - egress TPID index fields `5`/`6`.
+
+Docs impact:
+- Added focused artifact:
+  - `docs/yt921x/live/yt_stock_mirror_remark_field_usage_2026-03-31.md`
+- Updated unified register map rows for:
+  - mirror QoS table (`0x300304`)
+  - remark field usage (`0xd9/0xdb/0xdc`) with explicit field IDs.
+- Updated QoS reverse map with mirror stage + decoded field usage.
+
 ## 2026-03-31: extracted stock scheduler field usage (`0xd7/0xe6/0xe7/0xe8`)
 
 Decode context:

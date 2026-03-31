@@ -174,11 +174,12 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_STOCK_QOS_QSCH_SLOT_TIME` | `0x00340008` | dynamic / queue-tbf-mapped | Queue scheduler slot-time word (`tbl id 0xe4`), currently ensured/set by queue `tc tbf` path. | Medium |
 | `YT921X_STOCK_QOS_QSCH_SHAPER` | `0x0034c000` | dynamic / queue-tbf-mapped | Queue shaper config base (`tbl id 0xe9`), per-flow shaper words used by queue `tc tbf`. | High |
 | `YT921X_STOCK_QOS_QSCH_METER` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
-| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` | `0x00100000` | dynamic / remark-default-mapped | Per-port remark enable control (`tbl id 0xd9`): current driver enables CPRI/SPRI remark bits by default. | Medium |
+| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` | `0x00100000` | dynamic / remark-default-mapped | Per-port remark control (`tbl id 0xd9`): stock `fal_tiger_qos_remark_port_{set,get}` use field IDs `4/1/3/0/2`; CPRI/SPRI toggles use `f7/f8`; egr TPID index API uses `f5/f6`. | Medium |
 | `YT921X_STOCK_QOS_REMARK_PORT` | `0x00100080` | stock-path decoded / not actively programmed | Egress port VLAN policy (`tbl id 0xda`): decoded `egr_port_vlan_ctrlnm_field` with mode fields `[29:27]`/`[14:12]` and default-VID fields `[26:15]`/`[11:0]`; stock `egrTagMode` uses field IDs `2/4`, `egrDefaultVid` uses `3/5`. | Medium |
-| `YT921X_STOCK_QOS_REMARK_DSCP` | `0x00100100` | dynamic / remark-default-mapped | Egress DSCP remark table (`tbl id 0xdb`), initialized with class-selector baseline and updated by DSCP-prio API path. | Medium |
-| `YT921X_STOCK_QOS_REMARK_CPRI_SPRI` | `0x00100200` | dynamic / remark-default-mapped | Egress CPRI/SPRI remark table (`tbl id 0xdc`), current driver initializes identity rewrite with enable bit set. | Medium |
+| `YT921X_STOCK_QOS_REMARK_DSCP` | `0x00100100` | dynamic / remark-default-mapped | Egress DSCP remark table (`tbl id 0xdb`); stock DSCP set/get path uses field ID `0` with dynamic table index. | Medium |
+| `YT921X_STOCK_QOS_REMARK_CPRI_SPRI` | `0x00100200` | dynamic / remark-default-mapped | Egress CPRI/SPRI remark table (`tbl id 0xdc`); stock CPRI/SPRI paths use fields `1` and `0` (paired with `0xd9:f7/f8`). | Medium |
 | `YT921X_MIRROR` | `0x300300` | dynamic / see probes | Mirror routing: ingress-src mask `[26:16]`, egress-src mask `[14:4]`, destination port `[3:0]`. | High |
+| `YT921X_STOCK_MIRROR_QOS_CTRL` | `0x300304` | stock-path decoded / not actively programmed | Mirror QoS map control (`tbl id 0xd6`): igrMirror uses fields `1/0`, egrMirror uses fields `3/2`. | Medium |
 | `YT921X_PSCH_SHPn_EBS_EIR(port)` | `(0x354000 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper EBS/EIR word. Used with `tc tbf` offload mapping on `wan`. | High |
 | `YT921X_PSCH_SHPn_CTRL(port)` | `(0x354004 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper enable/mode control word. | High |
 | `UNKNOWN_18028C` | `0x18028c` | `0x000007ff` | Unknown global mask-like word; writable, no deterministic forwarding-path coupling confirmed yet. | Medium |
@@ -237,6 +238,7 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_VLANn_CTRL(vid)` word0 (`0x188000 + 8*vid`) | member field `[17:7]` | `w0 = (w0 & ~0x0003ff80) | ((member_mask & 0x7ff) << 7)` | VLAN members `p0,p1,p8`: `mask=0x103` |
 | `YT921X_VLANn_CTRL(vid)` word1 (`0x188004 + 8*vid`) | untag field `[18:8]` (maps global bits `[50:40]`) | `w1 = (w1 & ~0x0007ff00) | ((untag_mask & 0x7ff) << 8)` | untag egress on `p0,p1`: `mask=0x003` |
 | `YT921X_MIRROR` (`0x300300`) | igr-src `[26:16]`, egr-src `[14:4]`, dst `[3:0]` | `v = (v & ~0x07ff7fff) | ((igr&0x7ff)<<16) | ((egr&0x7ff)<<4) | (dst&0xf)` | mirror ingress `p0` to `p8`: `igr=0x001,dst=8` |
+| `YT921X_STOCK_MIRROR_QOS_CTRL` (`0x300304`) | igrMirror fields `1/0`, egrMirror fields `3/2` | stock path writes/reads field pairs via `fal_tiger_qos_intPri_map_{igr,egr}Mirror_{set,get}` | decoded from stock disassembly; driver wiring pending |
 | `YT921X_STOCK_STORM_CONFIG` (`0x220200`) | `f4:bit0`, `f3:bit1`, `f2:bit2`, `f1:[12:3]`, `f0:[31:13]` | `v=(v&~BIT(0))|en`; `v=(v&~BIT(1))|(mode<<1)`; `v=(v&~BIT(2))|(ig<<2)`; `v=(v&~GENMASK(12,3))|((f1&0x3ff)<<3)`; `v=(v&~GENMASK(31,13))|((f0&0x7ffff)<<13)` | stock uses table-api field IDs `4/3/2/1/0` |
 | `YT921X_STOCK_STORM_MC_TYPE_CTRL` (`0x220140`) | mask `[10:0]` | `v = (v & ~0x000007ff) | (mask & 0x7ff)` | driven by stock table `0xc9` field `0` |
 | `YT921X_STOCK_LOOP_DETECT_TOP_CTRL` (`0x00080230`) | `f5:bit18`, `f6:[17:2]`, `f8:bit0`, `f4:[20:19]`, `f3:[22:21]`, `f2:[24:23]` | `enable: v=(v&~BIT(18))|(en<<18)`; `tpid: v=(v&~GENMASK(17,2))|((tpid&0xffff)<<2)`; `gen: v=(v&~BIT(0))|(g<<0)`; unit-id: set `f4/f3/f2` | stock table id `0x0d` |
@@ -247,7 +249,7 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port)` (`0x300280+4*port`) | 8 slots, each `2-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x3) << shift_i)` where shifts=`14,12,10,8,6,4,2,0` | current driver mirrors ucast map into this table |
 | `YT921X_STOCK_QOS_SCHED_SP` / `DWRR*` (`0x300400`, `0x341000..0x343000`) | scheduler policy fields (driver-wired subset) | flow-indexed tables: `idx = port*12 + qid` (ucast), `idx = port*12 + 8 + qid` (mcast). Stock call-path uses `0xd7:f1/f0/f2`, `0xe6:f1/f0` (dwrr), `0xe6:f3/f2` (sp path), and `0xe7:f0`/`0xe8:f0` (dwrr mode). | current `ets`/`mqprio` programs safe subset; full stock parity still pending |
 | `YT921X_STOCK_QOS_QSCH_SLOT_TIME` / `SHAPER` / `METER` (`0x340008`, `0x34c000`, `0x34f000`) | queue shaper fields | stock call-path correlation: `0xe4:f0` slot-time, `0xe9:f3/f4` conversion params, `0xe9:f6/f8` token levels, `0xea:f0` paired mode bit(s) | queue `tbf` path is active; remaining `0xe9/0xea` fields are still partially inferred |
-| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` / `DSCP` / `CPRI_SPRI` (`0x100000`, `0x100100`, `0x100200`) | remark control and maps | `0xd9` enables CPRI/SPRI remark per port; `0xdb` sets DSCP remark value; `0xdc` sets PCP remark + enable bit | initialized by driver defaults; separate `0xda` policy table (mode/default-VID fields) is decoded but still not actively programmed |
+| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` / `DSCP` / `CPRI_SPRI` (`0x100000`, `0x100100`, `0x100200`) | remark control and maps | stock field usage: `0xd9` port path `f4/f1/f3/f0/f2`, CPRI `f7`, SPRI `f8`, egrTPID `f5/f6`; `0xdb` DSCP path uses `f0`; `0xdc` CPRI/SPRI map uses `f1/f0` | initialized by driver defaults; separate `0xda` policy table (mode/default-VID fields) is decoded but still not actively programmed |
 
 ## Notes And Usage Links
 Use these for full procedure, A/B deltas, and raw captures.
@@ -268,6 +270,9 @@ Use these for full procedure, A/B deltas, and raw captures.
   - `docs/yt921x/live/yt_cpu_copy_180690_sweep_2026-03-29.md`
   - `docs/yt921x/live/yt_uu_cpu8_action_matrix_2026-03-29.md`
   - `docs/yt921x/live/yt_bum_boundary_probe_uu_2026-03-29.md`
+- Stock QoS reverse mapping:
+  - `docs/yt921x/live/yt_stock_qos_driver_map_2026-03-30.md`
+  - `docs/yt921x/live/yt_stock_mirror_remark_field_usage_2026-03-31.md`
 - Gated windows and gate-candidate sweeps:
   - `docs/yt921x/live/yt_gated_stock_map_probe_20260319_063619.txt`
   - `docs/yt921x/live/yt_gate_candidate_18028c_1803cc_probe_summary_2026-03-24.md`

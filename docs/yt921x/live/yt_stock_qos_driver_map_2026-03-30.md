@@ -29,6 +29,7 @@
 | Queue shaping/meter | `0xe4`, `0xe9`, `0xea` | `0x340008`, `0x34c000`, `0x34f000` | `fal_tiger_rate_shaping_queue_*` | Per-queue CIR/CBS/EIR/EBS + mode. |
 | Port shaping/meter | `0xe5`, `0xeb`, `0xec` | `0x34000c`, `0x354000`, `0x357000` | `fal_tiger_rate_shaping_port_*` | Per-port rate shaper. |
 | Ingress policer/meter | `0xc7`, `0xc8`, `0xce` | `0x220104`, `0x220108`, `0x220800` | `fal_tiger_rate_igrBandwidthCtrl*`, `fal_tiger_rate_meter_*` | Stock ingress-meter path. |
+| Mirror + mirror-prio map | `0xd5`, `0xd6` | `0x300300`, `0x300304` | `fal_tiger_mirror_port_*`, `fal_tiger_qos_intPri_map_{igr,egr}Mirror_*` | Mirror source/destination and igr/egr mirror-priority maps. |
 | Egress remarking | `0xd9`, `0xda`, `0xdb`, `0xdc` | `0x100000..0x100200` | `fal_tiger_qos_remark_*` | DSCP/PCP/port remark controls. |
 
 ## Key Field Maps (decoded)
@@ -85,6 +86,20 @@ Stock function correlation (from `fal_tiger_*` disassembly):
 - `fal_tiger_vlan_port_egrDefaultVid_set/get` on `tbl 0xda` use field IDs `3` and `5` (12-bit default-VID fields).
 - `egrTagMode_get` includes API-enum remap behavior (`raw mode 5` mapped to returned mode `6`).
 
+### Mirror + remark function-field usage (`tbl 0xd5/0xd6/0xd9/0xdb/0xdc`)
+- Artifact:
+  - `docs/yt921x/live/yt_stock_mirror_remark_field_usage_2026-03-31.md`
+- Mirror:
+  - `fal_tiger_mirror_port_set/get` (`0xd5`) use fields `2`, `0`, `1`.
+  - `fal_tiger_qos_intPri_map_igrMirror_set/get` (`0xd6`) use fields `1`, `0`.
+  - `fal_tiger_qos_intPri_map_egrMirror_set/get` (`0xd6`) use fields `3`, `2`.
+- Remark:
+  - `fal_tiger_qos_remark_port_set/get` (`0xd9`) use fields `4`, `1`, `3`, `0`, `2`.
+  - `fal_tiger_qos_remark_dscp_set/get` (`0xdb`) use field `0`.
+  - `fal_tiger_qos_remark_cpri_set/get` (`0xd9` + `0xdc`) use `0xd9:f7`, `0xdc:f1/f0`.
+  - `fal_tiger_qos_remark_spri_set/get` (`0xd9` + `0xdc`) use `0xd9:f8`, `0xdc:f1/f0`.
+  - `fal_tiger_vlan_port_egrTpidIdx_set/get` uses `0xd9:f5/f6`.
+
 ### Port shaper
 - `psch_shp_cfg_tblm_field`:
   - `field0: 1@w1:4` (`en`)
@@ -110,6 +125,7 @@ Stock function correlation (from `fal_tiger_*` disassembly):
 | `0xd3`/`0xd4` queue map | `.port_setup_tc` + `TC_SETUP_QDISC_MQPRIO` | Implemented (`yt921x_mqprio_apply`) |
 | `0xeb` port shaper | `.port_setup_tc` + `TC_SETUP_QDISC_TBF` | Implemented (port shaper EIR/EBS/en) |
 | `0xc7`/`0xc8`/`0xce` ingress meter | `.port_policer_add/.del` | Implemented (stock ingress-meter first, storm fallback) |
+| `0xd5`/`0xd6` mirror path | mirror + mirror-prio map offload | Decoded only (not yet wired in backport DSA path) |
 | `0xd7`/`0xe6`/`0xe7`/`0xe8` scheduler | `mqprio`/`ets` SP+DWRR policy | Implemented (safe subset, no full stock parity) |
 | `0xe9`/`0xea`/`0xe4` queue shaper | queue-level `tc tbf` offload | Implemented (token-path subset on queue shaper/meter) |
 | `0xd9`/`0xda`/`0xdb`/`0xdc` remark | tc flower skbedit/pedit remark offload | Partial: default init wired (`0xd9/0xdb/0xdc`), `0xda` still docs-only |
@@ -118,6 +134,7 @@ Stock function correlation (from `fal_tiger_*` disassembly):
 1. Extend scheduler path from safe subset to stock-parity behavior where needed (`0xd7`, `0xe6`, `0xe7`, `0xe8`).
 2. Expand queue shaper/meter path beyond token subset (`0xe9`, `0xea`, `0xe4`).
 3. Add policy offload wiring for egress remark (`0xd9..0xdc`), including `0xda` mode/VID policy fields.
+4. Add mirror + mirror-prio offload wiring (`0xd5/0xd6`).
 
 ## Notes
 - `tools/yt921x/stock_field_decode.sh` now supports symbols with shared start
