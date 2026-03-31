@@ -14,6 +14,7 @@
   - `docs/yt921x/live/yt_stock_feature_function_tableids_2026-03-30.tsv`
 - Field decode (from `*_field` symbols):
   - `docs/yt921x/live/yt_stock_qos_field_decode_2026-03-30.tsv`
+  - `docs/yt921x/live/yt_stock_qos_field_decode_2026-03-31.tsv` (expanded with `egr_*` QoS fields)
 - Decoder tooling:
   - `tools/yt921x/stock_table_decode.sh`
   - `tools/yt921x/stock_field_decode.sh`
@@ -70,6 +71,20 @@ Implication:
 - `qsch_meter_cfg_tblm_field`: `field0: 2@w0:0`
 - `qsch_shp_slot_time_cfgm_field`: `field0: 12@w0:0`
 
+### Egress port VLAN QoS control (`tbl 0xda`)
+- `egr_port_vlan_ctrlnm_field`:
+  - `field0: 1@w0:31`
+  - `field1: 1@w0:30`
+  - `field2: 3@w0:27`
+  - `field3: 12@w0:15`
+  - `field4: 3@w0:12`
+  - `field5: 12@w0:0`
+
+Stock function correlation (from `fal_tiger_*` disassembly):
+- `fal_tiger_vlan_port_egrTagMode_set/get` on `tbl 0xda` use field IDs `2` and `4` (3-bit mode fields).
+- `fal_tiger_vlan_port_egrDefaultVid_set/get` on `tbl 0xda` use field IDs `3` and `5` (12-bit default-VID fields).
+- `egrTagMode_get` includes API-enum remap behavior (`raw mode 5` mapped to returned mode `6`).
+
 ### Port shaper
 - `psch_shp_cfg_tblm_field`:
   - `field0: 1@w1:4` (`en`)
@@ -95,14 +110,14 @@ Implication:
 | `0xd3`/`0xd4` queue map | `.port_setup_tc` + `TC_SETUP_QDISC_MQPRIO` | Implemented (`yt921x_mqprio_apply`) |
 | `0xeb` port shaper | `.port_setup_tc` + `TC_SETUP_QDISC_TBF` | Implemented (port shaper EIR/EBS/en) |
 | `0xc7`/`0xc8`/`0xce` ingress meter | `.port_policer_add/.del` | Implemented (stock ingress-meter first, storm fallback) |
-| `0xd7`/`0xe6`/`0xe7`/`0xe8` scheduler | `mqprio` SP/DWRR policy | Not wired yet |
-| `0xe9`/`0xea`/`0xe4` queue shaper | queue-level tc offload | Not wired yet |
-| `0xd9`/`0xda`/`0xdb`/`0xdc` remark | tc flower skbedit/pedit remark offload | Not wired yet |
+| `0xd7`/`0xe6`/`0xe7`/`0xe8` scheduler | `mqprio`/`ets` SP+DWRR policy | Implemented (safe subset, no full stock parity) |
+| `0xe9`/`0xea`/`0xe4` queue shaper | queue-level `tc tbf` offload | Implemented (token-path subset on queue shaper/meter) |
+| `0xd9`/`0xda`/`0xdb`/`0xdc` remark | tc flower skbedit/pedit remark offload | Partial: default init wired (`0xd9/0xdb/0xdc`), `0xda` still docs-only |
 
 ## Practical next coding order
-1. Scheduler wiring (`0xd7`, `0xe6`, `0xe7`, `0xe8`) behind existing `mqprio` path.
-2. Queue shaper wiring (`0xe9`, `0xea`, `0xe4`) as extension after scheduler.
-3. Remark offload (`0xd9..0xdc`) only after scheduler/shaper path is stable.
+1. Extend scheduler path from safe subset to stock-parity behavior where needed (`0xd7`, `0xe6`, `0xe7`, `0xe8`).
+2. Expand queue shaper/meter path beyond token subset (`0xe9`, `0xea`, `0xe4`).
+3. Add policy offload wiring for egress remark (`0xd9..0xdc`), including `0xda` mode/VID policy fields.
 
 ## Notes
 - `tools/yt921x/stock_field_decode.sh` now supports symbols with shared start

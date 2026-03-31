@@ -1,5 +1,30 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-31: decoded `tbl 0xda` egress VLAN QoS policy fields from stock path
+
+Decode context:
+- Source module: `Collection-Data/cr881x/mtd22_rootfs/lib/modules/4.4.60/yt_switch.ko`
+- Methods:
+  - field-table decode (`tools/yt921x/stock_field_decode.sh`)
+  - function disassembly correlation (`fal_tiger_vlan_port_egrTagMode_*`,
+    `fal_tiger_vlan_port_egrDefaultVid_*`)
+
+What was confirmed:
+- `tbl id 0xda` (`0x100080`) uses `egr_port_vlan_ctrlnm_field`:
+  - `f0=1@w0:31`, `f1=1@w0:30`
+  - `f2=3@w0:27`, `f3=12@w0:15`
+  - `f4=3@w0:12`, `f5=12@w0:0`
+- Stock API to field-id mapping:
+  - `egrTagMode_set/get` -> field ids `2` and `4` (3-bit mode banks)
+  - `egrDefaultVid_set/get` -> field ids `3` and `5` (12-bit VID banks)
+- `egrTagMode_get` includes enum remap behavior (`raw mode 5 -> return mode 6`).
+
+Docs impact:
+- Updated register-map row for `YT921X_STOCK_QOS_REMARK_PORT` with concrete
+  field semantics and stock function mapping.
+- Added expanded QoS field artifact:
+  - `docs/yt921x/live/yt_stock_qos_field_decode_2026-03-31.tsv`
+
 ## 2026-03-31: QoS map status rebase after live build+flash validation
 
 Validation context:

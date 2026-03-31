@@ -175,7 +175,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_STOCK_QOS_QSCH_SHAPER` | `0x0034c000` | dynamic / queue-tbf-mapped | Queue shaper config base (`tbl id 0xe9`), per-flow shaper words used by queue `tc tbf`. | High |
 | `YT921X_STOCK_QOS_QSCH_METER` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
 | `YT921X_STOCK_QOS_REMARK_PORT_CTRL` | `0x00100000` | dynamic / remark-default-mapped | Per-port remark enable control (`tbl id 0xd9`): current driver enables CPRI/SPRI remark bits by default. | Medium |
-| `YT921X_STOCK_QOS_REMARK_PORT` | `0x00100080` | stock-path decoded / not actively programmed | Egress port remark control (`tbl id 0xda`) for VID/tag-mode related remark policy. | Medium |
+| `YT921X_STOCK_QOS_REMARK_PORT` | `0x00100080` | stock-path decoded / not actively programmed | Egress port VLAN policy (`tbl id 0xda`): decoded `egr_port_vlan_ctrlnm_field` with mode fields `[29:27]`/`[14:12]` and default-VID fields `[26:15]`/`[11:0]`; stock `egrTagMode` uses field IDs `2/4`, `egrDefaultVid` uses `3/5`. | Medium |
 | `YT921X_STOCK_QOS_REMARK_DSCP` | `0x00100100` | dynamic / remark-default-mapped | Egress DSCP remark table (`tbl id 0xdb`), initialized with class-selector baseline and updated by DSCP-prio API path. | Medium |
 | `YT921X_STOCK_QOS_REMARK_CPRI_SPRI` | `0x00100200` | dynamic / remark-default-mapped | Egress CPRI/SPRI remark table (`tbl id 0xdc`), current driver initializes identity rewrite with enable bit set. | Medium |
 | `YT921X_MIRROR` | `0x300300` | dynamic / see probes | Mirror routing: ingress-src mask `[26:16]`, egress-src mask `[14:4]`, destination port `[3:0]`. | High |
@@ -247,7 +247,7 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port)` (`0x300280+4*port`) | 8 slots, each `2-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x3) << shift_i)` where shifts=`14,12,10,8,6,4,2,0` | current driver mirrors ucast map into this table |
 | `YT921X_STOCK_QOS_SCHED_SP` / `DWRR*` (`0x300400`, `0x341000..0x343000`) | scheduler policy fields (driver-wired subset) | flow-indexed tables: `idx = port*12 + qid` (ucast), `idx = port*12 + 8 + qid` (mcast). `0xe6` decoded as `f0[27:18], f1[17:8], f2[7:4], f3[3:0]`; `0xe7/0xe8` have `bit0` cfg | current `ets`/`mqprio` programs safe subset; full stock parity still pending |
 | `YT921X_STOCK_QOS_QSCH_SLOT_TIME` / `SHAPER` / `METER` (`0x340008`, `0x34c000`, `0x34f000`) | queue shaper fields | slot-time and per-flow shaper words are programmed by queue `tc tbf`; meter token field in `0xea` currently set/reset in paired path | queue `tbf` path is active; non-token meter fields remain low-confidence |
-| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` / `DSCP` / `CPRI_SPRI` (`0x100000`, `0x100100`, `0x100200`) | remark control and maps | `0xd9` enables CPRI/SPRI remark per port; `0xdb` sets DSCP remark value; `0xdc` sets PCP remark + enable bit | initialized by driver defaults; `0xda` policy table still not actively programmed |
+| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` / `DSCP` / `CPRI_SPRI` (`0x100000`, `0x100100`, `0x100200`) | remark control and maps | `0xd9` enables CPRI/SPRI remark per port; `0xdb` sets DSCP remark value; `0xdc` sets PCP remark + enable bit | initialized by driver defaults; separate `0xda` policy table (mode/default-VID fields) is decoded but still not actively programmed |
 
 ## Notes And Usage Links
 Use these for full procedure, A/B deltas, and raw captures.
