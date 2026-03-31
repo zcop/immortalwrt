@@ -7,6 +7,41 @@
 
 ## Current Status
 
+### Implemented Driver Surface (Full)
+- Statistics and telemetry:
+  - `get_stats64`, `get_strings`, `get_ethtool_stats`, `get_sset_count`
+  - `get_eth_mac_stats`, `get_eth_ctrl_stats`, `get_rmon_stats`, `get_pause_stats`
+  - QoS runtime telemetry via `ethtool -S` (`qos_*`)
+- PHY/EEE and phylink:
+  - `set_mac_eee`, `support_eee`
+  - phylink `mac_config`, `mac_link_up`, `mac_link_down`, `phylink_get_caps`
+- Traffic control:
+  - `port_setup_tc` for `mqprio`, `ets`, `tbf` (port + queue)
+  - `port_policer_add`, `port_policer_del`
+  - `cls_flower_add`, `cls_flower_del`, `cls_flower_stats` (current scoped offload)
+- DCB QoS control:
+  - `port_get_default_prio`, `port_set_default_prio`
+  - `port_get_apptrust`, `port_set_apptrust`
+  - `port_get_dscp_prio`, `port_add_dscp_prio`, `port_del_dscp_prio`
+- Switching / bridge / VLAN / multicast:
+  - `port_bridge_join`, `port_bridge_leave`, `port_bridge_flags`, `port_pre_bridge_flags`
+  - `port_vlan_add`, `port_vlan_del`, `port_vlan_filtering`
+  - `port_mdb_add`, `port_mdb_del`
+- FDB and aging:
+  - `port_fdb_add`, `port_fdb_del`, `port_fdb_dump`
+  - `port_fast_age`, `set_ageing_time`
+- Port features:
+  - `port_setup`, `port_enable`, `port_disable`
+  - `port_change_conduit`
+  - `port_change_mtu`, `port_max_mtu`
+  - `get_tag_protocol`
+- Topology and advanced switching:
+  - LAG: `port_lag_join`, `port_lag_leave`
+  - STP/MST: `port_stp_state_set`, `port_mst_state_set`, `vlan_msti_set`
+  - Mirror: `port_mirror_add`, `port_mirror_del` (+ mirror QoS map control)
+- Chip lifecycle:
+  - `setup` and shutdown/remove paths tested on CR881x
+
 ### Done (Production-Ready)
 - DSA core switching:
   - VLAN add/del/filtering
