@@ -72,7 +72,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  CFLAGS_trace.o := -I$(src)
 --- /dev/null
 +++ b/net/dsa/tag_yt921x.c
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,165 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Motorcomm YT921x Switch Extended CPU Port Tagging
@@ -121,20 +121,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct dsa_port *dp = dsa_user_to_port(netdev);
 +	unsigned int port = dp->index;
-+	struct net_device *conduit = dsa_port_to_conduit(dp);
 +	__be16 *tag;
 +	u16 tx;
 +
 +	if (dp->cpu_dp && dp->cpu_dp->index != 8) {
-+		/* Keep debug noise low: trace only WAN egress on secondary conduit. */
-+		if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) &&
-+		    port == 3 && net_ratelimit()) {
-+			netdev_info(netdev,
-+				    "YT_TX user=%u cpu_dp=%d conduit=%s len=%u\n",
-+				    port, dp->cpu_dp->index,
-+				    conduit ? conduit->name : "none", skb->len);
-+		}
-+
 +		/* Secondary conduit sends raw frames (no YT tag). */
 +		return skb;
 +	}
@@ -168,15 +158,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	tag = dsa_etype_header_pos_rx(skb);
 +
-+	/* Keep debug noise low: trace secondary conduit ingress only. */
-+	if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) &&
-+	    cpu_dp && cpu_dp->index != 8 && net_ratelimit()) {
-+		netdev_info(netdev,
-+			    "YT_RX ingress=%s cpu_dp=%d len=%u etype=0x%04x\n",
-+			    netdev->name, cpu_dp->index, skb->len,
-+			    ntohs(tag[0]));
-+	}
-+
 +	if (unlikely(tag[0] != htons(ETH_P_YT921X))) {
 +		/* Secondary conduit receives plain Ethernet frames. */
 +		if (cpu_dp && cpu_dp->index != 8) {
@@ -189,13 +170,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				}
 +			}
 +		}
-+
-+		if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) && net_ratelimit())
-+			netdev_info(netdev,
-+				    "YT_DROP untagged ingress=%s cpu_dp=%d etype=0x%04x\n",
-+				    netdev->name,
-+				    cpu_dp ? cpu_dp->index : -1,
-+				    ntohs(tag[0]));
 +
 +		return NULL;
 +	}
@@ -217,12 +191,6 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		 */
 +		if (cpu_dp && port < cpu_dp->ds->num_ports &&
 +		    dsa_is_cpu_port(cpu_dp->ds, port)) {
-+			if (IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG) &&
-+			    net_ratelimit())
-+				netdev_info(netdev,
-+					    "YT_DROP cpu-src ingress=%s cpu_dp=%d src_port=%u cmd=0x%03x\n",
-+					    netdev->name, cpu_dp->index, port,
-+					    FIELD_GET(YT921X_TAG_RX_CMD_M, rx));
 +			return NULL;
 +		}
 +
