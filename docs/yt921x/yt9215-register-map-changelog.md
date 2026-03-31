@@ -1,5 +1,29 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-31: extracted stock queue-shaper field usage (`0xe4/0xe9/0xea`)
+
+Decode context:
+- Source module: `Collection-Data/cr881x/mtd22_rootfs/lib/modules/4.4.60/yt_switch.ko`
+- Symbols:
+  - `fal_tiger_rate_shaping_queue_enable_{set,get}`
+  - `fal_tiger_rate_shaping_queue_mode_{set,get}`
+  - `fal_tiger_rate_shaping_queue_rate_{set,get}`
+
+What was confirmed:
+- Queue enable API path uses `0xe9` fields: `f2`, `f1`.
+- Queue mode API path uses:
+  - `0xe9:f3`
+  - `0xea:f0` with invert transform (`set: 1-mode`, `get: mode=1-raw`)
+- Queue rate API path uses:
+  - `0xe4:f0` (slot-time)
+  - `0xe9:f3/f4` (conversion parameters)
+  - `0xe9:f6/f8` (token values written/read by rate set/get)
+
+Docs impact:
+- Added focused artifact:
+  - `docs/yt921x/live/yt_stock_queue_shaper_field_usage_2026-03-31.md`
+- Refined unified register-map row for queue shaper/meter with concrete field-id usage.
+
 ## 2026-03-31: decoded `tbl 0xda` egress VLAN QoS policy fields from stock path
 
 Decode context:
