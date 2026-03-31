@@ -1,5 +1,26 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-31: extracted stock scheduler field usage (`0xd7/0xe6/0xe7/0xe8`)
+
+Decode context:
+- Source module: `Collection-Data/cr881x/mtd22_rootfs/lib/modules/4.4.60/yt_switch.ko`
+- Symbols:
+  - `fal_tiger_qos_schedule_sp_{set,get}`
+  - `fal_tiger_qos_schedule_dwrr_{set,get}`
+  - `fal_tiger_qos_schedule_dwrr_mode_{set,get}`
+
+What was confirmed:
+- `sp_set` uses `0xd7:f1/f0/f2`, then updates `0xe6:f3/f2`.
+- `sp_get` reads `0xe6:f3`.
+- `dwrr_set` uses `0xe6:f1/f0`.
+- `dwrr_get` reads `0xe6:f1`.
+- `dwrr_mode_set/get` use `0xe7:f0` and `0xe8:f0` (set writes both).
+
+Docs impact:
+- Added focused artifact:
+  - `docs/yt921x/live/yt_stock_scheduler_field_usage_2026-03-31.md`
+- Refined unified scheduler row in register map with concrete stock field usage.
+
 ## 2026-03-31: extracted stock queue-shaper field usage (`0xe4/0xe9/0xea`)
 
 Decode context:
