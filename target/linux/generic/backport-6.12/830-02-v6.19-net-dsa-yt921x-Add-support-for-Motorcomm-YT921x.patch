@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,7094 @@
+@@ -0,0 +1,7249 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -260,6 +260,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_QSCH_SHP_FLOWS_PER_PORT	12U
 +#define YT921X_QSCH_SHP_ENTRIES \
 +		(YT921X_QSCH_SHP_PORTS * YT921X_QSCH_SHP_FLOWS_PER_PORT)
++#define YT921X_QSCH_SLOT_TIME_DEFAULT	1U
++#define YT921X_QSCH_METER_TOKEN_DEFAULT	0U
++
++#define YT921X_QOS_REMARK_DP_NUM	4U
 +
 +#define YT921X_STORM_GUARD_DEFAULT_PPS		20000U
 +#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
@@ -290,6 +294,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +static int yt921x_read_mib(struct yt921x_priv *priv, int port);
 +static u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv);
++static int yt921x_qos_remark_dscp_set(struct yt921x_priv *priv, u8 prio, u8 dp,
++				      u8 dscp);
 +
 +static bool yt921x_is_external_port(const struct yt921x_priv *priv, int port)
 +{
@@ -2815,12 +2821,37 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return 0;
 +}
 +
++static int yt921x_qsch_slot_time_ensure(struct yt921x_priv *priv)
++{
++	u32 slot;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_QSCH_SHP_SLOT_TIME, &slot);
++	if (res)
++		return res;
++
++	if (FIELD_GET(YT921X_QSCH_SHP_SLOT_TIME_M, slot))
++		return 0;
++
++	return yt921x_reg_update_bits(priv, YT921X_QSCH_SHP_SLOT_TIME,
++				      YT921X_QSCH_SHP_SLOT_TIME_M,
++				      YT921X_QSCH_SHP_SLOT_TIME_VAL(
++					      YT921X_QSCH_SLOT_TIME_DEFAULT));
++}
++
 +static int yt921x_qsch_tbf_del(struct yt921x_priv *priv, int port, u8 qid)
 +{
 +	u32 idx;
 +	int res;
 +
 +	res = yt921x_qsch_flow_index(port, qid, &idx);
++	if (res)
++		return res;
++
++	res = yt921x_reg_update_bits(priv, YT921X_QSCH_METER_WORD0(idx),
++				     YT921X_QSCH_METER_TOKEN_M,
++				     YT921X_QSCH_METER_TOKEN(
++					     YT921X_QSCH_METER_TOKEN_DEFAULT));
 +	if (res)
 +		return res;
 +
@@ -2848,6 +2879,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (res)
 +		return res;
 +
++	res = yt921x_qsch_slot_time_ensure(priv);
++	if (res)
++		return res;
++
 +	res = yt921x_tbf_rate_to_eir(params->rate.rate_bytes_ps, &cir);
 +	if (res)
 +		return res;
@@ -2870,6 +2905,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx),
 +			       YT921X_QSCH_SHP_CIR(cir) |
 +			       YT921X_QSCH_SHP_CBS(cbs));
++	if (res)
++		return res;
++
++	res = yt921x_reg_update_bits(priv, YT921X_QSCH_METER_WORD0(idx),
++				     YT921X_QSCH_METER_TOKEN_M,
++				     YT921X_QSCH_METER_TOKEN(
++					     YT921X_QSCH_METER_TOKEN_DEFAULT));
 +	if (res)
 +		return res;
 +
@@ -6251,6 +6293,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	mutex_lock(&priv->reg_lock);
 +	res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp),
 +			       YT921X_IPM_PRIO(prio));
++	if (!res) {
++		for (u8 dp = 0; dp < YT921X_QOS_REMARK_DP_NUM; dp++) {
++			res = yt921x_qos_remark_dscp_set(priv, prio, dp, dscp);
++			if (res)
++				break;
++		}
++	}
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
@@ -6809,6 +6858,79 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return 0;
 +}
 +
++static int yt921x_qos_remark_index(u8 prio, u8 dp, bool spri, u8 *idxp)
++{
++	u8 idx;
++
++	if (prio >= YT921X_PRIO_NUM || dp >= YT921X_QOS_REMARK_DP_NUM)
++		return -ERANGE;
++
++	idx = (prio << 2) | dp;
++	if (spri)
++		idx |= BIT(5);
++	*idxp = idx;
++	return 0;
++}
++
++static int yt921x_qos_remark_dscp_set(struct yt921x_priv *priv, u8 prio, u8 dp,
++				      u8 dscp)
++{
++	u8 idx;
++	int res;
++
++	if (dscp >= DSCP_MAX)
++		return -ERANGE;
++
++	res = yt921x_qos_remark_index(prio, dp, false, &idx);
++	if (res)
++		return res;
++
++	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_REMARK_DSCPn(idx),
++				      YT921X_STOCK_QOS_REMARK_DSCP_VAL_M,
++				      YT921X_STOCK_QOS_REMARK_DSCP_VAL(dscp));
++}
++
++static int yt921x_qos_remark_prio_set(struct yt921x_priv *priv, u8 prio, u8 dp,
++				      bool spri, u8 pcp, bool enable)
++{
++	u8 idx;
++	u32 val;
++	int res;
++
++	if (pcp >= YT921X_PRIO_NUM)
++		return -ERANGE;
++
++	res = yt921x_qos_remark_index(prio, dp, spri, &idx);
++	if (res)
++		return res;
++
++	val = YT921X_STOCK_QOS_REMARK_PRIO_VAL(pcp);
++	if (enable)
++		val |= YT921X_STOCK_QOS_REMARK_PRIO_EN;
++
++	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_REMARK_PRIOn(idx),
++				      YT921X_STOCK_QOS_REMARK_PRIO_VAL_M |
++				      YT921X_STOCK_QOS_REMARK_PRIO_EN, val);
++}
++
++static int yt921x_qos_remark_port_enable(struct yt921x_priv *priv, int port,
++					 bool cpri_enable, bool spri_enable)
++{
++	u32 val = 0;
++
++	if (port < 0 || port >= YT921X_PORT_NUM)
++		return -ERANGE;
++
++	if (cpri_enable)
++		val |= YT921X_STOCK_QOS_REMARK_PORT_CPRI_EN;
++	if (spri_enable)
++		val |= YT921X_STOCK_QOS_REMARK_PORT_SPRI_EN;
++
++	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_REMARK_PORT_CTRLn(port),
++				      YT921X_STOCK_QOS_REMARK_PORT_CPRI_EN |
++				      YT921X_STOCK_QOS_REMARK_PORT_SPRI_EN, val);
++}
++
 +static int __maybe_unused yt921x_chip_setup_qos(struct yt921x_priv *priv)
 +{
 +	u32 ctrl;
@@ -6846,6 +6968,39 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +					return res;
 +			}
 +		}
++
++	/* Egress remark defaults:
++	 *  - DSCP remark map uses class-selector baseline (prio -> prio*8)
++	 *  - CPRI/SPRI remark maps use identity prio rewrite, enabled.
++	 */
++	for (u8 prio = 0; prio < YT921X_PRIO_NUM; prio++) {
++		u8 dscp = min_t(u8, (u8)(prio << 3), (u8)(DSCP_MAX - 1));
++
++		for (u8 dp = 0; dp < YT921X_QOS_REMARK_DP_NUM; dp++) {
++			res = yt921x_qos_remark_dscp_set(priv, prio, dp, dscp);
++			if (res)
++				return res;
++
++			res = yt921x_qos_remark_prio_set(priv, prio, dp, false,
++							 prio, true);
++			if (res)
++				return res;
++
++			res = yt921x_qos_remark_prio_set(priv, prio, dp, true,
++							 prio, true);
++			if (res)
++				return res;
++		}
++	}
++
++	for (int port = 0; port < YT921X_PORT_NUM; port++) {
++		if (!dsa_is_user_port(&priv->ds, port))
++			continue;
++
++		res = yt921x_qos_remark_port_enable(priv, port, true, true);
++		if (res)
++			return res;
++	}
 +
 +	return 0;
 +}
@@ -7156,7 +7311,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,865 @@
+@@ -0,0 +1,892 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -7476,6 +7631,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define  YT921X_QSCH_SHP_DUAL_RATE		BIT(5)
 +#define  YT921X_QSCH_SHP_EN			BIT(6)
 +
++#define YT921X_QSCH_METER_CFG			0x34f000	/* tbl 0xea */
++#define YT921X_QSCH_METER_WORD0(idx)		(YT921X_QSCH_METER_CFG + 4 * (idx))
++#define  YT921X_QSCH_METER_TOKEN_M		GENMASK(1, 0)
++#define   YT921X_QSCH_METER_TOKEN(x)		FIELD_PREP(YT921X_QSCH_METER_TOKEN_M, (x))
++
++#define YT921X_QSCH_SHP_SLOT_TIME		0x340008	/* tbl 0xe4 */
++#define  YT921X_QSCH_SHP_SLOT_TIME_M		GENMASK(11, 0)
++#define   YT921X_QSCH_SHP_SLOT_TIME_VAL(x)	FIELD_PREP(YT921X_QSCH_SHP_SLOT_TIME_M, (x))
++
 +/* Stock table-id 0x0d (loop-detect top control), reverse-mapped from yt_switch.ko.
 + * Kept for header parity; not wired into active DSA path yet.
 + */
@@ -7604,9 +7768,27 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	(YT921X_STOCK_QOS_SCHED_SP + 4 * (port))
 +#define  YT921X_STOCK_QOS_SCHED_SP_MASK		GENMASK(7, 0)
 +
++#define YT921X_STOCK_QOS_REMARK_PORT_CTRL	0x100000	/* tbl 0xd9 */
++#define YT921X_STOCK_QOS_REMARK_PORT_CTRLn(port) \
++	(YT921X_STOCK_QOS_REMARK_PORT_CTRL + 4 * (port))
++#define  YT921X_STOCK_QOS_REMARK_PORT_CPRI_EN	BIT(1)		/* field7 */
++#define  YT921X_STOCK_QOS_REMARK_PORT_SPRI_EN	BIT(0)		/* field8 */
++
 +#define YT921X_STOCK_QOS_REMARK_PORT		0x100080	/* tbl 0xda */
 +#define YT921X_STOCK_QOS_REMARK_DSCP		0x100100	/* tbl 0xdb */
++#define YT921X_STOCK_QOS_REMARK_DSCPn(idx) \
++	(YT921X_STOCK_QOS_REMARK_DSCP + 4 * (idx))
++#define  YT921X_STOCK_QOS_REMARK_DSCP_VAL_M	GENMASK(5, 0)	/* egr_dscp_remarknm_field */
++#define   YT921X_STOCK_QOS_REMARK_DSCP_VAL(x) \
++		FIELD_PREP(YT921X_STOCK_QOS_REMARK_DSCP_VAL_M, (x))
++
 +#define YT921X_STOCK_QOS_REMARK_CPRI_SPRI	0x100200	/* tbl 0xdc */
++#define YT921X_STOCK_QOS_REMARK_PRIOn(idx) \
++	(YT921X_STOCK_QOS_REMARK_CPRI_SPRI + 4 * (idx))
++#define  YT921X_STOCK_QOS_REMARK_PRIO_VAL_M	GENMASK(3, 1)	/* egr_prio_remarknm_field field0 */
++#define   YT921X_STOCK_QOS_REMARK_PRIO_VAL(x) \
++		FIELD_PREP(YT921X_STOCK_QOS_REMARK_PRIO_VAL_M, (x))
++#define  YT921X_STOCK_QOS_REMARK_PRIO_EN	BIT(0)		/* egr_prio_remarknm_field field1 */
 +#define YT921X_STOCK_VLAN_EGR_TRANS_TABLE0	0x100320	/* tbl 0xde */
 +#define YT921X_STOCK_VLAN_EGR_TRANS_TABLE1	0x1003a0	/* tbl 0xdf */
 +#define YT921X_STOCK_VLAN_EGR_TRANS_TABLE2	0x100420	/* tbl 0xe0 */
