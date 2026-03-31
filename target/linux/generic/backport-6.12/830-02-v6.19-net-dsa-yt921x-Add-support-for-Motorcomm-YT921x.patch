@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,7964 @@
+@@ -0,0 +1,8055 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -1062,6 +1062,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  port_status [port]\n"
 +				 "  ctrlpkt show\n"
 +				 "  ctrlpkt set <arp|nd|lldp_eee|lldp> <val>\n"
++				 "  dot1x show [port]\n"
++				 "  dot1x set <port> <port_based_val> <bypass_val>\n"
 +				 "  loop_detect show\n"
 +				 "  loop_detect set <0|1> [tpid] [gen_way]\n"
 +				 "  storm_guard show\n"
@@ -1127,6 +1129,34 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		yt921x_proc_reply_append(priv,
 +					 "ctrlpkt %-8s tbl=0x%02x reg=0x%06x val=0x%08x\n",
 +					 d->name, d->tbl_id, d->reg, val);
++	}
++
++	return 0;
++}
++
++static int yt921x_proc_reply_dot1x(struct yt921x_priv *priv, u32 start, u32 end)
++{
++	u32 port;
++	int res;
++
++	for (port = start; port <= end; port++) {
++		u32 port_based;
++		u32 bypass;
++
++		res = yt921x_reg_read(priv, YT921X_STOCK_DOT1X_PORT_BASEDn(port),
++				      &port_based);
++		if (res)
++			return res;
++
++		res = yt921x_reg_read(priv, YT921X_STOCK_DOT1X_BYPASS_CTRLn(port),
++				      &bypass);
++		if (res)
++			return res;
++
++		yt921x_proc_reply_append(
++			priv,
++			"dot1x p%u port_based=0x%08x bypass=0x%08x\n",
++			port, port_based, bypass);
 +	}
 +
 +	return 0;
@@ -1907,6 +1937,67 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			res = yt921x_reg_write(priv, d->reg, val);
 +			if (!res)
 +				res = yt921x_proc_reply_ctrlpkt(priv);
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		res = -EINVAL;
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "dot1x")) {
++		u32 start = 0;
++		u32 end = YT921X_PORT_NUM - 1;
++
++		if (argc == 1 || !strcmp(argv[1], "show")) {
++			if (argc >= 3) {
++				u32 port;
++
++				res = yt921x_proc_parse_u32(argv[2], &port);
++				if (res)
++					goto out;
++				if (port >= YT921X_PORT_NUM) {
++					res = -ERANGE;
++					goto out;
++				}
++				start = end = port;
++			}
++
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_proc_reply_dot1x(priv, start, end);
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		if (!strcmp(argv[1], "set") && argc >= 5) {
++			u32 port;
++			u32 port_based;
++			u32 bypass;
++
++			res = yt921x_proc_parse_u32(argv[2], &port);
++			if (res)
++				goto out;
++			if (port >= YT921X_PORT_NUM) {
++				res = -ERANGE;
++				goto out;
++			}
++			res = yt921x_proc_parse_u32(argv[3], &port_based);
++			if (res)
++				goto out;
++			res = yt921x_proc_parse_u32(argv[4], &bypass);
++			if (res)
++				goto out;
++
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_reg_write(priv,
++					       YT921X_STOCK_DOT1X_PORT_BASEDn(port),
++					       port_based);
++			if (!res)
++				res = yt921x_reg_write(priv,
++						       YT921X_STOCK_DOT1X_BYPASS_CTRLn(port),
++						       bypass);
++			if (!res)
++				res = yt921x_proc_reply_dot1x(priv, port, port);
 +			mutex_unlock(&priv->reg_lock);
 +			goto out;
 +		}
@@ -8026,7 +8117,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,912 @@
+@@ -0,0 +1,914 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -8431,6 +8522,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STOCK_MCAST_IPMC_BYPASS_ISO	0x1805a4	/* tbl 0xa0 */
 +#define YT921X_STOCK_DOT1X_PORT_BASED		0x18059c	/* tbl 0x9e */
 +#define YT921X_STOCK_DOT1X_BYPASS_CTRL		0x1805a0	/* tbl 0x9f */
++#define YT921X_STOCK_DOT1X_PORT_BASEDn(n)	(YT921X_STOCK_DOT1X_PORT_BASED + 4 * (n))
++#define YT921X_STOCK_DOT1X_BYPASS_CTRLn(n)	(YT921X_STOCK_DOT1X_BYPASS_CTRL + 4 * (n))
 +#define YT921X_STOCK_MCAST_ROUTER_PORT_AGE_C	0x1806bc	/* tbl 0xaa */
 +#define YT921X_STOCK_MCAST_VLAN_TABLE		0x180700	/* tbl 0xab */
 +#define YT921X_STOCK_LAG_LEARNLIMIT		0x180808	/* tbl 0xaf */
