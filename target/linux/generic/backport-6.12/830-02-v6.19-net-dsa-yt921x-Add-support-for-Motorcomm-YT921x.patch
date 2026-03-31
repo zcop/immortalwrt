@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,7302 @@
+@@ -0,0 +1,7695 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -83,6 +83,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#include <linux/of.h>
 +#include <linux/of_mdio.h>
 +#include <linux/of_net.h>
++#include <linux/slab.h>
 +#include <linux/sort.h>
 +#include <linux/workqueue.h>
 +#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -93,6 +94,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +#include <net/dsa.h>
 +#include <net/dscp.h>
++#include <net/flow_offload.h>
 +#include <net/ieee8021q.h>
 +#include <net/pkt_cls.h>
 +#include <net/pkt_sched.h>
@@ -264,6 +266,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_QSCH_METER_TOKEN_DEFAULT	0U
 +
 +#define YT921X_QOS_REMARK_DP_NUM	4U
++#define YT921X_FLOWER_DSCP_MASK		GENMASK(7, 2)
++#define YT921X_FLOWER_MAX_RULES		64U
 +
 +#define YT921X_STORM_GUARD_DEFAULT_PPS		20000U
 +#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
@@ -2382,6 +2386,139 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		schedule_delayed_work(&pp->mib_read, delay);
 +}
 +
++static const char *const yt921x_qos_stat_names[] = {
++	"qos_uc_qid_p0", "qos_uc_qid_p1", "qos_uc_qid_p2", "qos_uc_qid_p3",
++	"qos_uc_qid_p4", "qos_uc_qid_p5", "qos_uc_qid_p6", "qos_uc_qid_p7",
++	"qos_mc_qid_p0", "qos_mc_qid_p1", "qos_mc_qid_p2", "qos_mc_qid_p3",
++	"qos_mc_qid_p4", "qos_mc_qid_p5", "qos_mc_qid_p6", "qos_mc_qid_p7",
++	"qos_sp_mask",
++	"qos_dwrr_uc_en",
++	"qos_dwrr_mc_en",
++	"qos_ptbf_en",
++	"qos_ptbf_rate_kbps",
++	"qos_ptbf_burst_b",
++	"qos_qtbf_en_mask",
++	"qos_qtbf_rate_q0", "qos_qtbf_rate_q1", "qos_qtbf_rate_q2", "qos_qtbf_rate_q3",
++	"qos_qtbf_rate_q4", "qos_qtbf_rate_q5", "qos_qtbf_rate_q6", "qos_qtbf_rate_q7",
++	"qos_qtbf_burst_q0", "qos_qtbf_burst_q1", "qos_qtbf_burst_q2", "qos_qtbf_burst_q3",
++	"qos_qtbf_burst_q4", "qos_qtbf_burst_q5", "qos_qtbf_burst_q6", "qos_qtbf_burst_q7",
++	"qos_policer_en",
++	"qos_policer_rate_kbps",
++	"qos_policer_burst_b",
++};
++
++static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *data)
++{
++	u32 ucast = 0;
++	u32 mcast = 0;
++	u32 sp = 0;
++	u32 port_ctrl = 0;
++	u32 port_ebs_eir = 0;
++	u32 queue_en_mask = 0;
++	size_t j = 0;
++	u64 rate_kbps;
++	int qid;
++	int res;
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), &ucast);
++	if (res)
++		ucast = 0;
++	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port), &mcast);
++	if (res)
++		mcast = 0;
++
++	for (qid = 0; qid < YT921X_PRIO_NUM; qid++)
++		data[j++] = (ucast & YT921X_STOCK_QOS_UCAST_QMAP_PRIO_M(qid)) >>
++			    YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(qid);
++
++	for (qid = 0; qid < YT921X_PRIO_NUM; qid++)
++		data[j++] = (mcast & YT921X_STOCK_QOS_MCAST_QMAP_PRIO_M(qid)) >>
++			    YT921X_STOCK_QOS_MCAST_QMAP_PRIO_SHIFT(qid);
++
++	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_SCHED_SPn(port), &sp);
++	if (res)
++		sp = 0;
++	data[j++] = FIELD_GET(YT921X_STOCK_QOS_SCHED_SP_MASK, sp);
++
++	data[j] = 0;
++	if (port >= 0 && port < YT921X_STOCK_QOS_SCHED_PORTS) {
++		for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS; qid++) {
++			u32 idx = (u32)port * YT921X_STOCK_QOS_SCHED_FLOWS_PER_PORT + qid;
++			u32 v = 0;
++
++			res = yt921x_reg_read(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx), &v);
++			if (!res && (v & YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN))
++				data[j]++;
++		}
++	}
++	j++;
++
++	data[j] = 0;
++	if (port >= 0 && port < YT921X_STOCK_QOS_SCHED_PORTS) {
++		for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_MCAST_FLOWS; qid++) {
++			u32 idx = (u32)port * YT921X_STOCK_QOS_SCHED_FLOWS_PER_PORT +
++				  YT921X_STOCK_QOS_SCHED_UCAST_FLOWS + qid;
++			u32 v = 0;
++
++			res = yt921x_reg_read(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx), &v);
++			if (!res && (v & YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN))
++				data[j]++;
++		}
++	}
++	j++;
++
++	if (port >= 0 && port < YT921X_PSCH_SHP_PORTS) {
++		res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_CTRL(port), &port_ctrl);
++		if (res)
++			port_ctrl = 0;
++		res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_EBS_EIR(port), &port_ebs_eir);
++		if (res)
++			port_ebs_eir = 0;
++	}
++
++	data[j++] = !!(port_ctrl & YT921X_PSCH_SHP_EN);
++	data[j++] = yt921x_tbf_eir_to_rate_kbps(FIELD_GET(YT921X_PSCH_SHP_EIR_M, port_ebs_eir));
++	data[j++] = (u64)FIELD_GET(YT921X_PSCH_SHP_EBS_M, port_ebs_eir) * YT921X_PSCH_EBS_UNIT_BYTES;
++
++	for (qid = 0; qid < YT921X_QSCH_SHP_QUEUES; qid++) {
++		u32 idx = 0;
++		u32 w0 = 0;
++		u32 w2 = 0;
++
++		data[j + qid] = 0;
++		data[j + YT921X_QSCH_SHP_QUEUES + qid] = 0;
++
++		if (port < 0 || port >= YT921X_QSCH_SHP_PORTS)
++			continue;
++
++		idx = (u32)port * YT921X_QSCH_SHP_FLOWS_PER_PORT + qid;
++
++		res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD2(idx), &w2);
++		if (res || !(w2 & YT921X_QSCH_SHP_EN))
++			continue;
++
++		queue_en_mask |= BIT(qid);
++
++		res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD0(idx), &w0);
++		if (res)
++			continue;
++
++		data[j + qid] =
++			yt921x_tbf_eir_to_rate_kbps(FIELD_GET(YT921X_QSCH_SHP_CIR_M, w0));
++		data[j + YT921X_QSCH_SHP_QUEUES + qid] =
++			(u64)FIELD_GET(YT921X_QSCH_SHP_CBS_M, w0) * YT921X_PSCH_EBS_UNIT_BYTES;
++	}
++
++	data[j++] = queue_en_mask;
++	j += YT921X_QSCH_SHP_QUEUES;
++	j += YT921X_QSCH_SHP_QUEUES;
++
++	data[j++] = !!(priv->storm_policer_ports & BIT(port));
++	rate_kbps = DIV_ROUND_UP_ULL(priv->storm_policer_rate_bytes_per_sec * 8, 1000);
++	data[j++] = rate_kbps;
++	data[j++] = priv->storm_policer_burst;
++}
++
 +static void
 +yt921x_dsa_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 +		       uint8_t *data)
@@ -2395,6 +2532,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (desc->name)
 +			ethtool_puts(&data, desc->name);
 +	}
++
++	for (size_t i = 0; i < ARRAY_SIZE(yt921x_qos_stat_names); i++)
++		ethtool_puts(&data, yt921x_qos_stat_names[i]);
 +}
 +
 +static void
@@ -2418,6 +2558,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		data[j] = ((u64 *)mib)[i];
 +		j++;
 +	}
++
++	yt921x_qos_telemetry_fill(priv, port, &data[j]);
++	j += ARRAY_SIZE(yt921x_qos_stat_names);
 +	mutex_unlock(&priv->reg_lock);
 +}
 +
@@ -2434,6 +2577,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (desc->name)
 +			cnt++;
 +	}
++
++	cnt += ARRAY_SIZE(yt921x_qos_stat_names);
 +
 +	return cnt;
 +}
@@ -3248,6 +3393,249 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return res;
 +
 +	return yt921x_mqprio_sched_apply(priv, port, map);
++}
++
++struct yt921x_flower_rule {
++	struct list_head list;
++	struct dsa_switch *ds;
++	unsigned long cookie;
++	u8 dscp;
++	u8 old_prio;
++	u8 new_prio;
++};
++
++static LIST_HEAD(yt921x_flower_rules);
++static DEFINE_MUTEX(yt921x_flower_lock);
++
++static struct yt921x_flower_rule *
++yt921x_flower_find_cookie(struct dsa_switch *ds, unsigned long cookie)
++{
++	struct yt921x_flower_rule *rule;
++
++	list_for_each_entry(rule, &yt921x_flower_rules, list)
++		if (rule->ds == ds && rule->cookie == cookie)
++			return rule;
++
++	return NULL;
++}
++
++static struct yt921x_flower_rule *
++yt921x_flower_find_dscp(struct dsa_switch *ds, u8 dscp)
++{
++	struct yt921x_flower_rule *rule;
++
++	list_for_each_entry(rule, &yt921x_flower_rules, list)
++		if (rule->ds == ds && rule->dscp == dscp)
++			return rule;
++
++	return NULL;
++}
++
++static u32 yt921x_flower_rule_count(struct dsa_switch *ds)
++{
++	struct yt921x_flower_rule *rule;
++	u32 n = 0;
++
++	list_for_each_entry(rule, &yt921x_flower_rules, list)
++		if (rule->ds == ds)
++			n++;
++
++	return n;
++}
++
++static void yt921x_flower_cleanup_rules(struct dsa_switch *ds)
++{
++	struct yt921x_flower_rule *rule, *tmp;
++
++	mutex_lock(&yt921x_flower_lock);
++	list_for_each_entry_safe(rule, tmp, &yt921x_flower_rules, list) {
++		if (rule->ds != ds)
++			continue;
++		list_del(&rule->list);
++		kfree(rule);
++	}
++	mutex_unlock(&yt921x_flower_lock);
++}
++
++static int
++yt921x_cls_flower_parse(struct flow_cls_offload *cls, u8 *dscp, u8 *prio)
++{
++	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
++	struct flow_match_ip match;
++	const struct flow_action_entry *act;
++	bool have_prio = false;
++	int i;
++
++	if (!rule)
++		return -EINVAL;
++
++	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP))
++		return -EOPNOTSUPP;
++
++	flow_rule_match_ip(rule, &match);
++	if (match.mask->ttl)
++		return -EOPNOTSUPP;
++	if ((match.mask->tos & YT921X_FLOWER_DSCP_MASK) != YT921X_FLOWER_DSCP_MASK)
++		return -EOPNOTSUPP;
++	if (match.mask->tos & ~YT921X_FLOWER_DSCP_MASK)
++		return -EOPNOTSUPP;
++
++	*dscp = (match.key->tos & YT921X_FLOWER_DSCP_MASK) >> 2;
++
++	flow_action_for_each(i, act, &rule->action) {
++		switch (act->id) {
++		case FLOW_ACTION_PRIORITY:
++			if (have_prio)
++				return -EOPNOTSUPP;
++			if (act->priority >= YT921X_PRIO_NUM)
++				return -EOPNOTSUPP;
++			*prio = act->priority;
++			have_prio = true;
++			break;
++		default:
++			return -EOPNOTSUPP;
++		}
++	}
++
++	return have_prio ? 0 : -EOPNOTSUPP;
++}
++
++static int
++yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
++			  struct flow_cls_offload *cls, bool ingress)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct netlink_ext_ack *extack = cls->common.extack;
++	struct yt921x_flower_rule *rule, *existing;
++	u8 dscp, prio;
++	u32 val;
++	int res;
++
++	if (!ingress) {
++		NL_SET_ERR_MSG_MOD(extack, "egress flower offload is not supported");
++		return -EOPNOTSUPP;
++	}
++
++	if (!dsa_is_user_port(ds, port)) {
++		NL_SET_ERR_MSG_MOD(extack, "flower offload is supported on user ports only");
++		return -EOPNOTSUPP;
++	}
++
++	if (cls->common.chain_index) {
++		NL_SET_ERR_MSG_MOD(extack, "chain is not supported");
++		return -EOPNOTSUPP;
++	}
++
++	if (cls->common.protocol != htons(ETH_P_IP) &&
++	    cls->common.protocol != htons(ETH_P_IPV6)) {
++		NL_SET_ERR_MSG_MOD(extack, "only IPv4/IPv6 DSCP rules are supported");
++		return -EOPNOTSUPP;
++	}
++
++	res = yt921x_cls_flower_parse(cls, &dscp, &prio);
++	if (res) {
++		NL_SET_ERR_MSG_MOD(extack, "only exact DSCP match + skbedit priority is supported");
++		return res;
++	}
++
++	rule = kzalloc(sizeof(*rule), GFP_KERNEL);
++	if (!rule)
++		return -ENOMEM;
++
++	mutex_lock(&yt921x_flower_lock);
++	if (yt921x_flower_rule_count(ds) >= YT921X_FLOWER_MAX_RULES) {
++		NL_SET_ERR_MSG_MOD(extack, "too many flower rules");
++		res = -ENOSPC;
++		goto out_unlock;
++	}
++
++	if (yt921x_flower_find_cookie(ds, cls->cookie)) {
++		NL_SET_ERR_MSG_MOD(extack, "cookie already exists");
++		res = -EEXIST;
++		goto out_unlock;
++	}
++
++	existing = yt921x_flower_find_dscp(ds, dscp);
++	if (existing && existing->new_prio != prio) {
++		NL_SET_ERR_MSG_MOD(extack, "conflicting rule for the same DSCP");
++		res = -EBUSY;
++		goto out_unlock;
++	}
++	if (existing) {
++		NL_SET_ERR_MSG_MOD(extack, "DSCP rule already installed");
++		res = -EEXIST;
++		goto out_unlock;
++	}
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(dscp), &val);
++	if (!res)
++		res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp), YT921X_IPM_PRIO(prio));
++	mutex_unlock(&priv->reg_lock);
++	if (res)
++		goto out_unlock;
++
++	rule->ds = ds;
++	rule->cookie = cls->cookie;
++	rule->dscp = dscp;
++	rule->old_prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
++	rule->new_prio = prio;
++	list_add_tail(&rule->list, &yt921x_flower_rules);
++	res = 0;
++	rule = NULL;
++
++out_unlock:
++	mutex_unlock(&yt921x_flower_lock);
++	kfree(rule);
++	return res;
++}
++
++static int
++yt921x_dsa_cls_flower_del(struct dsa_switch *ds, int port,
++			  struct flow_cls_offload *cls, bool ingress)
++{
++	struct yt921x_priv *priv = to_yt921x_priv(ds);
++	struct yt921x_flower_rule *rule;
++	u8 prio;
++	u32 val;
++	int res;
++
++	if (!ingress || !dsa_is_user_port(ds, port))
++		return -EOPNOTSUPP;
++
++	mutex_lock(&yt921x_flower_lock);
++	rule = yt921x_flower_find_cookie(ds, cls->cookie);
++	if (!rule) {
++		res = -ENOENT;
++		goto out_unlock;
++	}
++
++	mutex_lock(&priv->reg_lock);
++	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(rule->dscp), &val);
++	if (!res) {
++		prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
++		if (prio == rule->new_prio)
++			res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(rule->dscp),
++					       YT921X_IPM_PRIO(rule->old_prio));
++	}
++	mutex_unlock(&priv->reg_lock);
++	if (res)
++		goto out_unlock;
++
++	list_del(&rule->list);
++	kfree(rule);
++	res = 0;
++
++out_unlock:
++	mutex_unlock(&yt921x_flower_lock);
++	return res;
++}
++
++static int
++yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
++			    struct flow_cls_offload *cls, bool ingress)
++{
++	return 0;
 +}
 +
 +static int
@@ -7168,6 +7556,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	.support_eee		= dsa_supports_eee,
 +	.set_mac_eee		= yt921x_dsa_set_mac_eee,
 +	/* tc */
++	.cls_flower_add		= yt921x_dsa_cls_flower_add,
++	.cls_flower_del		= yt921x_dsa_cls_flower_del,
++	.cls_flower_stats	= yt921x_dsa_cls_flower_stats,
 +	.port_setup_tc		= yt921x_dsa_port_setup_tc,
 +	.port_policer_add	= yt921x_dsa_port_policer_add,
 +	.port_policer_del	= yt921x_dsa_port_policer_del,
@@ -7232,6 +7623,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	cancel_delayed_work_sync(&priv->storm_guard_work);
 +#endif
 +
++	yt921x_flower_cleanup_rules(&priv->ds);
 +	dsa_switch_shutdown(&priv->ds);
 +}
 +
@@ -7252,6 +7644,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	cancel_delayed_work_sync(&priv->storm_guard_work);
 +#endif
 +
++	yt921x_flower_cleanup_rules(&priv->ds);
 +	dsa_unregister_switch(&priv->ds);
 +
 +	yt921x_proc_exit(priv);
