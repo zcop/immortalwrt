@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,7695 @@
+@@ -0,0 +1,7964 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -1060,6 +1060,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 "  get_flood_filter\n"
 +				 "  set_flood_filter <mcast|bcast|both> <mask>\n"
 +				 "  port_status [port]\n"
++				 "  ctrlpkt show\n"
++				 "  ctrlpkt set <arp|nd|lldp_eee|lldp> <val>\n"
 +				 "  loop_detect show\n"
 +				 "  loop_detect set <0|1> [tpid] [gen_way]\n"
 +				 "  storm_guard show\n"
@@ -1080,6 +1082,54 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +static int yt921x_proc_parse_u16(const char *s, u16 *val)
 +{
 +	return kstrtou16(s, 0, val);
++}
++
++struct yt921x_proc_ctrlpkt_desc {
++	const char *name;
++	u32 reg;
++	u8 tbl_id;
++};
++
++static const struct yt921x_proc_ctrlpkt_desc yt921x_proc_ctrlpkt_descs[] = {
++	{ "arp", YT921X_STOCK_CTRLPKT_ARP_ACT, 0x74 },
++	{ "nd", YT921X_STOCK_CTRLPKT_ND_ACT, 0x75 },
++	{ "lldp_eee", YT921X_STOCK_CTRLPKT_LLDP_EEE_ACT, 0x76 },
++	{ "lldp", YT921X_STOCK_CTRLPKT_LLDP_ACT, 0x77 },
++};
++
++static const struct yt921x_proc_ctrlpkt_desc *
++yt921x_proc_ctrlpkt_find(const char *name)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(yt921x_proc_ctrlpkt_descs); i++) {
++		if (!strcmp(name, yt921x_proc_ctrlpkt_descs[i].name))
++			return &yt921x_proc_ctrlpkt_descs[i];
++	}
++
++	return NULL;
++}
++
++static int yt921x_proc_reply_ctrlpkt(struct yt921x_priv *priv)
++{
++	unsigned int i;
++	int res;
++
++	for (i = 0; i < ARRAY_SIZE(yt921x_proc_ctrlpkt_descs); i++) {
++		const struct yt921x_proc_ctrlpkt_desc *d =
++			&yt921x_proc_ctrlpkt_descs[i];
++		u32 val;
++
++		res = yt921x_reg_read(priv, d->reg, &val);
++		if (res)
++			return res;
++
++		yt921x_proc_reply_append(priv,
++					 "ctrlpkt %-8s tbl=0x%02x reg=0x%06x val=0x%08x\n",
++					 d->name, d->tbl_id, d->reg, val);
++	}
++
++	return 0;
 +}
 +
 +static const char *yt921x_proc_port_speed_name(u32 speed)
@@ -1446,6 +1496,50 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 +	{
++		.id = 0x34, .name = "acl-rule-ctrl", .base = YT921X_STOCK_ACL_RULE_CTRL,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
++		.id = 0x35, .name = "acl-port-ctrl", .base = YT921X_STOCK_ACL_PORT_CTRL,
++		.entry_words = 1, .rw_words = 1, .entries = 11,
++	},
++	{
++		.id = 0x36, .name = "acl-block-ctrl", .base = YT921X_STOCK_ACL_BLOCK_CTRL,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
++		.id = 0x37, .name = "acl-rule-data", .base = YT921X_STOCK_ACL_RULE_DATA,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
++		.id = 0x74, .name = "ctrlpkt-arp-act", .base = YT921X_STOCK_CTRLPKT_ARP_ACT,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
++		.id = 0x75, .name = "ctrlpkt-nd-act", .base = YT921X_STOCK_CTRLPKT_ND_ACT,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
++		.id = 0x76, .name = "ctrlpkt-lldp-eee-act", .base = YT921X_STOCK_CTRLPKT_LLDP_EEE_ACT,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
++		.id = 0x77, .name = "ctrlpkt-lldp-act", .base = YT921X_STOCK_CTRLPKT_LLDP_ACT,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
++		.id = 0x9e, .name = "dot1x-port-based", .base = YT921X_STOCK_DOT1X_PORT_BASED,
++		.entry_words = 1, .rw_words = 1, .entries = 11,
++	},
++	{
++		.id = 0x9f, .name = "dot1x-bypass-ctrl", .base = YT921X_STOCK_DOT1X_BYPASS_CTRL,
++		.entry_words = 1, .rw_words = 1, .entries = 11,
++	},
++	{
++		.id = 0xa5, .name = "acl-unmatch-permit", .base = YT921X_STOCK_ACL_UNMATCH_PERMIT,
++		.entry_words = 1, .rw_words = 1, .entries = 1,
++	},
++	{
 +		.id = 0xc7, .name = "meter-timeslot", .base = 0x220104,
 +		.entry_words = 1, .rw_words = 1, .entries = 1,
 +		.fields = yt921x_tbl_fields_c7,
@@ -1784,6 +1878,40 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				break;
 +		}
 +		mutex_unlock(&priv->reg_lock);
++		goto out;
++	}
++
++	if (!strcmp(argv[0], "ctrlpkt")) {
++		if (argc == 1 || !strcmp(argv[1], "show")) {
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_proc_reply_ctrlpkt(priv);
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		if (!strcmp(argv[1], "set") && argc >= 4) {
++			const struct yt921x_proc_ctrlpkt_desc *d;
++			u32 val;
++
++			d = yt921x_proc_ctrlpkt_find(argv[2]);
++			if (!d) {
++				res = -EINVAL;
++				goto out;
++			}
++
++			res = yt921x_proc_parse_u32(argv[3], &val);
++			if (res)
++				goto out;
++
++			mutex_lock(&priv->reg_lock);
++			res = yt921x_reg_write(priv, d->reg, val);
++			if (!res)
++				res = yt921x_proc_reply_ctrlpkt(priv);
++			mutex_unlock(&priv->reg_lock);
++			goto out;
++		}
++
++		res = -EINVAL;
 +		goto out;
 +	}
 +
@@ -2425,6 +2553,18 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +static void yt921x_proc_exit(struct yt921x_priv *priv)
 +{
++}
++#endif
++
++#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++static u32 yt921x_tbf_eir_to_rate_kbps(u32 eir)
++{
++	if (eir <= YT921X_PSCH_EIR_RATE_OFFSET)
++		return 0;
++
++	return DIV_ROUND_CLOSEST_ULL((u64)(eir - YT921X_PSCH_EIR_RATE_OFFSET) *
++				     YT921X_PSCH_EIR_RATE_SCALE_DEN,
++				     YT921X_PSCH_EIR_RATE_SCALE_NUM);
 +}
 +#endif
 +
@@ -5592,7 +5732,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static u32
-+dsa_bridge_ports(struct dsa_switch *ds, const struct net_device *bdev)
++yt921x_dsa_bridge_ports(struct dsa_switch *ds, const struct net_device *bdev)
 +{
 +	struct dsa_port *dp;
 +	u32 mask = 0;
@@ -5653,7 +5793,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		if (bdev) {
 +			u32 ports_mask;
 +
-+			ports_mask = dsa_bridge_ports(ds, bdev);
++			ports_mask = yt921x_dsa_bridge_ports(ds, bdev);
 +			ports_mask |= priv->cpu_ports_mask;
 +			res = yt921x_bridge(priv, ports_mask);
 +			if (res)
@@ -5733,7 +5873,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (dsa_is_cpu_port(ds, port))
 +		return 0;
 +
-+	ports_mask = dsa_bridge_ports(ds, bridge.dev);
++	ports_mask = yt921x_dsa_bridge_ports(ds, bridge.dev);
 +	ports_mask |= priv->cpu_ports_mask;
 +
 +	mutex_lock(&priv->reg_lock);
@@ -7886,7 +8026,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,901 @@
+@@ -0,0 +1,912 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -8265,6 +8405,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 + * They are intentionally not wired into active DSA code paths yet.
 + */
 +#define YT921X_STOCK_VLAN_IGR_TRANS_CTRL	0x2100e0	/* tbl 0x20 */
++#define YT921X_STOCK_CTRLPKT_ARP_ACT		0x180284	/* tbl 0x74 */
++#define YT921X_STOCK_CTRLPKT_ND_ACT		0x180288	/* tbl 0x75 */
++#define YT921X_STOCK_CTRLPKT_LLDP_EEE_ACT	0x18028c	/* tbl 0x76 */
++#define YT921X_STOCK_CTRLPKT_LLDP_ACT		0x180290	/* tbl 0x77 */
 +
 +#define YT921X_STOCK_VLAN_TRANS_UNTAG_PVID_IGNORE	0x230108	/* tbl 0x2f */
 +#define YT921X_STOCK_VLAN_TRANS_RANGE_PROFILE		0x230200	/* tbl 0x30 */
@@ -8285,9 +8429,16 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STOCK_MCAST_LEARNLIMIT		0x180500	/* tbl 0x96 */
 +#define YT921X_STOCK_L2_FDB_MCAST_CNT		0x180504	/* tbl 0x97 */
 +#define YT921X_STOCK_MCAST_IPMC_BYPASS_ISO	0x1805a4	/* tbl 0xa0 */
++#define YT921X_STOCK_DOT1X_PORT_BASED		0x18059c	/* tbl 0x9e */
++#define YT921X_STOCK_DOT1X_BYPASS_CTRL		0x1805a0	/* tbl 0x9f */
 +#define YT921X_STOCK_MCAST_ROUTER_PORT_AGE_C	0x1806bc	/* tbl 0xaa */
 +#define YT921X_STOCK_MCAST_VLAN_TABLE		0x180700	/* tbl 0xab */
 +#define YT921X_STOCK_LAG_LEARNLIMIT		0x180808	/* tbl 0xaf */
++#define YT921X_STOCK_ACL_RULE_CTRL		0x201000	/* tbl 0x34 */
++#define YT921X_STOCK_ACL_PORT_CTRL		0x202000	/* tbl 0x35 */
++#define YT921X_STOCK_ACL_BLOCK_CTRL		0x202004	/* tbl 0x36 */
++#define YT921X_STOCK_ACL_RULE_DATA		0x203000	/* tbl 0x37 */
++#define YT921X_STOCK_ACL_UNMATCH_PERMIT	0x1806a0	/* tbl 0xa5 */
 +
 +#define YT921X_STOCK_RATE_IGR_BW_CTRL		0x220104	/* tbl 0xc7 */
 +#define  YT921X_STOCK_RATE_IGR_BW_CTRL_TIMESLOT_M	GENMASK(11, 0)	/* field0 */
