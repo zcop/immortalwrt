@@ -1,5 +1,37 @@
 # YT9215 Register Map Changelog
 
+## 2026-03-31: QoS map status rebase after live build+flash validation
+
+Validation context:
+- Rebuilt image and flashed CR881x (`6.12.77`) with current backport.
+- Runtime checks passed on `lan1`:
+  - `tc qdisc ... mqprio ... hw 1 mode dcb` (`RC=0`)
+  - queue `tc tbf` attach on `parent 1:1` (`RC=0`)
+  - `tc qdisc ... ets ...` (`RC=0`)
+
+Live register readbacks after attach:
+- queue map:
+  - `0x300200 = 0x01234567`
+  - `0x300280 = 0x00001bff`
+- queue tbf path:
+  - `0x340008 = 0x00000084`
+  - `0x34c000 = 0x0400786e`
+  - `0x34c004 = 0x0400786e`
+  - `0x34f000 = 0x00000000`
+- ETS scheduler path:
+  - `0x341000 = 0x00040100`
+  - `0x342000 = 0x00000000`
+  - `0x343000 = 0x00000000`
+
+Docs impact:
+- Rebased `yt9215-register-map.md` QoS statuses from stale `stock-path only`
+  labels to current driver-wired state where applicable:
+  - ingress policer tables (`0xc7/0xc8/0xce`)
+  - scheduler tables (`0xd7/0xe6/0xe7/0xe8`) as safe subset via `ets/mqprio`
+  - queue shaper/meter tables (`0xe4/0xe9/0xea`) for queue `tbf` path
+  - remark tables (`0xd9/0xdb/0xdc`) as initialized/default-mapped path
+- Kept `0xda` (`0x100080`) marked as decoded but not actively programmed.
+
 ## 2026-03-30: stock QoS field decode + driver mapping consolidation
 
 Artifacts:

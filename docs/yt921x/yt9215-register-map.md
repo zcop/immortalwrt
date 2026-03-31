@@ -121,7 +121,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_INT_MBUS_DOUT` | `0xf0008` | dynamic / see probes | MBUS write-data register. | Medium |
 | `YT921X_EXT_MBUS_DIN` | `0x6a00c` | dynamic / see probes | MBUS read-data register. | Medium |
 | `YT921X_INT_MBUS_DIN` | `0xf000c` | dynamic / see probes | MBUS read-data register. | Medium |
-| `YT921X_PORTn_EGR(port)` | `(0x100000 + 4 * (port))` | dynamic / see probes | Per-port egress TPID profile selector fields. | Medium |
+| `YT921X_PORTn_EGR(port)` | `(0x100000 + 4 * (port))` | dynamic / see probes | Per-port egress control (shared with stock `tbl 0xd9` QoS remark port-control bits in current reverse). | Medium |
 | `YT921X_TPID_EGRn(x)` | `(0x100300 + 4 * (x))` | dynamic / see probes | Egress TPID profile table. | Medium |
 | `YT921X_IPM_DSCPn(n)` | `(0x180000 + 4 * (n))` | dynamic / see probes | DSCP to internal-priority map table. | Medium |
 | `YT921X_IPM_PCPn(map, dei, pcp)` | `(0x180100 + 4 * (16 * (map) + 8 * (dei) + (pcp)))` | dynamic / see probes | PCP/DEI to internal-priority map table. | Medium |
@@ -161,19 +161,23 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_STOCK_STORM_RATE_IO` | `0x00220100` | stock-path only | Stock storm table (`tbl id 0xc6`) used by `fal_tiger_storm_ctrl_rate_set/get` as rate/timeslot input side. | Medium |
 | `YT921X_STOCK_STORM_MC_TYPE_CTRL` | `0x00220140` | stock-path only | Stock storm multicast-type mask table (`tbl id 0xc9`), decoded `11@0` port/type mask field. | Medium |
 | `YT921X_STOCK_STORM_CONFIG` | `0x00220200` | stock-path only | Stock storm global config (`tbl id 0xcc`), decoded fields: `f4=bit0` enable, `f3=bit1` mode, `f2=bit2` include-gap, plus rate fields `f1=10@3`, `f0=19@13`. | Medium |
-| `YT921X_STOCK_RATE_IGR_BW_CTRL` | `0x00220104` | stock-path only | Stock ingress-meter timeslot table (`tbl id 0xc7`), decoded `field0=12@w0:0` (`meter_timeslot`). | High |
-| `YT921X_STOCK_RATE_IGR_BW_ENABLE` | `0x00220108` | stock-path only | Stock ingress-meter per-port control (`tbl id 0xc8`): `field0=bit4` enable, `field1=[3:0]` meter-id. | High |
-| `YT921X_STOCK_RATE_METER_CONFIG` | `0x00220800` | stock-path only | Stock ingress-meter config base (`tbl id 0xce`), 3-word entries with decoded CIR/CBS/token/mode fields. | High |
-| `YT921X_STOCK_RATE_METER_CONFIGn(n)` | `(0x220800 + 0x10 * n)` | stock-path only | Meter entry stride (`0x10` per meter id). Word0/1/2 fields decoded in stock field map. | High |
+| `YT921X_STOCK_RATE_IGR_BW_CTRL` | `0x00220104` | dynamic / policer-mapped | Ingress-meter timeslot table (`tbl id 0xc7`), decoded `field0=12@w0:0` (`meter_timeslot`); used by current `port_policer` path. | High |
+| `YT921X_STOCK_RATE_IGR_BW_ENABLE` | `0x00220108` | dynamic / policer-mapped | Ingress-meter per-port control (`tbl id 0xc8`): `field0=bit4` enable, `field1=[3:0]` meter-id; used by current `port_policer` path. | High |
+| `YT921X_STOCK_RATE_METER_CONFIG` | `0x00220800` | dynamic / policer-mapped | Ingress-meter config base (`tbl id 0xce`), 3-word entries with decoded CIR/CBS/token/mode fields; used by current `port_policer` path. | High |
+| `YT921X_STOCK_RATE_METER_CONFIGn(n)` | `(0x220800 + 0x10 * n)` | dynamic / policer-mapped | Meter entry stride (`0x10` per meter id). Word0/1/2 fields decoded in stock field map. | High |
 | `YT921X_STOCK_QOS_QUEUE_MAP_UCAST` | `0x00300200` | dynamic / mqprio-mapped | Queue map base (`tbl id 0xd3`): internal prio `0..7` to unicast qid (`3-bit` each slot). | High |
 | `YT921X_STOCK_QOS_QUEUE_MAP_MCAST` | `0x00300280` | dynamic / mqprio-mapped | Queue map base (`tbl id 0xd4`): internal prio `0..7` to multicast qid (`2-bit` each slot). | High |
-| `YT921X_STOCK_QOS_SCHED_SP` | `0x00300400` | stock-path only | Scheduler SP control (`tbl id 0xd7`), used by stock `fal_tiger_qos_schedule_sp_set`. | Medium |
-| `YT921X_STOCK_QOS_SCHED_DWRR` | `0x00341000` | stock-path only | DWRR scheduler config (`tbl id 0xe6`), used by stock `fal_tiger_qos_schedule_dwrr_*`. | Medium |
-| `YT921X_STOCK_QOS_SCHED_DWRR_MODE0` | `0x00342000` | stock-path only | DWRR mode bank0 (`tbl id 0xe7`), selected via stock `qos_sch_tableId_get` path. | Medium |
-| `YT921X_STOCK_QOS_SCHED_DWRR_MODE1` | `0x00343000` | stock-path only | DWRR mode bank1 (`tbl id 0xe8`) for alternate schedule profile path. | Medium |
-| `YT921X_STOCK_QOS_REMARK_PORT` | `0x00100080` | stock-path only | Egress port remark control (`tbl id 0xda`) for default VID/tag-mode related remark policy. | Medium |
-| `YT921X_STOCK_QOS_REMARK_DSCP` | `0x00100100` | stock-path only | Egress DSCP remark table (`tbl id 0xdb`). | Medium |
-| `YT921X_STOCK_QOS_REMARK_CPRI_SPRI` | `0x00100200` | stock-path only | Egress CPRI/SPRI remark table (`tbl id 0xdc`). | Medium |
+| `YT921X_STOCK_QOS_SCHED_SP` | `0x00300400` | dynamic / ets-mapped (subset) | Scheduler SP control (`tbl id 0xd7`), programmed by current ETS/mqprio scheduler path. | Medium |
+| `YT921X_STOCK_QOS_SCHED_DWRR` | `0x00341000` | dynamic / ets-mapped (subset) | DWRR scheduler config (`tbl id 0xe6`), programmed by current ETS/mqprio scheduler path. | Medium |
+| `YT921X_STOCK_QOS_SCHED_DWRR_MODE0` | `0x00342000` | dynamic / ets-mapped (subset) | DWRR mode bank0 (`tbl id 0xe7`), used by current ETS/mqprio scheduler path. | Medium |
+| `YT921X_STOCK_QOS_SCHED_DWRR_MODE1` | `0x00343000` | dynamic / ets-mapped (subset) | DWRR mode bank1 (`tbl id 0xe8`), used by current ETS/mqprio scheduler path. | Medium |
+| `YT921X_STOCK_QOS_QSCH_SLOT_TIME` | `0x00340008` | dynamic / queue-tbf-mapped | Queue scheduler slot-time word (`tbl id 0xe4`), currently ensured/set by queue `tc tbf` path. | Medium |
+| `YT921X_STOCK_QOS_QSCH_SHAPER` | `0x0034c000` | dynamic / queue-tbf-mapped | Queue shaper config base (`tbl id 0xe9`), per-flow shaper words used by queue `tc tbf`. | High |
+| `YT921X_STOCK_QOS_QSCH_METER` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
+| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` | `0x00100000` | dynamic / remark-default-mapped | Per-port remark enable control (`tbl id 0xd9`): current driver enables CPRI/SPRI remark bits by default. | Medium |
+| `YT921X_STOCK_QOS_REMARK_PORT` | `0x00100080` | stock-path decoded / not actively programmed | Egress port remark control (`tbl id 0xda`) for VID/tag-mode related remark policy. | Medium |
+| `YT921X_STOCK_QOS_REMARK_DSCP` | `0x00100100` | dynamic / remark-default-mapped | Egress DSCP remark table (`tbl id 0xdb`), initialized with class-selector baseline and updated by DSCP-prio API path. | Medium |
+| `YT921X_STOCK_QOS_REMARK_CPRI_SPRI` | `0x00100200` | dynamic / remark-default-mapped | Egress CPRI/SPRI remark table (`tbl id 0xdc`), current driver initializes identity rewrite with enable bit set. | Medium |
 | `YT921X_MIRROR` | `0x300300` | dynamic / see probes | Mirror routing: ingress-src mask `[26:16]`, egress-src mask `[14:4]`, destination port `[3:0]`. | High |
 | `YT921X_PSCH_SHPn_EBS_EIR(port)` | `(0x354000 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper EBS/EIR word. Used with `tc tbf` offload mapping on `wan`. | High |
 | `YT921X_PSCH_SHPn_CTRL(port)` | `(0x354004 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper enable/mode control word. | High |
@@ -236,12 +240,14 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_STOCK_STORM_CONFIG` (`0x220200`) | `f4:bit0`, `f3:bit1`, `f2:bit2`, `f1:[12:3]`, `f0:[31:13]` | `v=(v&~BIT(0))|en`; `v=(v&~BIT(1))|(mode<<1)`; `v=(v&~BIT(2))|(ig<<2)`; `v=(v&~GENMASK(12,3))|((f1&0x3ff)<<3)`; `v=(v&~GENMASK(31,13))|((f0&0x7ffff)<<13)` | stock uses table-api field IDs `4/3/2/1/0` |
 | `YT921X_STOCK_STORM_MC_TYPE_CTRL` (`0x220140`) | mask `[10:0]` | `v = (v & ~0x000007ff) | (mask & 0x7ff)` | driven by stock table `0xc9` field `0` |
 | `YT921X_STOCK_LOOP_DETECT_TOP_CTRL` (`0x00080230`) | `f5:bit18`, `f6:[17:2]`, `f8:bit0`, `f4:[20:19]`, `f3:[22:21]`, `f2:[24:23]` | `enable: v=(v&~BIT(18))|(en<<18)`; `tpid: v=(v&~GENMASK(17,2))|((tpid&0xffff)<<2)`; `gen: v=(v&~BIT(0))|(g<<0)`; unit-id: set `f4/f3/f2` | stock table id `0x0d` |
-| `YT921X_STOCK_RATE_IGR_BW_ENABLE` (`0x220108`) | `enable:bit4`, `meter_id:[3:0]` | `v=(v&~BIT(4))|(en<<4); v=(v&~GENMASK(3,0))|(meter_id&0xf)` | stock ingress-meter port control (`tbl 0xc8`) |
-| `YT921X_STOCK_RATE_IGR_BW_CTRL` (`0x220104`) | `meter_timeslot:[11:0]` | `v=(v&~GENMASK(11,0))|(timeslot&0xfff)` | stock ingress-meter timeslot (`tbl 0xc7`) |
-| `YT921X_STOCK_RATE_METER_CONFIGn(n)` (`0x220800+0x10*n`) | decoded fields across words 0/1/2 | set with field RMW per decoded map (`meter_config_tblm_field` entries 0..13) | stock ingress meter cfg (`tbl 0xce`) |
+| `YT921X_STOCK_RATE_IGR_BW_ENABLE` (`0x220108`) | `enable:bit4`, `meter_id:[3:0]` | `v=(v&~BIT(4))|(en<<4); v=(v&~GENMASK(3,0))|(meter_id&0xf)` | current `port_policer` path uses this table (`tbl 0xc8`) |
+| `YT921X_STOCK_RATE_IGR_BW_CTRL` (`0x220104`) | `meter_timeslot:[11:0]` | `v=(v&~GENMASK(11,0))|(timeslot&0xfff)` | current `port_policer` path uses this table (`tbl 0xc7`) |
+| `YT921X_STOCK_RATE_METER_CONFIGn(n)` (`0x220800+0x10*n`) | decoded fields across words 0/1/2 | set with field RMW per decoded map (`meter_config_tblm_field` entries 0..13) | current `port_policer` path uses this table (`tbl 0xce`) |
 | `YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port)` (`0x300200+4*port`) | 8 slots, each `3-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x7) << shift_i)` where shifts=`28,24,20,16,12,8,4,0` | current `mqprio` offload programs this |
 | `YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port)` (`0x300280+4*port`) | 8 slots, each `2-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x3) << shift_i)` where shifts=`14,12,10,8,6,4,2,0` | current driver mirrors ucast map into this table |
-| `YT921X_STOCK_QOS_SCHED_SP` / `DWRR*` (`0x300400`, `0x341000..0x343000`) | scheduler policy fields (stock-only decode) | flow-indexed tables: `idx = port*12 + qid` (ucast), `idx = port*12 + 8 + qid` (mcast). `0xe6` decoded as `f0[27:18], f1[17:8], f2[7:4], f3[3:0]`; `0xe7/0xe8` have `bit0` cfg | scheduler parity gap |
+| `YT921X_STOCK_QOS_SCHED_SP` / `DWRR*` (`0x300400`, `0x341000..0x343000`) | scheduler policy fields (driver-wired subset) | flow-indexed tables: `idx = port*12 + qid` (ucast), `idx = port*12 + 8 + qid` (mcast). `0xe6` decoded as `f0[27:18], f1[17:8], f2[7:4], f3[3:0]`; `0xe7/0xe8` have `bit0` cfg | current `ets`/`mqprio` programs safe subset; full stock parity still pending |
+| `YT921X_STOCK_QOS_QSCH_SLOT_TIME` / `SHAPER` / `METER` (`0x340008`, `0x34c000`, `0x34f000`) | queue shaper fields | slot-time and per-flow shaper words are programmed by queue `tc tbf`; meter token field in `0xea` currently set/reset in paired path | queue `tbf` path is active; non-token meter fields remain low-confidence |
+| `YT921X_STOCK_QOS_REMARK_PORT_CTRL` / `DSCP` / `CPRI_SPRI` (`0x100000`, `0x100100`, `0x100200`) | remark control and maps | `0xd9` enables CPRI/SPRI remark per port; `0xdb` sets DSCP remark value; `0xdc` sets PCP remark + enable bit | initialized by driver defaults; `0xda` policy table still not actively programmed |
 
 ## Notes And Usage Links
 Use these for full procedure, A/B deltas, and raw captures.
