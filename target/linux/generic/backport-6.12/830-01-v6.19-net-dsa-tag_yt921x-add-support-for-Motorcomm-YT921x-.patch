@@ -72,7 +72,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  CFLAGS_trace.o := -I$(src)
 --- /dev/null
 +++ b/net/dsa/tag_yt921x.c
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,180 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Motorcomm YT921x Switch Extended CPU Port Tagging
@@ -129,6 +129,9 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		return skb;
 +	}
 +
++	if (unlikely(skb_cow_head(skb, YT921X_TAG_LEN) < 0))
++		return NULL;
++
 +	skb_push(skb, YT921X_TAG_LEN);
 +	dsa_alloc_etype_header(skb, YT921X_TAG_LEN);
 +
@@ -162,12 +165,24 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		/* Secondary conduit receives plain Ethernet frames. */
 +		if (cpu_dp && cpu_dp->index != 8) {
 +			struct dsa_port *dp;
++			struct net_device *user = NULL;
 +
 +			dsa_switch_for_each_user_port(dp, cpu_dp->ds) {
-+				if (dsa_port_to_conduit(dp) == netdev) {
-+					skb->dev = dp->user;
-+					return skb;
++				if (dsa_port_to_conduit(dp) != netdev)
++					continue;
++
++				if (unlikely(user)) {
++					dev_warn_ratelimited(&netdev->dev,
++							     "secondary conduit has multiple user ports, dropping raw frame\n");
++					return NULL;
 +				}
++
++				user = dp->user;
++			}
++
++			if (likely(user)) {
++				skb->dev = user;
++				return skb;
 +			}
 +		}
 +

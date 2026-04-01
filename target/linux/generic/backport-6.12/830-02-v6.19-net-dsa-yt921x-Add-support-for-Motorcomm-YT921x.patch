@@ -59,7 +59,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
  obj-y				+= microchip/
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.c
-@@ -0,0 +1,8055 @@
+@@ -0,0 +1,8121 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for Motorcomm YT921x Switch
@@ -816,17 +816,28 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	return yt921x_mbus_write(priv, false, port, reg, val);
 +}
 +
-+static int yt921x_mbus_int_read(struct mii_bus *mbus, int port, int reg)
++static int yt921x_mbus_port_reg_validate(int port, int reg, int max_port)
++{
++	if (port < 0 || port > max_port || reg < 0 || reg > 0x1f)
++		return -EINVAL;
++
++	return 0;
++}
++
++static int
++yt921x_mbus_bus_read(struct mii_bus *mbus, bool extif, int max_port, int port,
++		     int reg)
 +{
 +	struct yt921x_priv *priv = mbus->priv;
 +	u16 val;
 +	int res;
 +
-+	if (port < 0 || port >= YT921X_PORT_NUM || reg < 0 || reg > 0x1f)
-+		return -EINVAL;
++	res = yt921x_mbus_port_reg_validate(port, reg, max_port);
++	if (res)
++		return res;
 +
 +	mutex_lock(&priv->reg_lock);
-+	res = yt921x_intif_read(priv, port, reg, &val);
++	res = yt921x_mbus_read(priv, extif, port, reg, &val);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	if (res)
@@ -835,19 +846,33 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +}
 +
 +static int
-+yt921x_mbus_int_write(struct mii_bus *mbus, int port, int reg, u16 data)
++yt921x_mbus_bus_write(struct mii_bus *mbus, bool extif, int max_port, int port,
++		      int reg, u16 data)
 +{
 +	struct yt921x_priv *priv = mbus->priv;
 +	int res;
 +
-+	if (port < 0 || port >= YT921X_PORT_NUM || reg < 0 || reg > 0x1f)
-+		return -EINVAL;
++	res = yt921x_mbus_port_reg_validate(port, reg, max_port);
++	if (res)
++		return res;
 +
 +	mutex_lock(&priv->reg_lock);
-+	res = yt921x_intif_write(priv, port, reg, data);
++	res = yt921x_mbus_write(priv, extif, port, reg, data);
 +	mutex_unlock(&priv->reg_lock);
 +
 +	return res;
++}
++
++static int yt921x_mbus_int_read(struct mii_bus *mbus, int port, int reg)
++{
++	return yt921x_mbus_bus_read(mbus, false, YT921X_PORT_NUM - 1, port, reg);
++}
++
++static int
++yt921x_mbus_int_write(struct mii_bus *mbus, int port, int reg, u16 data)
++{
++	return yt921x_mbus_bus_write(mbus, false, YT921X_PORT_NUM - 1, port, reg,
++				     data);
 +}
 +
 +static int
@@ -892,36 +917,13 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +static int yt921x_mbus_ext_read(struct mii_bus *mbus, int port, int reg)
 +{
-+	struct yt921x_priv *priv = mbus->priv;
-+	u16 val;
-+	int res;
-+
-+	if (port < 0 || port > 0x1f || reg < 0 || reg > 0x1f)
-+		return -EINVAL;
-+
-+	mutex_lock(&priv->reg_lock);
-+	res = yt921x_extif_read(priv, port, reg, &val);
-+	mutex_unlock(&priv->reg_lock);
-+
-+	if (res)
-+		return res;
-+	return val;
++	return yt921x_mbus_bus_read(mbus, true, 0x1f, port, reg);
 +}
 +
 +static int
 +yt921x_mbus_ext_write(struct mii_bus *mbus, int port, int reg, u16 data)
 +{
-+	struct yt921x_priv *priv = mbus->priv;
-+	int res;
-+
-+	if (port < 0 || port > 0x1f || reg < 0 || reg > 0x1f)
-+		return -EINVAL;
-+
-+	mutex_lock(&priv->reg_lock);
-+	res = yt921x_extif_write(priv, port, reg, data);
-+	mutex_unlock(&priv->reg_lock);
-+
-+	return res;
++	return yt921x_mbus_bus_write(mbus, true, 0x1f, port, reg, data);
 +}
 +
 +static int
@@ -5841,6 +5843,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +{
 +	struct yt921x_port *pp = &priv->ports[port];
 +	bool refresh_flood;
++	bool refresh_mcast_policy;
 +	bool do_flush;
 +	u32 mask;
 +	int res;
@@ -5857,6 +5860,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +
 +	/* BR_FLOOD (unknown UC) remains global via ACT_UNK_* policy. */
 +	refresh_flood = false;
++	refresh_mcast_policy = false;
 +	if (flags.mask & BR_MCAST_FLOOD) {
 +		pp->mcast_flood = flags.val & BR_MCAST_FLOOD;
 +		refresh_flood = true;
@@ -5864,6 +5868,10 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	if (flags.mask & BR_BCAST_FLOOD) {
 +		pp->bcast_flood = flags.val & BR_BCAST_FLOOD;
 +		refresh_flood = true;
++	}
++	if (flags.mask & BR_MULTICAST_FAST_LEAVE) {
++		pp->mcast_fast_leave = flags.val & BR_MULTICAST_FAST_LEAVE;
++		refresh_mcast_policy = true;
 +	}
 +
 +	do_flush = false;
@@ -5898,6 +5906,25 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +			return res;
 +	}
 +
++	if (refresh_mcast_policy) {
++		struct dsa_switch *ds = &priv->ds;
++		struct dsa_port *dp;
++		u32 fast_leave = 0;
++
++		dsa_switch_for_each_user_port(dp, ds) {
++			if (priv->ports[dp->index].mcast_fast_leave) {
++				fast_leave = YT921X_STOCK_MCAST_FWD_POLICY_FAST_LEAVE;
++				break;
++			}
++		}
++
++		res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_FWD_POLICY,
++					     YT921X_STOCK_MCAST_FWD_POLICY_FAST_LEAVE,
++					     fast_leave);
++		if (res)
++			return res;
++	}
++
 +	return 0;
 +}
 +
@@ -5907,7 +5934,8 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +				 struct netlink_ext_ack *extack)
 +{
 +	if (flags.mask & ~(BR_HAIRPIN_MODE | BR_LEARNING | BR_FLOOD |
-+			   BR_MCAST_FLOOD | BR_BCAST_FLOOD | BR_ISOLATED))
++			   BR_MCAST_FLOOD | BR_BCAST_FLOOD |
++			   BR_MULTICAST_FAST_LEAVE | BR_ISOLATED))
 +		return -EINVAL;
 +	return 0;
 +}
@@ -7577,6 +7605,43 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "rma");
 +#endif
 +
++	/* Multicast control plane defaults from stock path:
++	 * - router ports pinned to CPU conduits
++	 * - report/query/leave processing allowed
++	 * - IGMP bypasses port isolation
++	 * - fast leave disabled until requested by bridge flags
++	 */
++	ctrl = priv->cpu_ports_mask & YT921X_STOCK_MCAST_STATIC_ROUTER_PORT_M;
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_STATIC_ROUTER_PORT,
++				     YT921X_STOCK_MCAST_STATIC_ROUTER_PORT_M,
++				     ctrl);
++	if (res)
++		return res;
++
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT,
++				     YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M,
++				     YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_ALLOW(ctrl));
++	if (res)
++		return res;
++
++	ctrl = YT921X_STOCK_MCAST_PORT_POLICY_LEAVE_ALLOW |
++	       YT921X_STOCK_MCAST_PORT_POLICY_REPORT_ALLOW |
++	       YT921X_STOCK_MCAST_PORT_POLICY_QUERY_ALLOW |
++	       YT921X_STOCK_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_PORT_POLICY, ctrl,
++				     ctrl);
++	if (res)
++		return res;
++
++	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_FWD_POLICY,
++				     YT921X_STOCK_MCAST_FWD_POLICY_FAST_LEAVE,
++				     0);
++	if (res)
++		return res;
++#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
++	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mcast-policy");
++#endif
++
 +	/* Unknown UC/MC egress drop mask:
 +	 * keep only internal MCU (port 10) blocked, allow CPU/LAN/WAN delivery.
 +	 * 0x7ff blackholes unknown unicast destined for router MAC on this board.
@@ -8059,6 +8124,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +		pp->priv = priv;
 +		pp->mcast_flood = true;
 +		pp->bcast_flood = true;
++		pp->mcast_fast_leave = false;
 +		INIT_DELAYED_WORK(&pp->mib_read, yt921x_poll_mib);
 +	}
 +
@@ -8117,7 +8183,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +MODULE_DESCRIPTION("Driver for Motorcomm YT921x Switch");
 --- /dev/null
 +++ b/drivers/net/dsa/yt921x.h
-@@ -0,0 +1,914 @@
+@@ -0,0 +1,924 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2025 David Yang
@@ -8526,6 +8592,15 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +#define YT921X_STOCK_DOT1X_BYPASS_CTRLn(n)	(YT921X_STOCK_DOT1X_BYPASS_CTRL + 4 * (n))
 +#define YT921X_STOCK_MCAST_ROUTER_PORT_AGE_C	0x1806bc	/* tbl 0xaa */
 +#define YT921X_STOCK_MCAST_VLAN_TABLE		0x180700	/* tbl 0xab */
++#define  YT921X_STOCK_MCAST_STATIC_ROUTER_PORT_M	GENMASK(10, 0)	/* 0x89 field0 */
++#define  YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M	GENMASK(14, 4)	/* 0x8a field0 */
++#define   YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_ALLOW(x) \
++		FIELD_PREP(YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M, (x))
++#define  YT921X_STOCK_MCAST_FWD_POLICY_FAST_LEAVE	BIT(4)		/* 0x8e field5 */
++#define  YT921X_STOCK_MCAST_PORT_POLICY_LEAVE_ALLOW	BIT(4)		/* 0x8f field3 */
++#define  YT921X_STOCK_MCAST_PORT_POLICY_REPORT_ALLOW	BIT(3)		/* 0x8f field4 */
++#define  YT921X_STOCK_MCAST_PORT_POLICY_QUERY_ALLOW	BIT(2)		/* 0x8f field5 */
++#define  YT921X_STOCK_MCAST_PORT_POLICY_IGMP_BYPASS_ISO	BIT(0)		/* 0x8f field7 */
 +#define YT921X_STOCK_LAG_LEARNLIMIT		0x180808	/* tbl 0xaf */
 +#define YT921X_STOCK_ACL_RULE_CTRL		0x201000	/* tbl 0x34 */
 +#define YT921X_STOCK_ACL_PORT_CTRL		0x202000	/* tbl 0x35 */
@@ -8973,6 +9048,7 @@ Signed-off-by: Jakub Kicinski <kuba@kernel.org>
 +	bool isolated;
 +	bool mcast_flood;
 +	bool bcast_flood;
++	bool mcast_fast_leave;
 +	bool port_up;
 +
 +	struct delayed_work mib_read;
