@@ -1,5 +1,125 @@
 # YT9215 Register Map Changelog
 
+## 2026-04-02: synchronized register-map symbols with current `yt921x` header
+
+What changed:
+- Aligned unified register-map names to current driver header symbols (removed stale alias names):
+  - multicast/router policy block:
+    - `YT921X_STOCK_MCAST_STATIC_ROUTER_PORT`
+    - `YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT`
+    - `YT921X_STOCK_MCAST_FWD_POLICY`
+    - `YT921X_STOCK_MCAST_PORT_POLICY`
+    - `YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_STAT`
+    - `YT921X_STOCK_MCAST_ROUTER_PORT_AGE_[A/B/C]`
+    - `YT921X_STOCK_MCAST_VLAN_TABLE`
+  - mirror/QoS helper naming:
+    - `YT921X_STOCK_MIRROR_PRIO_MAP`
+    - `YT921X_QSCH_SHP_SLOT_TIME`
+    - `YT921X_QSCH_SHP_CFG`
+    - `YT921X_QSCH_METER_CFG`
+  - VLAN ingress translation symbol:
+    - `YT921X_STOCK_VLAN_IGR_TRANS_CTRL`
+  - RMA table symbol:
+    - `YT921X_STOCK_RMA_CTRLn(n)`
+
+Added missing stock table rows (present in header, previously absent in map):
+- L2 family:
+  - `0x180404` (`YT921X_STOCK_L2_PORT_LEARNLIMIT_CNT`, tbl `0x7f`)
+  - `0x180438` (`YT921X_STOCK_L2_SYSTEM_LEARNLIMIT`, tbl `0x80`)
+  - `0x18043c` (`YT921X_STOCK_L2_FDB_UCAST_CNT`, tbl `0x81`)
+  - `0x180448` (`YT921X_STOCK_L2_FDB_AGING_PORT_EN`, tbl `0x83`)
+  - `0x180504` (`YT921X_STOCK_L2_FDB_MCAST_CNT`, tbl `0x97`)
+- LAG family:
+  - `0x180808` (`YT921X_STOCK_LAG_LEARNLIMIT`, tbl `0xaf`)
+- MCAST aging profiles:
+  - `0x180474` / `0x180478` (`YT921X_STOCK_MCAST_ROUTER_PORT_AGE_A/B`, tbl `0x8c/0x8d`)
+
+Added section:
+- `Header Constants (Non-MMIO)` to document current header constants that are not registers:
+  - `YT921X_STOCK_RATE_METER_STRIDE`
+  - `YT921X_QSCH_SHP_ENTRY_STRIDE`
+  - `YT921X_STOCK_LOOP_DETECT_DEFAULT_TPID`
+  - `YT921X_EDATA_EXTMODE`
+  - `YT921X_EDATA_LEN`
+  - `YT921X_FRAME_SIZE_MAX`
+
+## 2026-03-31: driver debug path now wires ctrlpkt stock tables (`0x74..0x77`)
+
+What changed:
+- `yt921x` debug command path now includes explicit control-packet commands:
+  - `ctrlpkt show`
+  - `ctrlpkt set <arp|nd|lldp_eee|lldp> <val>`
+- This gives named/manual driver access to stock control-packet tables:
+  - `0x180284` (`tbl 0x74`, ARP)
+  - `0x180288` (`tbl 0x75`, ND)
+  - `0x18028c` (`tbl 0x76`, LLDP-EEE)
+  - `0x180290` (`tbl 0x77`, LLDP)
+
+Live baseline (post-flash validation):
+- `arp=0x00000000`
+- `nd=0x00000000`
+- `lldp_eee=0x000007ff`
+- `lldp=0x00000000`
+
+Docs impact:
+- Rebased unified table entries for the four ctrlpkt registers from
+  `stock-path only` to `driver debug-wired/manual`.
+- Added write-recipe + RMW snippet rows that use `ctrlpkt show/set`.
+
+## 2026-03-31: expanded stock-only register coverage for unimplemented feature families
+
+What was added to unified map:
+- Control-packet action tables (`tbl 0x74..0x77`):
+  - `0x180284`, `0x180288`, `0x18028c`, `0x180290`
+  - from `fal_tiger_ctrlpkt_{arp,nd,lldp_eee,lldp}_act_{set,get}`.
+- Dot1x stock tables:
+  - `0x18059c` (`tbl 0x9e`, port-based enable/auth)
+  - `0x1805a0` (`tbl 0x9f`, bypass/direction controls)
+- ACL stock tables:
+  - `0x201000` (`tbl 0x34`), `0x202000` (`tbl 0x35`),
+    `0x202004` (`tbl 0x36`), `0x203000` (`tbl 0x37`),
+    `0x1806a0` (`tbl 0xa5`, unmatch-permit)
+- Multicast policy/MVR-related stock tables:
+  - `0x180468`, `0x18046c`, `0x18047c`, `0x180480`, `0x1804bc`,
+    `0x180500`, `0x1805a4`, `0x1806bc`, `0x180700`
+  - table IDs `0x89/0x8a/0x8e/0x8f/0x93/0x96/0xa0/0xaa/0xab`
+- VLAN translation stock tables (currently not driver-wired):
+  - ingress: `0x2100e0` (`tbl 0x20`), `0x230108` (`0x2f`),
+    `0x230200` (`0x30`),
+    `0x230400` (`0x32`), `0x230600` (`0x33`)
+  - egress: `0x100320` (`0xde`), `0x1003a0` (`0xdf`),
+    `0x100420` (`0xe0`), `0x1004a8` (`0xe1`)
+
+Cleanup included:
+- Removed stale unknown row `UNKNOWN_18028C` (now mapped as ctrlpkt LLDP-EEE action table).
+- Narrowed unknown policy row from `0x180500-0x18053c` to `0x18051c-0x18053c`
+  because `0x180500` is now mapped as stock multicast learn-limit table.
+- Added explicit `YT921X_STOCK_RMA_CTRL` (`0x1805d0`, `tbl 0xa3`) and narrowed
+  old unknown range from `0x1805d0-0x18068c` to `0x1805d4-0x18068c`.
+- Removed stale unknown row `UNKNOWN_1806BC` (now mapped as stock multicast
+  routerport aging control extension table).
+
+## 2026-03-31: added stock WoL control register mapping (`tbl 0x2a`)
+
+Decode context:
+- Source module: `Collection-Data/cr881x/mtd22_rootfs/lib/modules/4.4.60/yt_switch.ko`
+- Symbols:
+  - `fal_tiger_wol_ctrl_{set,get}`
+  - `fal_tiger_wol_ethertype_{set,get}`
+- Disassembly evidence:
+  - WoL APIs use table ID immediate `0x2a` in `hal_table_reg_*` calls.
+
+What was confirmed:
+- `tbl id 0x2a` base is `0x0021011c` (from stock `tbl_reg_list` decode).
+- Field usage in stock WoL path:
+  - `f1` controls WoL enable (`wol_ctrl_set/get`).
+  - `f0` carries WoL EtherType (`wol_ethertype_set/get`, `u16`).
+
+Docs impact:
+- Updated unified register map:
+  - added `YT921X_STOCK_WOL_CTRL` row in unified table.
+  - added `YT921X_STOCK_WOL_CTRL` row in RMW snippets.
+
 ## 2026-03-31: extracted stock mirror/remark field usage (`0xd5/0xd6/0xd9/0xdb/0xdc`)
 
 Decode context:

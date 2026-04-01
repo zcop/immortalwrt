@@ -128,6 +128,10 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_PORTn_QOS(port)` | `(0x180180 + 4 * (port))` | dynamic / see probes | Per-port QoS source-selection + default priority enable. | Medium |
 | `YT921X_PORTn_PRIO_ORD(port)` | `(0x180200 + 4 * (port))` | dynamic / see probes | Per-port application priority order selection. | Medium |
 | `YT921X_VLAN_IGR_FILTER` | `0x180280` | dynamic (0x0/0x7 in 3-LAN profile) | Ingress VLAN filter enable mask. 0x0 off; 0x7 enables p0..p2 in current 3-LAN profile. | High |
+| `YT921X_STOCK_CTRLPKT_ARP_ACT` | `0x00180284` | `0x00000000` | Control-packet ARP action table (`tbl id 0x74`); stock API-backed and now driver debug-wired via `ctrlpkt show/set arp`. | High |
+| `YT921X_STOCK_CTRLPKT_ND_ACT` | `0x00180288` | `0x00000000` | Control-packet ND action table (`tbl id 0x75`); stock API-backed and now driver debug-wired via `ctrlpkt show/set nd`. | High |
+| `YT921X_STOCK_CTRLPKT_LLDP_EEE_ACT` | `0x0018028c` | `0x000007ff` | Control-packet LLDP-EEE action table (`tbl id 0x76`); stock API-backed and now driver debug-wired via `ctrlpkt show/set lldp_eee`. | High |
+| `YT921X_STOCK_CTRLPKT_LLDP_ACT` | `0x00180290` | `0x00000000` | Control-packet LLDP action table (`tbl id 0x77`); stock API-backed and now driver debug-wired via `ctrlpkt show/set lldp`. | High |
 | `YT921X_PORTn_ISOLATION(port)` | `(0x180294 + 4 * (port))` | dynamic / see probes | Directional block mask (negative logic): bit d=1 blocks src->dst d, bit d=0 allows. | High |
 | `YT921X_STPn(n)` | `(0x18038c + 4 * (n))` | dynamic / see probes | STP state word per instance. STP0 is active runtime bank. | High |
 | `YT921X_PORTn_LEARN(port)` | `(0x1803d0 + 4 * (port))` | dynamic / see probes | Per-port learning policy and limits. | High |
@@ -137,27 +141,58 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_FDB_IN2` | `0x18045c` | dynamic (0x04000000 sample) | FDB input word2 (egress mask/copy/prio/new-VID fields for command payload). | Medium |
 | `YT921X_FDB_OP` | `0x180460` | dynamic / see probes | FDB command register: op `[3:1]` (add/del/get/flush), start bit0, index/mode/flush selectors. | High |
 | `YT921X_FDB_RESULT` | `0x180464` | dynamic (0x00008f05 sample) | FDB result: bit15 DONE, bit14 NOTFOUND, bit13 OVERWRITED, index `[11:0]` (sample index `0x0f05`). | High |
+| `YT921X_STOCK_L2_PORT_LEARNLIMIT_CNT` | `0x00180404` | stock-path only | L2 per-port learn-limit counter/control table (`tbl id 0x7f`). | Medium |
+| `YT921X_STOCK_L2_SYSTEM_LEARNLIMIT` | `0x00180438` | stock-path only | L2 system learn-limit table (`tbl id 0x80`). | Medium |
+| `YT921X_STOCK_L2_FDB_UCAST_CNT` | `0x0018043c` | stock-path only | L2 unicast FDB counter table (`tbl id 0x81`). | Medium |
+| `YT921X_STOCK_L2_FDB_AGING_PORT_EN` | `0x00180448` | stock-path only | L2 per-port FDB aging enable table (`tbl id 0x83`). | Medium |
+| `YT921X_STOCK_MCAST_STATIC_ROUTER_PORT` | `0x00180468` | stock-path only | Static multicast router-port control (`tbl id 0x89`). | Medium |
+| `YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT` | `0x0018046c` | stock-path only | Dynamic multicast router-port aging/allow control (`tbl id 0x8a`). | Medium |
+| `YT921X_STOCK_MCAST_ROUTER_PORT_AGE_A` | `0x00180474` | stock-path only | Dynamic router-port aging profile A (`tbl id 0x8c`). | Medium |
+| `YT921X_STOCK_MCAST_ROUTER_PORT_AGE_B` | `0x00180478` | stock-path only | Dynamic router-port aging profile B (`tbl id 0x8d`). | Medium |
+| `YT921X_STOCK_MCAST_FWD_POLICY` | `0x0018047c` | stock-path only | Global multicast/IGMP/MLD policy (`tbl id 0x8e`): fast-leave/routerport/bypass group-range controls. | Medium |
+| `YT921X_STOCK_MCAST_PORT_POLICY` | `0x00180480` | stock-path only | Per-port multicast report/query/leave allow + igmp bypass isolation (`tbl id 0x8f`). | Medium |
+| `YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_STAT` | `0x001804bc` | stock-path only | Dynamic multicast router-port state (`tbl id 0x93`). | Medium |
 | `YT921X_FDB_OUT0` | `0x1804b0` | dynamic / see probes | Header-defined register/formula; behavior not yet fully profiled. | Medium |
 | `YT921X_FDB_OUT1` | `0x1804b4` | dynamic / see probes | FDB payload word1: status + FID/VID + MAC low bits. | Medium |
 | `YT921X_FDB_OUT2` | `0x1804b8` | dynamic / see probes | FDB payload word2: egress mask/copy-to-cpu/priority/new-VID fields. | Medium |
+| `YT921X_STOCK_MCAST_LEARNLIMIT` | `0x00180500` | stock-path only | Multicast learn-limit controls (`tbl id 0x96`): enable + max groups. | Medium |
+| `YT921X_STOCK_L2_FDB_MCAST_CNT` | `0x00180504` | stock-path only | L2 multicast FDB counter table (`tbl id 0x97`). | Medium |
 | `YT921X_FILTER_UNK_UCAST` | `0x180508` | dynamic / see probes | Unknown-unicast destination-port mask (`[10:0]` => p0..p10). | Medium |
 | `YT921X_FILTER_UNK_MCAST` | `0x18050c` | dynamic / see probes | Unknown-multicast destination-port mask (`[10:0]` => p0..p10). | Medium |
 | `YT921X_FILTER_MCAST` | `0x180510` | 0x00000400 (safe baseline) | Multicast flood/filter mask. 0x400 safe baseline; 0x7ff correlated with blackhole in bad runtime. | High |
 | `YT921X_FILTER_BCAST` | `0x180514` | 0x00000400 (safe baseline) | Broadcast flood/filter mask. 0x400 safe baseline; 0x7ff correlated with blackhole in bad runtime. | High |
 | `YT921X_VLAN_EGR_FILTER` | `0x180598` | dynamic / see probes | Per-port VLAN egress filter enable mask. | Medium |
+| `YT921X_STOCK_MCAST_IPMC_BYPASS_ISO` | `0x001805a4` | stock-path only | IP multicast bypass-port-isolation control (`tbl id 0xa0`). | Medium |
 | `YT921X_LAG_GROUPn(n)` | `(0x1805a8 + 4 * (n))` | dynamic / see probes | LAG group member-port mask and member count. | Medium |
 | `YT921X_LAG_MEMBERnm(n, m)` | `(0x1805b0 + 4 * (4 * (n) + (m)))` | dynamic / see probes | LAG member slot to physical port mapping. | Medium |
+| `YT921X_STOCK_LAG_LEARNLIMIT` | `0x00180808` | stock-path only | LAG learn-limit control table (`tbl id 0xaf`). | Medium |
 | `YT921X_CPU_COPY` | `0x180690` | 0x00000001 | CPU copy policy: bit0 copy to ext CPU, bit1 to int CPU, bit2 force-int-port path. | Medium |
+| `YT921X_STOCK_MCAST_ROUTER_PORT_AGE_C` | `0x001806bc` | stock-path only | Extended dynamic-routerport aging control (`tbl id 0xaa`). | Medium |
+| `YT921X_STOCK_MCAST_VLAN_TABLE` | `0x00180700` | stock-path only | Multicast VLAN (MVR-like) add/get/del table (`tbl id 0xab`). | Medium |
+| `YT921X_STOCK_RMA_CTRLn(n)` | `(0x1805d0 + 4 * (n))` | stock-path only | Reserved-multicast action/bypass control table (`tbl id 0xa3`) used by `fal_tiger_rma_action_*` and bypass policy calls. | Medium |
 | `YT921X_ACT_UNK_UCAST` | `0x180734` | 0x00020000 | Per-port unknown-ucast action in 2-bit fields: `00` flood, `01` trap, `10` drop, `11` copy (unsafe). | Medium |
 | `YT921X_ACT_UNK_MCAST` | `0x180738` | 0x00420000 | Per-port unknown-mcast action in 2-bit fields; bit22/bit23 are bypass-drop controls for IGMP/RMA classes. | Medium |
 | `YT921X_FDB_HW_FLUSH` | `0x180958` | dynamic / see probes | HW FDB flush policy; bit0 enables auto flush on link-down. | Medium |
 | `YT921X_VLANn_CTRL(vlan)` | `(0x188000 + 8 * (vlan))` | dynamic / see probes | VTU entry base (8 bytes/VID): member ports `[17:7]`, FID `[34:23]`, untag ports `[50:40]`, plus STP/prio/learn controls. | High |
 | `YT921X_TPID_IGRn(x)` | `(0x210000 + 4 * (x))` | dynamic / see probes | Ingress TPID profile table. | Medium |
 | `YT921X_PORTn_IGR_TPID(port)` | `(0x210010 + 4 * (port))` | dynamic / see probes | Per-port ingress TPID selector mask. | Medium |
+| `YT921X_STOCK_VLAN_IGR_TRANS_CTRL` | `0x002100e0` | stock-path only | Ingress VLAN translation control/lookup path (`tbl id 0x20`). | Medium |
 | `YT921X_LAG_HASH` | `0x210090` | dynamic / see probes | Global LAG hash key-select bits (MAC/IP/L4/src-port). | Medium |
 | `YT921X_PORTn_VLAN_CTRL(port)` | `(0x230010 + 4 * (port))` | dynamic / see probes | Per-port default VLAN control. PVID = (value >> 6) & 0xFFF. | High |
 | `YT921X_PORTn_VLAN_CTRL1(port)` | `(0x230080 + 4 * (port))` | 0x00000000 (sampled) | VLAN range/drop control: range-en bit8, profile `[7:4]`, drop tagged/untagged bits for C/S-VLAN at `[3:0]`. | High |
+| `YT921X_STOCK_VLAN_TRANS_UNTAG_PVID_IGNORE` | `0x00230108` | stock-path only | VLAN translation untag-PVID-ignore control (`tbl id 0x2f`). | Medium |
+| `YT921X_STOCK_VLAN_TRANS_RANGE_PROFILE` | `0x00230200` | stock-path only | VLAN translation range-profile table (`tbl id 0x30`). | Medium |
+| `YT921X_STOCK_VLAN_IGR_TRANS_TABLE0` | `0x00230400` | stock-path only | Ingress VLAN translation table bank0 (`tbl id 0x32`). | Medium |
+| `YT921X_STOCK_VLAN_IGR_TRANS_TABLE1` | `0x00230600` | stock-path only | Ingress VLAN translation table bank1 (`tbl id 0x33`). | Medium |
 | `YT921X_STOCK_LOOP_DETECT_TOP_CTRL` | `0x00080230` | stock-path only | Stock loop-detect control table (`tbl id 0x0d`). Decoded fields: `f5=1@18` enable, `f6=16@2` TPID, `f8=1@0` generate-way, `f4/f3/f2` unit-id slices. | Medium |
+| `YT921X_STOCK_WOL_CTRL` | `0x0021011c` | stock-path only | Stock WoL control table (`tbl id 0x2a`, confirmed by `fal_tiger_wol_*` disassembly). Field usage: `f1` = WoL enable (`wol_ctrl_set/get`), `f0` = WoL EtherType (`wol_ethertype_set/get`). | High |
+| `YT921X_STOCK_ACL_RULE_CTRL` | `0x00201000` | stock-path only | ACL rule control block (`tbl id 0x34`) used by stock ACL create/update path. | Medium |
+| `YT921X_STOCK_ACL_PORT_CTRL` | `0x00202000` | stock-path only | ACL per-port enable block (`tbl id 0x35`) used by `fal_tiger_acl_port_en_{set,get}`. | Medium |
+| `YT921X_STOCK_ACL_BLOCK_CTRL` | `0x00202004` | stock-path only | ACL block command/control block (`tbl id 0x36`) used in stock ACL rule programming flow. | Medium |
+| `YT921X_STOCK_ACL_RULE_DATA` | `0x00203000` | stock-path only | ACL rule key/mask/action data block (`tbl id 0x37`) used by stock ACL create/delete paths. | Medium |
+| `YT921X_STOCK_DOT1X_PORT_BASED` | `0x0018059c` | stock-path only | 802.1X port-based enable/auth status control (`tbl id 0x9e`) used by stock `fal_tiger_dot1x_portBased*`. | Medium |
+| `YT921X_STOCK_DOT1X_BYPASS_CTRL` | `0x001805a0` | stock-path only | 802.1X direction + tx/rx bypass control (`tbl id 0x9f`) used by stock `fal_tiger_dot1x_*_bypass*` and direction/auth orchestration. | Medium |
+| `YT921X_STOCK_ACL_UNMATCH_PERMIT` | `0x001806a0` | stock-path only | ACL unmatched-permit policy (`tbl id 0xa5`) used by `fal_tiger_acl_unmatch_permit_en_{set,get}`. | Medium |
 | `YT921X_STOCK_STORM_RATE_IO` | `0x00220100` | stock-path only | Stock storm table (`tbl id 0xc6`) used by `fal_tiger_storm_ctrl_rate_set/get` as rate/timeslot input side. | Medium |
 | `YT921X_STOCK_STORM_MC_TYPE_CTRL` | `0x00220140` | stock-path only | Stock storm multicast-type mask table (`tbl id 0xc9`), decoded `11@0` port/type mask field. | Medium |
 | `YT921X_STOCK_STORM_CONFIG` | `0x00220200` | stock-path only | Stock storm global config (`tbl id 0xcc`), decoded fields: `f4=bit0` enable, `f3=bit1` mode, `f2=bit2` include-gap, plus rate fields `f1=10@3`, `f0=19@13`. | Medium |
@@ -171,25 +206,27 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_STOCK_QOS_SCHED_DWRR` | `0x00341000` | dynamic / ets-mapped (subset) | DWRR scheduler config (`tbl id 0xe6`), programmed by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_STOCK_QOS_SCHED_DWRR_MODE0` | `0x00342000` | dynamic / ets-mapped (subset) | DWRR mode bank0 (`tbl id 0xe7`), used by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_STOCK_QOS_SCHED_DWRR_MODE1` | `0x00343000` | dynamic / ets-mapped (subset) | DWRR mode bank1 (`tbl id 0xe8`), used by current ETS/mqprio scheduler path. | Medium |
-| `YT921X_STOCK_QOS_QSCH_SLOT_TIME` | `0x00340008` | dynamic / queue-tbf-mapped | Queue scheduler slot-time word (`tbl id 0xe4`), currently ensured/set by queue `tc tbf` path. | Medium |
-| `YT921X_STOCK_QOS_QSCH_SHAPER` | `0x0034c000` | dynamic / queue-tbf-mapped | Queue shaper config base (`tbl id 0xe9`), per-flow shaper words used by queue `tc tbf`. | High |
-| `YT921X_STOCK_QOS_QSCH_METER` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
+| `YT921X_QSCH_SHP_SLOT_TIME` | `0x00340008` | dynamic / queue-tbf-mapped | Queue scheduler slot-time word (`tbl id 0xe4`), currently ensured/set by queue `tc tbf` path. | Medium |
+| `YT921X_QSCH_SHP_CFG` | `0x0034c000` | dynamic / queue-tbf-mapped | Queue shaper config base (`tbl id 0xe9`), per-flow shaper words used by queue `tc tbf`. | High |
+| `YT921X_QSCH_METER_CFG` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
 | `YT921X_STOCK_QOS_REMARK_PORT_CTRL` | `0x00100000` | dynamic / remark-default-mapped | Per-port remark control (`tbl id 0xd9`): stock `fal_tiger_qos_remark_port_{set,get}` use field IDs `4/1/3/0/2`; CPRI/SPRI toggles use `f7/f8`; egr TPID index API uses `f5/f6`. | Medium |
 | `YT921X_STOCK_QOS_REMARK_PORT` | `0x00100080` | stock-path decoded / not actively programmed | Egress port VLAN policy (`tbl id 0xda`): decoded `egr_port_vlan_ctrlnm_field` with mode fields `[29:27]`/`[14:12]` and default-VID fields `[26:15]`/`[11:0]`; stock `egrTagMode` uses field IDs `2/4`, `egrDefaultVid` uses `3/5`. | Medium |
 | `YT921X_STOCK_QOS_REMARK_DSCP` | `0x00100100` | dynamic / remark-default-mapped | Egress DSCP remark table (`tbl id 0xdb`); stock DSCP set/get path uses field ID `0` with dynamic table index. | Medium |
 | `YT921X_STOCK_QOS_REMARK_CPRI_SPRI` | `0x00100200` | dynamic / remark-default-mapped | Egress CPRI/SPRI remark table (`tbl id 0xdc`); stock CPRI/SPRI paths use fields `1` and `0` (paired with `0xd9:f7/f8`). | Medium |
+| `YT921X_STOCK_VLAN_EGR_TRANS_TABLE0` | `0x00100320` | stock-path only | Egress VLAN translation table bank0 (`tbl id 0xde`). | Medium |
+| `YT921X_STOCK_VLAN_EGR_TRANS_TABLE1` | `0x001003a0` | stock-path only | Egress VLAN translation table bank1 (`tbl id 0xdf`). | Medium |
+| `YT921X_STOCK_VLAN_EGR_TRANS_TABLE2` | `0x00100420` | stock-path only | Egress VLAN translation table bank2 (`tbl id 0xe0`). | Medium |
+| `YT921X_STOCK_VLAN_EGR_TRANSPARENT` | `0x001004a8` | stock-path only | Per-port egress VLAN transparent control (`tbl id 0xe1`). | Medium |
 | `YT921X_MIRROR` | `0x300300` | dynamic / see probes | Mirror routing (`tbl id 0xd5`): ingress-src mask `[26:16]`, egress-src mask `[14:4]`, destination port `[3:0]`; stock API uses fields `f2/f0/f1`. | High |
-| `YT921X_STOCK_MIRROR_QOS_CTRL` | `0x300304` | stock-path decoded / not actively programmed | Mirror QoS map control (`tbl id 0xd6`): igrMirror uses fields `1/0`, egrMirror uses fields `3/2`. | Medium |
+| `YT921X_STOCK_MIRROR_PRIO_MAP` | `0x300304` | stock-path decoded / not actively programmed | Mirror QoS map control (`tbl id 0xd6`): igrMirror uses fields `1/0`, egrMirror uses fields `3/2`. | Medium |
 | `YT921X_PSCH_SHPn_EBS_EIR(port)` | `(0x354000 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper EBS/EIR word. Used with `tc tbf` offload mapping on `wan`. | High |
 | `YT921X_PSCH_SHPn_CTRL(port)` | `(0x354004 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper enable/mode control word. | High |
-| `UNKNOWN_18028C` | `0x18028c` | `0x000007ff` | Unknown global mask-like word; writable, no deterministic forwarding-path coupling confirmed yet. | Medium |
 | `UNKNOWN_1802C0_180308` | `0x1802c0-0x180308` | `0xdeadbeef` | Gated window A; reads gated, no stable unlock sequence confirmed. | Low |
 | `UNKNOWN_18030C_180334` | `0x18030c-0x180334` | `0x00000000` | Writable 11-word table (`& 0x7ff` values persist); function still unknown. | Medium |
 | `UNKNOWN_180338_180388` | `0x180338-0x180388` | `0xdeadbeef` | Gated window B; reads gated, no stable unlock sequence confirmed. | Low |
-| `UNKNOWN_180500_18053C` | `0x180500-0x18053c` | mostly `0x00000000` | Unknown policy block near flood/action regs; low-bit sweeps showed no deterministic path effect. | Low |
-| `UNKNOWN_1805D0_18068C` | `0x1805d0-0x18068c` | mostly `0x0000003f` (`0x1805d4/0x1805d8=0x0000023f`) | Unknown mask matrix; no deterministic coupling to tested known-ucast/UU/MC paths. | Low |
+| `UNKNOWN_18051C_18053C` | `0x18051c-0x18053c` | mostly `0x00000000` | Unknown policy sub-block near flood/action regs; low-bit sweeps showed no deterministic path effect. | Low |
+| `UNKNOWN_1805D4_18068C` | `0x1805d4-0x18068c` | mostly `0x0000003f` (`0x1805d4/0x1805d8=0x0000023f`) | Unknown mask matrix; no deterministic coupling to tested known-ucast/UU/MC paths. | Low |
 | `UNKNOWN_1806B8` | `0x1806b8` | `0x000007ff` | Threshold-like candidate; A/B sweeps showed no stable limiter effect. | Low |
-| `UNKNOWN_1806BC` | `0x1806bc` | `0x00000010` | Mode-like selector candidate; static in tested workloads. | Low |
 | `UNKNOWN_355000_355028` | `0x355000-0x355028` | mostly `0x00000000` | QoS-neighbor island; no deterministic effect from low-bit sweeps. | Low |
 
 ## Write Recipes (Value -> Effect)
@@ -209,6 +246,10 @@ Concrete examples from CR881x live tests.
 | `YT921X_ACT_UNK_UCAST` (`0x180734`) | `field(port)=00/01/10/11` | Per-port unknown-ucast action: flood / trap / drop / copy(unsafe). | board baseline `0x00020000` |
 | `YT921X_ACT_UNK_MCAST` (`0x180738`) | `field(port)=00/01/10/11` | Per-port unknown-mcast action: flood / trap / drop / copy(unsafe). | board baseline `0x00420000` |
 | `YT921X_CPU_COPY` (`0x180690`) | `0x00000001` | Copy/trap to external CPU path enabled (baseline). | `0x00000001` |
+| `YT921X_STOCK_CTRLPKT_ARP_ACT` (`0x180284`) | `0x00000000` | ARP control-packet policy baseline on CR881x. | `0x00000000` |
+| `YT921X_STOCK_CTRLPKT_ND_ACT` (`0x180288`) | `0x00000000` | ND control-packet policy baseline on CR881x. | `0x00000000` |
+| `YT921X_STOCK_CTRLPKT_LLDP_EEE_ACT` (`0x18028c`) | `0x000007ff` | LLDP-EEE control-packet mask baseline on CR881x. | `0x000007ff` |
+| `YT921X_STOCK_CTRLPKT_LLDP_ACT` (`0x180290`) | `0x00000000` | LLDP control-packet policy baseline on CR881x. | `0x00000000` |
 | `YT921X_FDB_HW_FLUSH` (`0x180958`) | `bit0=1` | Enable auto FDB flush on link-down events. | policy-dependent |
 | `YT921X_PORTn_VLAN_CTRL(p)` (`0x230010 + 4*p`) | set CVID field: `value = (value & ~0x0003ffc0) | (VID << 6)` | Changes port PVID/CVID. Example: `VID=100` writes `0x1900` into `[17:6]`. | restore prior snapshot value |
 | `YT921X_VLANn_CTRL(vid)` (`0x188000 + 8*vid`) | word0 membership bits + word1 untag bits | Programs VLAN member ports and egress-untag behavior for that VID. | restore original 2-word pair |
@@ -230,6 +271,7 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_FILTER_MCAST` (`0x180510`) | ports field `[10:0]` | `v = (v & ~0x000007ff) | (mask & 0x7ff)` | safe baseline: `mask=0x400` |
 | `YT921X_FILTER_BCAST` (`0x180514`) | ports field `[10:0]` | `v = (v & ~0x000007ff) | (mask & 0x7ff)` | safe baseline: `mask=0x400` |
 | `YT921X_CPU_COPY` (`0x180690`) | low bits `[2:0]` | ext CPU: `v |= BIT(0)`; int CPU: `v |= BIT(1)`; force-int: `v |= BIT(2)`; clear with `&= ~BIT(n)` | baseline ext-only: `v = (v & ~0x7) | 0x1` |
+| `YT921X_STOCK_CTRLPKT_*_ACT` (`0x180284/88/8c/90`) | full word policy value | write via debug command: `ctrlpkt set <arp|nd|lldp_eee|lldp> <val>`; inspect with `ctrlpkt show` | baseline: arp=`0x0`, nd=`0x0`, lldp_eee=`0x7ff`, lldp=`0x0` |
 | `YT921X_ACT_UNK_UCAST` (`0x180734`) | per-port action field `2*port+1:2*port` | `v = (v & ~(0x3 << (2*port))) | (act << (2*port))` | `act=2` drops unknown-ucast on that port |
 | `YT921X_ACT_UNK_MCAST` (`0x180738`) | per-port action field `2*port+1:2*port` + bypass bits 22/23 | action set as above; bypass IGMP: `v |= BIT(22)`; bypass RMA: `v |= BIT(23)` | baseline on CR881x: `0x00420000` |
 | `YT921X_FDB_HW_FLUSH` (`0x180958`) | bit0 | enable link-down auto-flush: `v |= BIT(0)`; disable: `v &= ~BIT(0)` | set bit0 for automatic stale FDB cleanup |
@@ -238,18 +280,31 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_VLANn_CTRL(vid)` word0 (`0x188000 + 8*vid`) | member field `[17:7]` | `w0 = (w0 & ~0x0003ff80) | ((member_mask & 0x7ff) << 7)` | VLAN members `p0,p1,p8`: `mask=0x103` |
 | `YT921X_VLANn_CTRL(vid)` word1 (`0x188004 + 8*vid`) | untag field `[18:8]` (maps global bits `[50:40]`) | `w1 = (w1 & ~0x0007ff00) | ((untag_mask & 0x7ff) << 8)` | untag egress on `p0,p1`: `mask=0x003` |
 | `YT921X_MIRROR` (`0x300300`) | igr-src `[26:16]`, egr-src `[14:4]`, dst `[3:0]` | `v = (v & ~0x07ff7fff) | ((igr&0x7ff)<<16) | ((egr&0x7ff)<<4) | (dst&0xf)` | mirror ingress `p0` to `p8`: `igr=0x001,dst=8` |
-| `YT921X_STOCK_MIRROR_QOS_CTRL` (`0x300304`) | igrMirror fields `1/0`, egrMirror fields `3/2` | stock path writes/reads field pairs via `fal_tiger_qos_intPri_map_{igr,egr}Mirror_{set,get}` | decoded from stock disassembly; driver wiring pending |
+| `YT921X_STOCK_MIRROR_PRIO_MAP` (`0x300304`) | igrMirror fields `1/0`, egrMirror fields `3/2` | stock path writes/reads field pairs via `fal_tiger_qos_intPri_map_{igr,egr}Mirror_{set,get}` | decoded from stock disassembly; driver wiring pending |
 | `YT921X_STOCK_STORM_CONFIG` (`0x220200`) | `f4:bit0`, `f3:bit1`, `f2:bit2`, `f1:[12:3]`, `f0:[31:13]` | `v=(v&~BIT(0))|en`; `v=(v&~BIT(1))|(mode<<1)`; `v=(v&~BIT(2))|(ig<<2)`; `v=(v&~GENMASK(12,3))|((f1&0x3ff)<<3)`; `v=(v&~GENMASK(31,13))|((f0&0x7ffff)<<13)` | stock uses table-api field IDs `4/3/2/1/0` |
 | `YT921X_STOCK_STORM_MC_TYPE_CTRL` (`0x220140`) | mask `[10:0]` | `v = (v & ~0x000007ff) | (mask & 0x7ff)` | driven by stock table `0xc9` field `0` |
 | `YT921X_STOCK_LOOP_DETECT_TOP_CTRL` (`0x00080230`) | `f5:bit18`, `f6:[17:2]`, `f8:bit0`, `f4:[20:19]`, `f3:[22:21]`, `f2:[24:23]` | `enable: v=(v&~BIT(18))|(en<<18)`; `tpid: v=(v&~GENMASK(17,2))|((tpid&0xffff)<<2)`; `gen: v=(v&~BIT(0))|(g<<0)`; unit-id: set `f4/f3/f2` | stock table id `0x0d` |
+| `YT921X_STOCK_WOL_CTRL` (`0x21011c`) | `f1:bit0` (enable), `f0:[15:0]` (ethertype) | enable: set `f1=1`; disable: `f1=0`; EtherType path writes/reads `f0` (`u16`) | stock table id `0x2a` (`fal_tiger_wol_ctrl_*`, `fal_tiger_wol_ethertype_*`) |
 | `YT921X_STOCK_RATE_IGR_BW_ENABLE` (`0x220108`) | `enable:bit4`, `meter_id:[3:0]` | `v=(v&~BIT(4))|(en<<4); v=(v&~GENMASK(3,0))|(meter_id&0xf)` | current `port_policer` path uses this table (`tbl 0xc8`) |
 | `YT921X_STOCK_RATE_IGR_BW_CTRL` (`0x220104`) | `meter_timeslot:[11:0]` | `v=(v&~GENMASK(11,0))|(timeslot&0xfff)` | current `port_policer` path uses this table (`tbl 0xc7`) |
 | `YT921X_STOCK_RATE_METER_CONFIGn(n)` (`0x220800+0x10*n`) | decoded fields across words 0/1/2 | set with field RMW per decoded map (`meter_config_tblm_field` entries 0..13) | current `port_policer` path uses this table (`tbl 0xce`) |
 | `YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port)` (`0x300200+4*port`) | 8 slots, each `3-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x7) << shift_i)` where shifts=`28,24,20,16,12,8,4,0` | current `mqprio` offload programs this |
 | `YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port)` (`0x300280+4*port`) | 8 slots, each `2-bit` (`prio0..7`) | `v = Σ((qid[i] & 0x3) << shift_i)` where shifts=`14,12,10,8,6,4,2,0` | current driver mirrors ucast map into this table |
 | `YT921X_STOCK_QOS_SCHED_SP` / `DWRR*` (`0x300400`, `0x341000..0x343000`) | scheduler policy fields (driver-wired subset) | flow-indexed tables: `idx = port*12 + qid` (ucast), `idx = port*12 + 8 + qid` (mcast). Stock call-path uses `0xd7:f1/f0/f2`, `0xe6:f1/f0` (dwrr), `0xe6:f3/f2` (sp path), and `0xe7:f0`/`0xe8:f0` (dwrr mode). | current `ets`/`mqprio` programs safe subset; full stock parity still pending |
-| `YT921X_STOCK_QOS_QSCH_SLOT_TIME` / `SHAPER` / `METER` (`0x340008`, `0x34c000`, `0x34f000`) | queue shaper fields | stock call-path correlation: `0xe4:f0` slot-time, `0xe9:f3/f4` conversion params, `0xe9:f6/f8` token levels, `0xea:f0` paired mode bit(s) | queue `tbf` path is active; remaining `0xe9/0xea` fields are still partially inferred |
+| `YT921X_QSCH_SHP_SLOT_TIME` / `YT921X_QSCH_SHP_CFG` / `YT921X_QSCH_METER_CFG` (`0x340008`, `0x34c000`, `0x34f000`) | queue shaper fields | stock call-path correlation: `0xe4:f0` slot-time, `0xe9:f3/f4` conversion params, `0xe9:f6/f8` token levels, `0xea:f0` paired mode bit(s) | queue `tbf` path is active; remaining `0xe9/0xea` fields are still partially inferred |
 | `YT921X_STOCK_QOS_REMARK_PORT_CTRL` / `DSCP` / `CPRI_SPRI` (`0x100000`, `0x100100`, `0x100200`) | remark control and maps | stock field usage: `0xd9` port path `f4/f1/f3/f0/f2`, CPRI `f7`, SPRI `f8`, egrTPID `f5/f6`; `0xdb` DSCP path uses `f0`; `0xdc` CPRI/SPRI map uses `f1/f0` | initialized by driver defaults; separate `0xda` policy table (mode/default-VID fields) is decoded but still not actively programmed |
+
+## Header Constants (Non-MMIO)
+These exist in the current driver header but are not MMIO register addresses.
+
+| Symbol | Value | Meaning |
+|---|---|---|
+| `YT921X_STOCK_RATE_METER_STRIDE` | `0x10` | Stride between ingress-meter entries under `YT921X_STOCK_RATE_METER_CONFIGn(n)`. |
+| `YT921X_QSCH_SHP_ENTRY_STRIDE` | `0x10` | Stride between queue-shaper entries under `YT921X_QSCH_SHP_WORD0/1/2(qid)`. |
+| `YT921X_STOCK_LOOP_DETECT_DEFAULT_TPID` | `0x9989` | Default TPID constant used by stock loop-detect setup logic. |
+| `YT921X_EDATA_EXTMODE` | `0xfb` | EDATA extended-mode command value used by debug/proc helpers. |
+| `YT921X_EDATA_LEN` | `0x100` | EDATA helper buffer length constant. |
+| `YT921X_FRAME_SIZE_MAX` | `0x2400` | Max frame size constant (9216 bytes). |
 
 ## Notes And Usage Links
 Use these for full procedure, A/B deltas, and raw captures.
