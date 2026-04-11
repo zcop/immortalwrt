@@ -13,6 +13,7 @@
 #include <linux/if_bridge.h>
 #include <linux/if_hsr.h>
 #include <linux/if_vlan.h>
+#include <linux/ip.h>
 #include <linux/iopoll.h>
 #include <linux/jiffies.h>
 #include <linux/mdio.h>
@@ -4756,6 +4757,75 @@ too_complex:
 }
 
 static int
+yt921x_acl_parse_mangle_dscp(const struct flow_rule *rule,
+			     const struct flow_action_entry *act,
+			     struct netlink_ext_ack *extack, u8 *dscp)
+{
+	struct flow_match_basic basic = {};
+	u32 mask_be, val_be;
+	unsigned int byte_idx;
+	u8 byte_mask, byte_val;
+	int i;
+
+	if (act->mangle.htype != FLOW_ACT_MANGLE_HDR_TYPE_IP4) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Only IPv4 DSCP pedit offload is supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "DSCP rewrite requires IPv4 protocol match");
+		return -EOPNOTSUPP;
+	}
+
+	flow_rule_match_basic(rule, &basic);
+	if (basic.mask->n_proto != htons(0xffff) ||
+	    basic.key->n_proto != htons(ETH_P_IP)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "DSCP rewrite requires protocol ip");
+		return -EOPNOTSUPP;
+	}
+
+	if (act->mangle.offset > offsetof(struct iphdr, tos) ||
+	    act->mangle.offset + sizeof(u32) <= offsetof(struct iphdr, tos)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Unsupported DSCP pedit offset");
+		return -EOPNOTSUPP;
+	}
+
+	byte_idx = offsetof(struct iphdr, tos) - act->mangle.offset;
+	mask_be = cpu_to_be32(act->mangle.mask);
+	val_be = cpu_to_be32(act->mangle.val);
+
+	for (i = 0; i < 4; i++) {
+		u8 m = (mask_be >> (24 - i * 8)) & 0xff;
+		u8 v = (val_be >> (24 - i * 8)) & 0xff;
+
+		if (i == byte_idx) {
+			byte_mask = m;
+			byte_val = v;
+			continue;
+		}
+
+		if (m != 0xff || v) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "DSCP pedit must only modify IPv4 DS field byte");
+			return -EOPNOTSUPP;
+		}
+	}
+
+	if (byte_mask != 0x03 || (byte_val & 0x03)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "DSCP rewrite requires 'retain 0xfc' semantics");
+		return -EOPNOTSUPP;
+	}
+
+	*dscp = byte_val >> 2;
+	return 0;
+}
+
+static int
 yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			struct dsa_switch *ds,
 			struct flow_cls_offload *cls)
@@ -4767,6 +4837,7 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 	bool mirror_seen = false;
 	bool trap_seen = false;
 	bool police_seen = false;
+	bool dscp_seen = false;
 	u32 *action = group[0].action;
 	int i;
 
@@ -4918,6 +4989,27 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[0] |= YT921X_ACL_ACTa_METER_EN;
 			police_seen = true;
 			break;
+		case FLOW_ACTION_MANGLE: {
+			u8 dscp;
+			int res;
+
+			res = yt921x_acl_parse_mangle_dscp(rule, act, extack, &dscp);
+			if (res)
+				return res;
+
+			if (dscp_seen &&
+			    FIELD_GET(YT921X_ACL_ACTa_DSCP_M, action[0]) != dscp) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Multiple DSCP rewrite values are not supported");
+				return -EOPNOTSUPP;
+			}
+
+			action[0] &= ~YT921X_ACL_ACTa_DSCP_M;
+			action[0] |= FIELD_PREP(YT921X_ACL_ACTa_DSCP_M, dscp);
+			action[0] |= YT921X_ACL_ACTa_DSCP_REPLACE;
+			dscp_seen = true;
+			break;
+		}
 		default:
 			NL_SET_ERR_MSG_MOD(extack, "Action not supported");
 			return -EOPNOTSUPP;
