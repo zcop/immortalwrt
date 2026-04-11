@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (c) 2025 David Yang
+ * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
 #ifndef __YT921X_H
