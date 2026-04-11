@@ -476,6 +476,40 @@ static int yt921x_reg64_clear_bits(struct yt921x_priv *priv, u32 reg, u64 mask)
 	return yt921x_reg64_update_bits(priv, reg, mask, 0);
 }
 
+static void u32p_replace_bits_unaligned(u32 *lo, u32 *hi, u64 val, u64 mask)
+{
+	*lo &= ~lower_32_bits(mask);
+	*hi &= ~upper_32_bits(mask);
+	*lo |= lower_32_bits(val);
+	*hi |= upper_32_bits(val);
+}
+
+static int yt921x_reg96_write(struct yt921x_priv *priv, u32 reg,
+			      const u32 vals[3])
+{
+	int res;
+
+	res = yt921x_reg_write(priv, reg, vals[0]);
+	if (res)
+		return res;
+	res = yt921x_reg_write(priv, reg + 4, vals[1]);
+	if (res)
+		return res;
+
+	return yt921x_reg_write(priv, reg + 8, vals[2]);
+}
+
+static u32 mac_hi4_to_cpu(const unsigned char *addr)
+{
+	return ((u32)addr[0] << 24) | ((u32)addr[1] << 16) |
+	       ((u32)addr[2] << 8) | addr[3];
+}
+
+static u16 mac_lo2_to_cpu(const unsigned char *addr)
+{
+	return ((u16)addr[4] << 8) | addr[5];
+}
+
 static int yt921x_reg_mdio_read(void *context, u32 reg, u32 *valp)
 {
 	struct yt921x_reg_mdio *mdio = context;
@@ -942,8 +976,8 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  tbl info <id>\n"
 				 "  tbl read <id> <index>\n"
 				 "  tbl write <id> <index> <word> <val>\n"
-				 "  field get <id> <index> <field>\n"
-				 "  field set <id> <index> <field> <val>\n"
+				 "  field get <id> <index> <field|field_idx>\n"
+				 "  field set <id> <index> <field|field_idx> <val>\n"
 				 "  get_flood_filter\n"
 				 "  set_flood_filter <mcast|bcast|both> <mask>\n"
 				 "  port_status [port]\n"
@@ -960,6 +994,8 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  vlan dump <vid>\n"
 				 "  pvid dump [port]\n"
 				 "  stock map <reg>\n"
+				 "  acl_chain show\n"
+				 "  acl_chain set <key1_mask>\n"
 				 "  dump <start> <end> [stride]\n");
 }
 
@@ -1334,16 +1370,22 @@ struct yt921x_proc_tbl_desc {
 	u32 base;
 	u8 entry_words;
 	u8 rw_words;
-	u8 entries;
+	u32 entries;
 	const struct yt921x_proc_tbl_field_desc *fields;
 	size_t nfields;
 };
 
-/* Stock ingress-meter tables (reverse-mapped from yt_switch.ko):
+/* Stock storm/ingress-meter tables (reverse-mapped from yt_switch.ko):
+ *  - tbl 0xc6: storm_rate_iom_field
  *  - tbl 0xc7: meter_timeslotm_field
  *  - tbl 0xc8: port_meter_ctrlnm_field
+ *  - tbl 0xcc: storm_ctrlm_field
  *  - tbl 0xce: meter_config_tblm_field
  */
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_c6[] = {
+	YT921X_PROC_FIELD(12, 0, 0, "timeslot"),
+};
+
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_c7[] = {
 	YT921X_PROC_FIELD(12, 0, 0, "meter_timeslot"),
 };
@@ -1351,6 +1393,14 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_c7[] = {
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_c8[] = {
 	YT921X_PROC_FIELD(1, 0, 4, "enable"),
 	YT921X_PROC_FIELD(4, 0, 0, "meter_id"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_cc[] = {
+	YT921X_PROC_FIELD(19, 0, 13, "rate_f0"),
+	YT921X_PROC_FIELD(10, 0, 3, "rate_f1"),
+	YT921X_PROC_FIELD(1, 0, 2, "include_gap"),
+	YT921X_PROC_FIELD(1, 0, 1, "mode"),
+	YT921X_PROC_FIELD(1, 0, 0, "enable"),
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ce[] = {
@@ -1448,8 +1498,114 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 		.entry_words = 1, .rw_words = 1, .entries = 11,
 	},
 	{
+		.id = 0xa4, .name = "tbl-a4", .base = 0x180690,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
 		.id = 0xa5, .name = "acl-unmatch-permit", .base = YT921X_ACL_UNMATCH_PERMIT,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xa6, .name = "tbl-a6", .base = 0x1806ac,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xa7, .name = "tbl-a7", .base = 0x1806b0,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb0, .name = "tbl-b0", .base = 0x180810,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb1, .name = "tbl-b1", .base = 0x180814,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb2, .name = "tbl-b2", .base = 0x180818,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb3, .name = "tbl-b3", .base = 0x180940,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb4, .name = "tbl-b4", .base = 0x180944,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb5, .name = "tbl-b5", .base = 0x180948,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb6, .name = "tbl-b6", .base = 0x18094c,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb7, .name = "tbl-b7", .base = 0x180950,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb8, .name = "tbl-b8", .base = 0x180954,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xb9, .name = "tbl-b9", .base = 0x180958,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xba, .name = "tbl-ba", .base = 0x18095c,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0xbb, .name = "tbl-bb", .base = 0x188000,
+		.entry_words = 2, .rw_words = 2, .entries = 0x1000,
+	},
+	{
+		.id = 0xbc, .name = "tbl-bc", .base = 0x198000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xbd, .name = "tbl-bd", .base = 0x19a000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xbe, .name = "tbl-be", .base = 0x19c000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xbf, .name = "tbl-bf", .base = 0x19e000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xc0, .name = "tbl-c0", .base = 0x1a0000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xc1, .name = "tbl-c1", .base = 0x1a2000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xc2, .name = "tbl-c2", .base = 0x1a4000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xc3, .name = "tbl-c3", .base = 0x1a6000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x200,
+	},
+	{
+		.id = 0xc4, .name = "tbl-c4", .base = 0x1c0000,
+		.entry_words = 4, .rw_words = 3, .entries = 0x180,
+	},
+	{
+		.id = 0xc5, .name = "tbl-c5", .base = 0x220000,
+		.entry_words = 1, .rw_words = 1, .entries = 11,
+	},
+	{
+		.id = 0xc6, .name = "storm-rate-io", .base = YT921X_STORM_RATE_IO,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+		.fields = yt921x_tbl_fields_c6,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_c6),
 	},
 	{
 		.id = 0xc7, .name = "meter-timeslot", .base = 0x220104,
@@ -1462,6 +1618,12 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 		.entry_words = 1, .rw_words = 1, .entries = 11,
 		.fields = yt921x_tbl_fields_c8,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_c8),
+	},
+	{
+		.id = 0xcc, .name = "storm-config", .base = YT921X_STORM_CONFIG,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+		.fields = yt921x_tbl_fields_cc,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_cc),
 	},
 	{
 		.id = 0xce, .name = "meter-config", .base = 0x220800,
@@ -1518,6 +1680,32 @@ yt921x_proc_tbl_desc_find(u32 id)
 	}
 
 	return NULL;
+}
+
+static int
+yt921x_proc_tbl_field_lookup(const struct yt921x_proc_tbl_desc *tbl,
+			     const char *token, u32 *fieldp)
+{
+	unsigned int i;
+	u32 field;
+	int res;
+
+	res = yt921x_proc_parse_u32(token, &field);
+	if (!res) {
+		if (field >= tbl->nfields)
+			return -ERANGE;
+		*fieldp = field;
+		return 0;
+	}
+
+	for (i = 0; i < tbl->nfields; i++) {
+		if (!strcmp(token, tbl->fields[i].name)) {
+			*fieldp = i;
+			return 0;
+		}
+	}
+
+	return -EINVAL;
 }
 
 static int
@@ -2235,19 +2423,14 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 		res = yt921x_proc_parse_u32(argv[3], &index);
 		if (res)
 			goto out;
-		res = yt921x_proc_parse_u32(argv[4], &field);
-		if (res)
-			goto out;
-
 		tbl = yt921x_proc_tbl_desc_find(id);
 		if (!tbl) {
 			res = -ENOENT;
 			goto out;
 		}
-		if (field >= tbl->nfields) {
-			res = -ERANGE;
+		res = yt921x_proc_tbl_field_lookup(tbl, argv[4], &field);
+		if (res)
 			goto out;
-		}
 		f = &tbl->fields[field];
 
 		mutex_lock(&priv->reg_lock);
@@ -2390,6 +2573,34 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 		} else {
 			res = -EINVAL;
 		}
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "acl_chain")) {
+		if (argc == 1 || !strcmp(argv[1], "show")) {
+			yt921x_proc_reply_append(
+				priv,
+				"acl_chain key1_mask=0x%08x (applies to non-final entries in multi-entry ACL rule)\n",
+				READ_ONCE(priv->acl_chain_key_mask));
+			goto out;
+		}
+
+		if (!strcmp(argv[1], "set") && argc >= 3) {
+			u32 mask;
+
+			res = yt921x_proc_parse_u32(argv[2], &mask);
+			if (res)
+				goto out;
+
+			WRITE_ONCE(priv->acl_chain_key_mask, mask);
+			yt921x_proc_reply_append(
+				priv,
+				"acl_chain key1_mask <= 0x%08x (takes effect for newly installed ACL rules)\n",
+				mask);
+			goto out;
+		}
+
+		res = -EINVAL;
 		goto out;
 	}
 
@@ -3070,6 +3281,133 @@ static int yt921x_dsa_port_max_mtu(struct dsa_switch *ds, int port)
 {
 	/* Only called for user ports, exclude tag len here */
 	return YT921X_FRAME_SIZE_MAX - ETH_HLEN - ETH_FCS_LEN - YT921X_TAG_LEN;
+}
+
+static int yt921x_mtu_fetch(struct yt921x_priv *priv, int port)
+{
+	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
+
+	return dp->user ? READ_ONCE(dp->user->mtu) : ETH_DATA_LEN;
+}
+
+/* v * 2^e */
+static u64 ldexpu64(u64 v, int e)
+{
+	return e >= 0 ? v << e : v >> -e;
+}
+
+/* slot (ns) * rate (/s) / 10^9 (ns/s) = 2^C * token * 4^unit */
+static u32 rate2token(u64 rate, unsigned int slot_ns, int unit, int C)
+{
+	int e = 2 * unit + C + YT921X_TOKEN_RATE_C;
+
+	return div_u64(ldexpu64(slot_ns * rate, -e), 1000000000);
+}
+
+static u64 token2rate(u32 token, unsigned int slot_ns, int unit, int C)
+{
+	int e = 2 * unit + C + YT921X_TOKEN_RATE_C;
+
+	return div_u64(ldexpu64(mul_u32_u32(1000000000, token), e), slot_ns);
+}
+
+/* burst = 2^C * token * 4^unit */
+static u32 burst2token(u64 burst, int unit, int C)
+{
+	return ldexpu64(burst, -(2 * unit + C));
+}
+
+static u64 token2burst(u32 token, int unit, int C)
+{
+	return ldexpu64(token, 2 * unit + C);
+}
+
+struct yt921x_meter {
+	u32 cir;
+	u32 cbs;
+	u32 ebs;
+	int unit;
+};
+
+#define YT921X_METER_PKT_MODE		BIT(0)
+#define YT921X_METER_SINGLE_BUCKET	BIT(1)
+
+static int
+yt921x_meter_tfm(struct yt921x_priv *priv, int port, unsigned int slot_ns,
+		 u64 rate, u64 burst, unsigned int flags,
+		 u32 cir_max, u32 cbs_max, int unit_max,
+		 struct yt921x_meter *meterp)
+{
+	const int C = flags & YT921X_METER_PKT_MODE ? YT921X_TOKEN_PKT_C :
+		      YT921X_TOKEN_BYTE_C;
+	struct device *dev = yt921x_dev(priv);
+	struct yt921x_meter meter;
+	u64 burst_est;
+	u64 burst_sug;
+	u64 burst_max;
+	u64 rate_max;
+
+	meter.unit = unit_max;
+	rate_max = token2rate(cir_max, slot_ns, meter.unit, C);
+	burst_max = token2burst(cbs_max, meter.unit, C);
+	if (rate > rate_max || burst > burst_max)
+		return -ERANGE;
+
+	burst_est = div_u64(slot_ns * rate, 1000000000);
+	burst_sug = burst_est;
+	if (flags & YT921X_METER_PKT_MODE)
+		burst_sug++;
+	else
+		burst_sug += ETH_HLEN + yt921x_mtu_fetch(priv, port) + ETH_FCS_LEN;
+	if (burst_sug > burst)
+		dev_warn(dev, "Consider burst at least %llu to match rate %llu\n",
+			 burst_sug, rate);
+
+	for (; meter.unit > 0; meter.unit--) {
+		if (rate > (rate_max >> 2) || burst > (burst_max >> 2))
+			break;
+		rate_max >>= 2;
+		burst_max >>= 2;
+	}
+
+	meter.cir = rate2token(rate, slot_ns, meter.unit, C);
+	if (!meter.cir)
+		meter.cir = 1;
+	else if (WARN_ON(meter.cir > cir_max))
+		meter.cir = cir_max;
+	meter.cbs = burst2token(burst, meter.unit, C);
+	if (!meter.cbs)
+		meter.cbs = 1;
+	else if (WARN_ON(meter.cbs > cbs_max))
+		meter.cbs = cbs_max;
+
+	meter.ebs = 0;
+	if (!(flags & YT921X_METER_SINGLE_BUCKET)) {
+		if (flags & YT921X_METER_PKT_MODE)
+			burst_est++;
+		else
+			burst_est += YT921X_FRAME_SIZE_MAX;
+
+		if (burst_est < burst) {
+			u32 pbs = meter.cbs;
+
+			meter.cbs = burst2token(burst_est, meter.unit, C);
+			if (!meter.cbs)
+				meter.cbs = 1;
+			else if (meter.cbs > cbs_max)
+				meter.cbs = cbs_max;
+
+			if (pbs > meter.cbs)
+				meter.ebs = pbs - meter.cbs;
+		}
+	}
+
+	dev_dbg(dev,
+		"slot %u ns, rate %llu, burst %llu -> unit %d, cir %u, cbs %u, ebs %u\n",
+		slot_ns, rate, burst, meter.unit, meter.cir, meter.cbs, meter.ebs);
+
+	*meterp = meter;
+	return 0;
 }
 
 static bool yt921x_tbf_supported_port(struct dsa_switch *ds, int port)
@@ -3758,73 +4096,846 @@ yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 	return res;
 }
 
-struct yt921x_flower_rule {
-	struct list_head list;
-	struct dsa_switch *ds;
-	unsigned long cookie;
-	u8 dscp;
-	u8 old_prio;
-	u8 new_prio;
-};
+#define YT921X_ACL_METER_ID_INVALID	U8_MAX
+#define YT921X_ACL_METER_ID_BLACKHOLE	(YT921X_METER_NUM - 1)
 
-static LIST_HEAD(yt921x_flower_rules);
-static DEFINE_MUTEX(yt921x_flower_lock);
-
-static struct yt921x_flower_rule *
-yt921x_flower_find_cookie(struct dsa_switch *ds, unsigned long cookie)
+static int yt921x_acl_meter_alloc(struct yt921x_priv *priv, u32 *meter_idp)
 {
-	struct yt921x_flower_rule *rule;
+	unsigned long meter_id;
 
-	list_for_each_entry(rule, &yt921x_flower_rules, list)
-		if (rule->ds == ds && rule->cookie == cookie)
-			return rule;
+	meter_id = find_first_zero_bit(priv->acl_meter_map, YT921X_METER_NUM);
+	if (meter_id >= YT921X_METER_NUM)
+		return -ENOSPC;
 
-	return NULL;
+	__set_bit(meter_id, priv->acl_meter_map);
+	*meter_idp = meter_id;
+
+	return 0;
 }
 
-static struct yt921x_flower_rule *
-yt921x_flower_find_dscp(struct dsa_switch *ds, u8 dscp)
+static void yt921x_acl_meter_free(struct yt921x_priv *priv, u32 meter_id)
 {
-	struct yt921x_flower_rule *rule;
+	if (meter_id >= YT921X_METER_NUM)
+		return;
 
-	list_for_each_entry(rule, &yt921x_flower_rules, list)
-		if (rule->ds == ds && rule->dscp == dscp)
-			return rule;
-
-	return NULL;
+	__clear_bit(meter_id, priv->acl_meter_map);
 }
 
-static u32 yt921x_flower_rule_count(struct dsa_switch *ds)
+static int yt921x_acl_meter_clear_hw(struct yt921x_priv *priv, u32 meter_id)
 {
-	struct yt921x_flower_rule *rule;
-	u32 n = 0;
+	u32 ctrls[3] = {};
 
-	list_for_each_entry(rule, &yt921x_flower_rules, list)
-		if (rule->ds == ds)
-			n++;
-
-	return n;
+	return yt921x_reg96_write(priv, YT921X_METERn_CTRL(meter_id), ctrls);
 }
 
-static void yt921x_flower_cleanup_rules(struct dsa_switch *ds)
+static int
+yt921x_acl_meter_apply(struct yt921x_priv *priv, int port, u32 meter_id,
+		       const struct flow_action_entry *act,
+		       struct netlink_ext_ack *extack)
 {
-	struct yt921x_flower_rule *rule, *tmp;
+	struct yt921x_meter meter;
+	bool pkt_mode;
+	u32 ctrls[3];
+	u64 burst;
+	u64 rate;
+	int res;
 
-	mutex_lock(&yt921x_flower_lock);
-	list_for_each_entry_safe(rule, tmp, &yt921x_flower_rules, list) {
-		if (rule->ds != ds)
-			continue;
-		list_del(&rule->list);
-		kfree(rule);
+	if (meter_id >= YT921X_METER_NUM) {
+		NL_SET_ERR_MSG_MOD(extack, "ACL meter id out of range");
+		return -EINVAL;
 	}
-	mutex_unlock(&yt921x_flower_lock);
+
+	if (act->police.peakrate_bytes_ps || act->police.avrate ||
+	    act->police.overhead) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "peakrate / avrate / overhead not supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (act->police.exceed.act_id != FLOW_ACTION_DROP ||
+	    act->police.notexceed.act_id != FLOW_ACTION_ACCEPT) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "conform-exceed other than drop-ok not supported");
+		return -EOPNOTSUPP;
+	}
+
+	pkt_mode = !!act->police.rate_pkt_ps;
+	rate = pkt_mode ? act->police.rate_pkt_ps : act->police.rate_bytes_ps;
+	burst = pkt_mode ? act->police.burst_pkt : act->police.burst;
+	if (!rate || !burst) {
+		NL_SET_ERR_MSG_MOD(extack, "police rate/burst cannot be zero");
+		return -EOPNOTSUPP;
+	}
+
+	res = yt921x_meter_tfm(priv, port, priv->meter_slot_ns, rate, burst,
+			       pkt_mode ? YT921X_METER_PKT_MODE : 0,
+			       YT921X_METER_RATE_MAX, YT921X_METER_BURST_MAX,
+			       YT921X_METER_UNIT_MAX, &meter);
+	if (res) {
+		NL_SET_ERR_MSG_MOD(extack, "Unexpected tremendous rate");
+		return res;
+	}
+
+	ctrls[0] = 0;
+	ctrls[1] = YT921X_METER_CTRLb_CIR(meter.cir);
+	ctrls[2] = YT921X_METER_CTRLc_UNIT(meter.unit) |
+		   YT921X_METER_CTRLc_DROP_R |
+		   YT921X_METER_CTRLc_TOKEN_OVERFLOW_EN |
+		   YT921X_METER_CTRLc_METER_EN;
+	if (pkt_mode)
+		ctrls[2] |= YT921X_METER_CTRLc_PKT_MODE;
+
+	u32p_replace_bits_unaligned(&ctrls[0], &ctrls[1],
+				    YT921X_METER_CTRLab_EBS(meter.ebs),
+				    YT921X_METER_CTRLab_EBS_M);
+	u32p_replace_bits_unaligned(&ctrls[1], &ctrls[2],
+				    YT921X_METER_CTRLbc_CBS(meter.cbs),
+				    YT921X_METER_CTRLbc_CBS_M);
+
+	return yt921x_reg96_write(priv, YT921X_METERn_CTRL(meter_id), ctrls);
 }
+
+/* ACL: 48 blocks * 8 entries
+ *
+ * One rule can span multiple entries, but within a block.
+ */
+static void
+yt921x_acl_entry_set(struct yt921x_acl_entry *entry, unsigned int offset,
+		     u32 flags)
+{
+	entry->key[offset] |= flags;
+	entry->mask[offset] |= flags;
+}
+
+static unsigned int
+yt921x_acl_append_first_frag(struct yt921x_acl_entry *group, unsigned int size)
+{
+	unsigned int i;
+
+	for (i = 0; i < size; i++)
+		switch (FIELD_GET(YT921X_ACL_KEYb_TYPE_M, group[i].key[1])) {
+		case YT921X_ACL_TYPE_IPV6_DA2:
+		case YT921X_ACL_TYPE_IPV6_SA2:
+			yt921x_acl_entry_set(&group[i], 1,
+					     YT921X_ACL_BINb_IPV6_xA2_FIRST_FRAG);
+			return size;
+		case YT921X_ACL_TYPE_MISC:
+			yt921x_acl_entry_set(&group[i], 0,
+					     YT921X_ACL_BINa_MISC_FIRST_FRAG);
+			return size;
+		default:
+			break;
+		}
+
+	if (size >= YT921X_ACL_ENT_PER_BLK)
+		return 0;
+
+	group[i] = (typeof(*group)){};
+	group[i].meter_id = YT921X_ACL_METER_ID_INVALID;
+	group[i].key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MISC);
+	yt921x_acl_entry_set(&group[i], 0, YT921X_ACL_BINa_MISC_FIRST_FRAG);
+
+	return size + 1;
+}
+
+static unsigned int
+yt921x_acl_append_frag(struct yt921x_acl_entry *group, unsigned int size)
+{
+	unsigned int i;
+
+	for (i = 0; i < size; i++)
+		switch (FIELD_GET(YT921X_ACL_KEYb_TYPE_M, group[i].key[1])) {
+		case YT921X_ACL_TYPE_IPV4_DA:
+		case YT921X_ACL_TYPE_IPV4_SA:
+			yt921x_acl_entry_set(&group[i], 1,
+					     YT921X_ACL_BINb_IPV4_FRAG);
+			return size;
+		case YT921X_ACL_TYPE_IPV6_DA3:
+		case YT921X_ACL_TYPE_IPV6_SA3:
+			yt921x_acl_entry_set(&group[i], 1,
+					     YT921X_ACL_BINb_IPV6_xA3_FRAG);
+			return size;
+		case YT921X_ACL_TYPE_MISC:
+			yt921x_acl_entry_set(&group[i], 1,
+					     YT921X_ACL_BINb_MISC_FRAG);
+			return size;
+		case YT921X_ACL_TYPE_L4:
+			yt921x_acl_entry_set(&group[i], 1,
+					     YT921X_ACL_BINb_L4_FRAG);
+			return size;
+		default:
+			break;
+		}
+
+	if (size >= YT921X_ACL_ENT_PER_BLK)
+		return 0;
+
+	group[i] = (typeof(*group)){};
+	group[i].meter_id = YT921X_ACL_METER_ID_INVALID;
+	group[i].key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MISC);
+	yt921x_acl_entry_set(&group[i], 1, YT921X_ACL_BINb_MISC_FRAG);
+
+	return size + 1;
+}
+
+static struct yt921x_acl_entry *
+yt921x_acl_find_misc(struct yt921x_acl_entry *group, unsigned int size)
+{
+	for (unsigned int i = 0; i < size; i++)
+		if (FIELD_GET(YT921X_ACL_KEYb_TYPE_M, group[i].key[1]) ==
+		    YT921X_ACL_TYPE_MISC)
+			return &group[i];
+
+	return NULL;
+}
+
+static unsigned int
+yt921x_acl_parse_key(struct yt921x_priv *priv,
+		     struct yt921x_acl_entry *group, u16 ports_mask,
+		     struct flow_cls_offload *cls, bool ingress)
+{
+	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	struct netlink_ext_ack *extack = cls->common.extack;
+	const struct flow_dissector *dissector;
+	bool n_proto_is_ipv4 = false;
+	bool n_proto_is_ipv6 = false;
+	struct yt921x_acl_entry *entry;
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	u32 chain_mask = READ_ONCE(priv->acl_chain_key_mask);
+#else
+	u32 chain_mask = 0;
+#endif
+	unsigned int size = 0;
+
+	dissector = rule->match.dissector;
+	if (dissector->used_keys &
+	    ~(BIT_ULL(FLOW_DISSECTOR_KEY_CONTROL) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_BASIC) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_PORTS) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_PORTS_RANGE) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_TCP))) {
+		NL_SET_ERR_MSG_MOD(extack, "Unsupported keys used");
+		return 0;
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC)) {
+		struct flow_match_basic match;
+
+		flow_rule_match_basic(rule, &match);
+		if (match.mask->n_proto == htons(0xffff)) {
+			n_proto_is_ipv4 = match.key->n_proto == htons(ETH_P_IP);
+			n_proto_is_ipv6 = match.key->n_proto == htons(ETH_P_IPV6);
+		}
+	}
+
+#define entry_prepare() \
+	if (size >= YT921X_ACL_ENT_PER_BLK) \
+		goto too_complex; \
+	entry = &group[size]; \
+	*entry = (typeof(*entry)){}; \
+	entry->meter_id = YT921X_ACL_METER_ID_INVALID; \
+	size++;
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV4_ADDRS) &&
+	    !n_proto_is_ipv6) {
+		struct flow_match_ipv4_addrs match;
+		bool want_dst;
+		bool want_src;
+
+		flow_rule_match_ipv4_addrs(rule, &match);
+		want_dst = !!match.mask->dst;
+		want_src = !!match.mask->src;
+		if (!ingress && want_src) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Egress source IPv4 match is not supported");
+			return 0;
+		}
+
+		if (want_dst) {
+			entry_prepare();
+			entry->key[0] = ntohl(match.key->dst);
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_IPV4_DA);
+			entry->mask[0] = ntohl(match.mask->dst);
+		}
+		if (want_src) {
+			entry_prepare();
+			entry->key[0] = ntohl(match.key->src);
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_IPV4_SA);
+			entry->mask[0] = ntohl(match.mask->src);
+		}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV6_ADDRS) &&
+	    !n_proto_is_ipv4) {
+		struct flow_match_ipv6_addrs match;
+		bool want_dst;
+		bool want_src;
+
+		flow_rule_match_ipv6_addrs(rule, &match);
+		want_dst = !!match.mask->dst.s6_addr32[0] ||
+			   !!match.mask->dst.s6_addr32[1] ||
+			   !!match.mask->dst.s6_addr32[2] ||
+			   !!match.mask->dst.s6_addr32[3];
+		want_src = !!match.mask->src.s6_addr32[0] ||
+			   !!match.mask->src.s6_addr32[1] ||
+			   !!match.mask->src.s6_addr32[2] ||
+			   !!match.mask->src.s6_addr32[3];
+		if (!ingress && want_src) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Egress source IPv6 match is not supported");
+			return 0;
+		}
+
+		if (want_dst)
+			for (unsigned int i = 0; i < 4; i++) {
+				entry_prepare();
+				entry->key[0] = ntohl(match.key->dst.s6_addr32[i]);
+				entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_IPV6_DA0 + i);
+				entry->mask[0] = ntohl(match.mask->dst.s6_addr32[i]);
+			}
+		if (want_src)
+			for (unsigned int i = 0; i < 4; i++) {
+				entry_prepare();
+				entry->key[0] = ntohl(match.key->src.s6_addr32[i]);
+				entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_IPV6_SA0 + i);
+				entry->mask[0] = ntohl(match.mask->src.s6_addr32[i]);
+			}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS)) {
+		struct flow_match_ports match;
+
+		entry_prepare();
+		flow_rule_match_ports(rule, &match);
+		entry->key[0] = (ntohs(match.key->dst) << 16) | ntohs(match.key->src);
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_L4);
+		entry->mask[0] = (ntohs(match.mask->dst) << 16) |
+				 ntohs(match.mask->src);
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS_RANGE)) {
+		struct flow_match_ports_range match;
+
+		entry_prepare();
+		flow_rule_match_ports_range(rule, &match);
+		entry->key[0] = (ntohs(match.key->tp_min.dst) << 16) |
+				ntohs(match.key->tp_min.src);
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_L4) |
+				YT921X_ACL_KEYb_L4_SPORT_RANGE_EN |
+				YT921X_ACL_KEYb_L4_DPORT_RANGE_EN;
+		entry->mask[0] = (ntohs(match.mask->tp_max.dst) << 16) |
+				 ntohs(match.mask->tp_max.src);
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
+		struct flow_match_eth_addrs match;
+		bool want_dst;
+		bool want_src;
+
+		flow_rule_match_eth_addrs(rule, &match);
+		want_dst = !is_zero_ether_addr(match.mask->dst);
+		want_src = !is_zero_ether_addr(match.mask->src);
+		if (!ingress && want_src) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Egress source MAC match is not supported");
+			return 0;
+		}
+
+		if (want_dst) {
+			entry_prepare();
+			entry->key[0] = mac_hi4_to_cpu(match.key->dst);
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MAC_DA0);
+			entry->mask[0] = mac_hi4_to_cpu(match.mask->dst);
+		}
+		if (want_src) {
+			entry_prepare();
+			entry->key[0] = mac_hi4_to_cpu(match.key->src);
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MAC_SA0);
+			entry->mask[0] = mac_hi4_to_cpu(match.mask->src);
+		}
+		if (want_src || want_dst) {
+			entry_prepare();
+			entry->key[0] = (mac_lo2_to_cpu(match.key->dst) << 16) |
+					mac_lo2_to_cpu(match.key->src);
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MAC_DA1_SA1);
+			entry->mask[0] = (mac_lo2_to_cpu(match.mask->dst) << 16) |
+					 mac_lo2_to_cpu(match.mask->src);
+		}
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL)) {
+		u32 supp_flags = FLOW_DIS_IS_FRAGMENT | FLOW_DIS_FIRST_FRAG;
+		struct flow_match_control match;
+
+		flow_rule_match_control(rule, &match);
+		if (!flow_rule_is_supp_control_flags(supp_flags,
+						     match.mask->flags, extack))
+			return 0;
+
+		if (match.mask->flags & FLOW_DIS_FIRST_FRAG)
+			size = yt921x_acl_append_first_frag(group, size);
+		else if (match.mask->flags & FLOW_DIS_IS_FRAGMENT)
+			size = yt921x_acl_append_frag(group, size);
+
+		if (!size)
+			goto too_complex;
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_TCP)) {
+		struct flow_match_tcp match;
+
+		entry = yt921x_acl_find_misc(group, size);
+		if (!entry) {
+			entry_prepare();
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MISC);
+		}
+
+		flow_rule_match_tcp(rule, &match);
+		entry->key[0] |= YT921X_ACL_BINa_MISC_TCP_FLAGS(ntohs(match.key->flags));
+		entry->mask[0] |= YT921X_ACL_BINa_MISC_TCP_FLAGS(ntohs(match.mask->flags));
+	}
+
+	for (unsigned int i = 0; i < size; i++) {
+		u32 ctrl_key_bits;
+
+		/* Experimental: for multi-entry ACL groups, set user-selected
+		 * bits on non-final entries to probe potential chain/AND-next
+		 * semantics in undocumented key-control fields.
+		 */
+		if (chain_mask && i + 1 < size)
+			group[i].key[1] |= chain_mask;
+
+		group[i].key[1] |= YT921X_ACL_KEYb_SPORTS(ports_mask);
+		if (!ingress)
+			group[i].key[1] |= YT921X_ACL_KEYb_REVERSE;
+		group[i].mask[1] |= YT921X_ACL_KEYb_SPORTS_M;
+		if (FIELD_GET(YT921X_ACL_KEYb_TYPE_M, group[i].key[1]) !=
+		    YT921X_ACL_TYPE_NA)
+			group[i].mask[1] |= YT921X_ACL_KEYb_TYPE_M;
+
+		ctrl_key_bits = group[i].key[1] &
+				~(YT921X_ACL_KEYb_SPORTS_M |
+				  YT921X_ACL_KEYb_TYPE_M);
+		group[i].mask[1] |= ctrl_key_bits;
+	}
+
+	for (unsigned int i = 1; i < size; i++)
+		group[i].type = U32_MAX;
+
+	return size;
+
+too_complex:
+	NL_SET_ERR_MSG_MOD(extack, "Rule too complex");
+	return 0;
+}
+
+static int
+yt921x_acl_parse_action(struct yt921x_acl_entry *group,
+			struct dsa_switch *ds,
+			struct flow_cls_offload *cls)
+{
+	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	struct netlink_ext_ack *extack = cls->common.extack;
+	const struct flow_action_entry *act;
+	struct dsa_port *to_dp;
+	bool mirror_seen = false;
+	u32 *action = group[0].action;
+	int i;
+
+	memset(action, 0, sizeof(group[0].action));
+	group[0].mirror_en = false;
+	group[0].mirror_to_port = 0;
+	flow_action_for_each(i, act, &rule->action) {
+		switch (act->id) {
+		case FLOW_ACTION_ACCEPT:
+			/* Match + no punitive action = permit/pass. */
+			break;
+		case FLOW_ACTION_DROP:
+			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
+			    (action[2] & YT921X_ACL_ACTc_REDIR_M) ==
+				    YT921X_ACL_ACTc_REDIR_TRAP) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Trap cannot be combined with drop");
+				return -EOPNOTSUPP;
+			}
+			action[0] |= YT921X_ACL_ACTa_METER_EN;
+			action[0] |= FIELD_PREP(YT921X_ACL_ACTa_METER_ID_M,
+						YT921X_ACL_METER_ID_BLACKHOLE);
+			group[0].meter_id = YT921X_ACL_METER_ID_BLACKHOLE;
+			break;
+		case FLOW_ACTION_TRAP:
+			if (group[0].mirror_en) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Trap cannot be combined with mirror");
+				return -EOPNOTSUPP;
+			}
+			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
+			    (action[2] & YT921X_ACL_ACTc_REDIR_M) !=
+				    YT921X_ACL_ACTc_REDIR_TRAP) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Trap cannot be combined with redirect");
+				return -EOPNOTSUPP;
+			}
+			action[2] &= ~(YT921X_ACL_ACTc_REDIR_M |
+				       YT921X_ACL_ACTc_REDIR_DPORTS_M);
+			action[2] |= YT921X_ACL_ACTc_REDIR_EN;
+			action[2] |= YT921X_ACL_ACTc_REDIR_TRAP;
+			break;
+		case FLOW_ACTION_REDIRECT:
+#ifdef FLOW_ACTION_REDIRECT_INGRESS
+		case FLOW_ACTION_REDIRECT_INGRESS:
+#endif
+			if (group[0].mirror_en) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Redirect cannot be combined with mirror");
+				return -EOPNOTSUPP;
+			}
+			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
+			    (action[2] & YT921X_ACL_ACTc_REDIR_M) !=
+				    YT921X_ACL_ACTc_REDIR_STEER) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Redirect cannot be combined with trap");
+				return -EOPNOTSUPP;
+			}
+			to_dp = dsa_port_from_netdev(act->dev);
+			if (IS_ERR(to_dp)) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Redirect destination is not a switch port");
+				return -EOPNOTSUPP;
+			}
+			if (to_dp->ds != ds) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Redirect destination on different switch is not supported");
+				return -EOPNOTSUPP;
+			}
+			action[2] &= ~(YT921X_ACL_ACTc_REDIR_M |
+				       YT921X_ACL_ACTc_REDIR_DPORTS_M);
+			action[2] |= YT921X_ACL_ACTc_REDIR_EN;
+			action[2] |= YT921X_ACL_ACTc_REDIR_STEER;
+			action[2] |= YT921X_ACL_ACTc_REDIR_DPORTn(to_dp->index);
+			break;
+		case FLOW_ACTION_MIRRED:
+#ifdef FLOW_ACTION_MIRRED_INGRESS
+		case FLOW_ACTION_MIRRED_INGRESS:
+#endif
+			to_dp = dsa_port_from_netdev(act->dev);
+			if (IS_ERR(to_dp)) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Mirror destination is not a switch port");
+				return -EOPNOTSUPP;
+			}
+			if (to_dp->ds != ds) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Mirror destination on different switch is not supported");
+				return -EOPNOTSUPP;
+			}
+			if (!dsa_is_user_port(ds, to_dp->index)) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Only user ports can be mirror destination");
+				return -EOPNOTSUPP;
+			}
+			if (action[2] & YT921X_ACL_ACTc_REDIR_EN) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Mirror cannot be combined with redirect/trap");
+				return -EOPNOTSUPP;
+			}
+			if (mirror_seen && group[0].mirror_to_port != to_dp->index) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Multiple mirror destinations are not supported");
+				return -EOPNOTSUPP;
+			}
+
+			action[0] |= YT921X_ACL_ACTa_MIRROR_EN;
+			group[0].mirror_en = true;
+			group[0].mirror_to_port = to_dp->index;
+			mirror_seen = true;
+			break;
+		case FLOW_ACTION_PRIORITY:
+			if (act->priority >= YT921X_PRIO_NUM) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Priority value is too high");
+				return -EOPNOTSUPP;
+			}
+			action[0] |= YT921X_ACL_ACTa_PRIO_EN;
+			action[1] |= YT921X_ACL_ACTb_PRIO(act->priority);
+			break;
+		case FLOW_ACTION_POLICE:
+			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
+			    (action[2] & YT921X_ACL_ACTc_REDIR_M) ==
+				    YT921X_ACL_ACTc_REDIR_TRAP) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Trap cannot be combined with police");
+				return -EOPNOTSUPP;
+			}
+			if (act->police.peakrate_bytes_ps || act->police.avrate ||
+			    act->police.overhead) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "peakrate / avrate / overhead not supported");
+				return -EOPNOTSUPP;
+			}
+			if (act->police.exceed.act_id != FLOW_ACTION_DROP ||
+			    act->police.notexceed.act_id != FLOW_ACTION_ACCEPT) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Hardware police requires conform-exceed drop/ok");
+				return -EOPNOTSUPP;
+			}
+			action[0] |= YT921X_ACL_ACTa_METER_EN;
+			break;
+		default:
+			NL_SET_ERR_MSG_MOD(extack, "Action not supported");
+			return -EOPNOTSUPP;
+		}
+	}
+
+	return 0;
+}
+
+static unsigned int
+yt921x_acl_parse(struct yt921x_acl_entry *group, u16 ports_mask,
+		 struct yt921x_priv *priv, struct dsa_switch *ds,
+		 struct flow_cls_offload *cls, bool ingress)
+{
+	unsigned int size;
+	int res;
+
+	size = yt921x_acl_parse_key(priv, group, ports_mask, cls, ingress);
+	if (!size)
+		return 0;
+
+	res = yt921x_acl_parse_action(group, ds, cls);
+	if (res)
+		return 0;
+
+	for (unsigned int i = 0; i < size; i++)
+		group[i].cookie = cls->cookie;
+
+	return size;
+}
+
+static unsigned int
+yt921x_acl_find(const struct yt921x_priv *priv, unsigned long cookie)
+{
+	for (unsigned int i = 0; i < YT921X_ACL_NUM; i++)
+		if (priv->acl.entries[i].cookie == cookie)
+			return i;
+
+	return UINT_MAX;
+}
+
+static int
+yt921x_acl_commit(struct yt921x_priv *priv, unsigned int blkid, u8 ents_mask,
+		  u8 acts_mask)
+{
+	const struct yt921x_acl_entry *entries;
+	unsigned long mask;
+	unsigned long i;
+	u32 ctrl;
+	int res;
+
+	entries = &priv->acl.entries[YT921X_ACL_ENT_PER_BLK * blkid];
+
+	ctrl = YT921X_ACL_BLK_CMD_MODIFY | YT921X_ACL_BLK_CMD_BLKID(blkid);
+	res = yt921x_reg_write(priv, YT921X_ACL_BLK_CMD, ctrl);
+	if (res)
+		return res;
+
+	mask = ents_mask;
+	for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK) {
+		u64 key = ((u64)entries[i].key[1] << 32) | entries[i].key[0];
+		u64 acl_mask = ((u64)entries[i].mask[1] << 32) | entries[i].mask[0];
+
+		res = yt921x_reg64_write(priv, YT921X_ACLn_KEYm(blkid, i), key);
+		if (res)
+			return res;
+		res = yt921x_reg64_write(priv, YT921X_ACLn_MASKm(blkid, i),
+					 acl_mask);
+		if (res)
+			return res;
+	}
+
+	ctrl = 0;
+	for (unsigned int j = 0; j < YT921X_ACL_ENT_PER_BLK; j++)
+		ctrl |= YT921X_ACL_BLK_KEEP_KEEPn(j);
+	mask = ents_mask;
+	for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK)
+		ctrl &= ~YT921X_ACL_BLK_KEEP_KEEPn(i);
+	res = yt921x_reg_write(priv, YT921X_ACL_BLK_KEEP, ctrl);
+	if (res)
+		return res;
+
+	/* Write actions first, then enable entries. This avoids a window where
+	 * an entry is active while still carrying stale action state.
+	 */
+	mask = acts_mask;
+	for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK) {
+		unsigned int e = i + YT921X_ACL_ENT_PER_BLK * blkid;
+
+		res = yt921x_reg96_write(priv, YT921X_ACLn_ACT(e),
+					 entries[i].action);
+		if (res)
+			return res;
+	}
+
+	ctrl = 0;
+	for (unsigned int j = 0; j < YT921X_ACL_ENT_PER_BLK; j++) {
+		unsigned int start;
+
+		if (!entries[j].cookie)
+			continue;
+		start = entries[j].type != U32_MAX ? j : entries[j].start;
+		ctrl |= YT921X_ACL_ENTRY_ENm(j) | YT921X_ACL_ENTRY_GRPIDm(j, start);
+	}
+	res = yt921x_reg_write(priv, YT921X_ACLn_ENTRY(blkid), ctrl);
+	if (res)
+		return res;
+
+	ctrl = YT921X_ACL_BLK_CMD_BLKID(blkid);
+	res = yt921x_reg_write(priv, YT921X_ACL_BLK_CMD, ctrl);
+	if (res)
+		return res;
+
+	return 0;
+}
+
+static int
+yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
+	       bool *mirror_enp, u8 *mirror_to_portp)
+{
+	struct yt921x_acl_entry *entries;
+	unsigned int offset;
+	unsigned int blkid;
+	unsigned int entid;
+	u32 meter_id;
+	bool meter_en;
+	u8 ents_mask;
+	int res;
+
+	entid = yt921x_acl_find(priv, cookie);
+	if (entid == UINT_MAX)
+		return -ENOENT;
+
+	blkid = entid / YT921X_ACL_ENT_PER_BLK;
+	offset = entid % YT921X_ACL_ENT_PER_BLK;
+	entries = &priv->acl.entries[YT921X_ACL_ENT_PER_BLK * blkid];
+	if (entries[offset].type == U32_MAX)
+		offset = entries[offset].start;
+	meter_id = entries[offset].meter_id;
+	meter_en = !!(entries[offset].action[0] & YT921X_ACL_ACTa_METER_EN);
+	if (mirror_enp)
+		*mirror_enp = entries[offset].mirror_en;
+	if (mirror_to_portp)
+		*mirror_to_portp = entries[offset].mirror_to_port;
+
+	ents_mask = 0;
+	for (unsigned int i = offset; i < YT921X_ACL_ENT_PER_BLK; i++) {
+		if (entries[i].cookie != cookie)
+			continue;
+		entries[i] = (typeof(*entries)){};
+		ents_mask |= BIT(i);
+	}
+
+	priv->acl.useds[blkid] -= hweight8(ents_mask);
+
+	res = yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
+	if (res)
+		return res;
+
+	if (meter_en && meter_id != YT921X_ACL_METER_ID_INVALID &&
+	    meter_id != YT921X_ACL_METER_ID_BLACKHOLE) {
+		res = yt921x_acl_meter_clear_hw(priv, meter_id);
+		if (res)
+			return res;
+
+		yt921x_acl_meter_free(priv, meter_id);
+	}
+
+	return 0;
+}
+
+static int
+yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
+	       unsigned int size, struct netlink_ext_ack *extack)
+{
+	struct yt921x_acl_entry *entries;
+	unsigned int used_total = 0;
+	unsigned int best_free;
+	unsigned int offset = 0;
+	unsigned int blkid;
+	unsigned int free;
+	unsigned int used;
+	u8 ents_mask;
+
+	best_free = UINT_MAX;
+	blkid = UINT_MAX;
+	for (unsigned int i = 0; i < YT921X_ACL_BLK_NUM; i++) {
+		used = priv->acl.useds[i];
+		used_total += used;
+		if (used > YT921X_ACL_ENT_PER_BLK) {
+			WARN_ON_ONCE(1);
+			continue;
+		}
+
+		free = YT921X_ACL_ENT_PER_BLK - used;
+		if (free < size)
+			continue;
+		if (free >= best_free)
+			continue;
+
+		best_free = free;
+		blkid = i;
+		if (free == size)
+			break;
+	}
+
+	if (blkid == UINT_MAX) {
+		if (used_total >= YT921X_ACL_NUM)
+			NL_SET_ERR_MSG_MOD(extack, "Hardware ACL table full (max 384 entries)");
+		else if (size > 1)
+			NL_SET_ERR_MSG_MOD(extack, "No ACL block has enough free slots for this rule");
+		else
+			NL_SET_ERR_MSG_MOD(extack, "No ACL slot available");
+		return -ENOSPC;
+	}
+
+	entries = &priv->acl.entries[YT921X_ACL_ENT_PER_BLK * blkid];
+	ents_mask = 0;
+	for (unsigned int i = 0, j = 0; i < YT921X_ACL_ENT_PER_BLK; i++) {
+		if (entries[i].cookie)
+			continue;
+
+		entries[i] = group[j];
+		if (!j)
+			offset = i;
+		else
+			entries[i].start = offset;
+
+		ents_mask |= BIT(i);
+		j++;
+		if (j >= size)
+			break;
+	}
+
+	priv->acl.useds[blkid] += size;
+	WARN_ON(priv->acl.useds[blkid] > YT921X_ACL_ENT_PER_BLK);
+
+	return yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
+}
+
+static int yt921x_acl_mirror_get(struct yt921x_priv *priv, int to_local_port,
+				 struct netlink_ext_ack *extack);
+static void yt921x_acl_mirror_put(struct yt921x_priv *priv, int to_local_port);
 
 static int
 yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
 			    struct flow_cls_offload *cls, bool ingress)
 {
-	return 0;
+	if (!cls->cookie)
+		return -EINVAL;
+
+	return -EOPNOTSUPP;
 }
 
 static int
@@ -3832,172 +4943,111 @@ yt921x_dsa_cls_flower_del(struct dsa_switch *ds, int port,
 			  struct flow_cls_offload *cls, bool ingress)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
-	struct yt921x_flower_rule *rule;
-	u8 prio;
-	u32 val;
+	u8 mirror_to_port = 0;
+	bool mirror_en = false;
 	int res;
 
-	if (!ingress || !dsa_is_user_port(ds, port))
+	if (!cls->cookie)
+		return -EINVAL;
+	if (!dsa_is_user_port(ds, port))
 		return -EOPNOTSUPP;
-
-	mutex_lock(&yt921x_flower_lock);
-	rule = yt921x_flower_find_cookie(ds, cls->cookie);
-	if (!rule) {
-		res = -ENOENT;
-		goto out_unlock;
-	}
 
 	mutex_lock(&priv->reg_lock);
-	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(rule->dscp), &val);
-	if (!res) {
-		prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
-		if (prio == rule->new_prio)
-			res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(rule->dscp),
-					       YT921X_IPM_PRIO(rule->old_prio));
-	}
+	res = yt921x_acl_del(priv, cls->cookie, &mirror_en, &mirror_to_port);
+	if (!res && mirror_en)
+		yt921x_acl_mirror_put(priv, mirror_to_port);
 	mutex_unlock(&priv->reg_lock);
-	if (res)
-		goto out_unlock;
 
-	list_del(&rule->list);
-	kfree(rule);
-	res = 0;
-
-out_unlock:
-	mutex_unlock(&yt921x_flower_lock);
 	return res;
-}
-
-static int
-yt921x_cls_flower_parse(struct flow_cls_offload *cls, u8 *dscp, u8 *prio)
-{
-	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
-	struct flow_match_ip match;
-	const struct flow_action_entry *act;
-	bool have_prio = false;
-	int i;
-
-	if (!rule)
-		return -EINVAL;
-
-	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP))
-		return -EOPNOTSUPP;
-
-	flow_rule_match_ip(rule, &match);
-	if (match.mask->ttl)
-		return -EOPNOTSUPP;
-	if ((match.mask->tos & YT921X_FLOWER_DSCP_MASK) != YT921X_FLOWER_DSCP_MASK)
-		return -EOPNOTSUPP;
-	if (match.mask->tos & ~YT921X_FLOWER_DSCP_MASK)
-		return -EOPNOTSUPP;
-
-	*dscp = (match.key->tos & YT921X_FLOWER_DSCP_MASK) >> 2;
-
-	flow_action_for_each(i, act, &rule->action) {
-		switch (act->id) {
-		case FLOW_ACTION_PRIORITY:
-			if (have_prio)
-				return -EOPNOTSUPP;
-			if (act->priority >= YT921X_PRIO_NUM)
-				return -EOPNOTSUPP;
-			*prio = act->priority;
-			have_prio = true;
-			break;
-		default:
-			return -EOPNOTSUPP;
-		}
-	}
-
-	return have_prio ? 0 : -EOPNOTSUPP;
 }
 
 static int
 yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 			  struct flow_cls_offload *cls, bool ingress)
 {
+	struct yt921x_acl_entry group[YT921X_ACL_ENT_PER_BLK];
+	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	const struct flow_action_entry *act;
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
-	struct netlink_ext_ack *extack = cls->common.extack;
-	struct yt921x_flower_rule *rule, *existing;
-	u8 dscp, prio;
-	u32 val;
+	u32 meter_id = YT921X_ACL_METER_ID_INVALID;
+	bool mirror_prepared = false;
+	bool police_seen = false;
+	unsigned int size;
+	int i;
 	int res;
 
-	if (!ingress) {
-		NL_SET_ERR_MSG_MOD(extack, "egress flower offload is not supported");
+	if (!cls->cookie)
+		return -EINVAL;
+	if (!dsa_is_user_port(ds, port))
 		return -EOPNOTSUPP;
-	}
-
-	if (!dsa_is_user_port(ds, port)) {
-		NL_SET_ERR_MSG_MOD(extack, "flower offload is supported on user ports only");
-		return -EOPNOTSUPP;
-	}
-
 	if (cls->common.chain_index) {
-		NL_SET_ERR_MSG_MOD(extack, "chain is not supported");
+		NL_SET_ERR_MSG_MOD(cls->common.extack, "chain is not supported");
 		return -EOPNOTSUPP;
 	}
 
-	if (cls->common.protocol != htons(ETH_P_IP) &&
-	    cls->common.protocol != htons(ETH_P_IPV6)) {
-		NL_SET_ERR_MSG_MOD(extack, "only IPv4/IPv6 DSCP rules are supported");
+	size = yt921x_acl_parse(group, BIT(port), priv, ds, cls, ingress);
+	if (!size)
 		return -EOPNOTSUPP;
-	}
-
-	res = yt921x_cls_flower_parse(cls, &dscp, &prio);
-	if (res) {
-		NL_SET_ERR_MSG_MOD(extack, "only exact DSCP match + skbedit priority is supported");
-		return res;
-	}
-
-	rule = kzalloc(sizeof(*rule), GFP_KERNEL);
-	if (!rule)
-		return -ENOMEM;
-
-	mutex_lock(&yt921x_flower_lock);
-	if (yt921x_flower_rule_count(ds) >= YT921X_FLOWER_MAX_RULES) {
-		NL_SET_ERR_MSG_MOD(extack, "too many flower rules");
-		res = -ENOSPC;
-		goto out_unlock;
-	}
-
-	if (yt921x_flower_find_cookie(ds, cls->cookie)) {
-		NL_SET_ERR_MSG_MOD(extack, "cookie already exists");
-		res = -EEXIST;
-		goto out_unlock;
-	}
-
-	existing = yt921x_flower_find_dscp(ds, dscp);
-	if (existing && existing->new_prio != prio) {
-		NL_SET_ERR_MSG_MOD(extack, "conflicting rule for the same DSCP");
-		res = -EBUSY;
-		goto out_unlock;
-	}
-	if (existing) {
-		NL_SET_ERR_MSG_MOD(extack, "DSCP rule already installed");
-		res = -EEXIST;
-		goto out_unlock;
-	}
 
 	mutex_lock(&priv->reg_lock);
-	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(dscp), &val);
-	if (!res)
-		res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp), YT921X_IPM_PRIO(prio));
-	mutex_unlock(&priv->reg_lock);
-	if (res)
-		goto out_unlock;
+	flow_action_for_each(i, act, &rule->action) {
+		if (act->id != FLOW_ACTION_POLICE)
+			continue;
 
-	rule->ds = ds;
-	rule->cookie = cls->cookie;
-	rule->dscp = dscp;
-	rule->old_prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
-	rule->new_prio = prio;
-	list_add_tail(&rule->list, &yt921x_flower_rules);
-	res = 0;
-	rule = NULL;
+		if (police_seen) {
+			NL_SET_ERR_MSG_MOD(cls->common.extack,
+					   "Multiple police actions are not supported");
+			res = -EOPNOTSUPP;
+			goto out_unlock;
+		}
 
+		res = yt921x_acl_meter_alloc(priv, &meter_id);
+		if (res) {
+			NL_SET_ERR_MSG_MOD(cls->common.extack,
+					   "No ACL meter profile available");
+			res = -ENOSPC;
+			goto out_unlock;
+		}
+
+		res = yt921x_acl_meter_apply(priv, port, meter_id,
+					     act, cls->common.extack);
+		if (res) {
+			yt921x_acl_meter_free(priv, meter_id);
+			meter_id = YT921X_ACL_METER_ID_INVALID;
+			goto out_unlock;
+		}
+
+		group[0].action[0] &= ~YT921X_ACL_ACTa_METER_ID_M;
+		group[0].action[0] |= FIELD_PREP(YT921X_ACL_ACTa_METER_ID_M,
+						 meter_id);
+		group[0].meter_id = meter_id;
+		police_seen = true;
+	}
+
+	if (group[0].mirror_en) {
+		res = yt921x_acl_mirror_get(priv, group[0].mirror_to_port,
+					    cls->common.extack);
+		if (res) {
+			if (meter_id != YT921X_ACL_METER_ID_INVALID) {
+				yt921x_acl_meter_clear_hw(priv, meter_id);
+				yt921x_acl_meter_free(priv, meter_id);
+			}
+			goto out_unlock;
+		}
+
+		mirror_prepared = true;
+	}
+
+	res = yt921x_acl_add(priv, group, size, cls->common.extack);
+	if (res && meter_id != YT921X_ACL_METER_ID_INVALID) {
+		yt921x_acl_meter_clear_hw(priv, meter_id);
+		yt921x_acl_meter_free(priv, meter_id);
+	}
+	if (res && mirror_prepared)
+		yt921x_acl_mirror_put(priv, group[0].mirror_to_port);
 out_unlock:
-	mutex_unlock(&yt921x_flower_lock);
-	kfree(rule);
+	mutex_unlock(&priv->reg_lock);
+
 	return res;
 }
 
@@ -4108,6 +5158,88 @@ yt921x_mirror_add(struct yt921x_priv *priv, int port, bool ingress,
 		yt921x_reg_write(priv, YT921X_MIRROR, val);
 
 	return res;
+}
+
+static int yt921x_acl_mirror_get(struct yt921x_priv *priv, int to_local_port,
+				 struct netlink_ext_ack *extack)
+{
+	u32 val;
+	u32 dst;
+	u32 ctrl;
+	int res;
+
+	if (priv->acl_mirror_count) {
+		if (priv->acl_mirror_to_port != to_local_port) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ACL mirror uses one global destination port");
+			return -EBUSY;
+		}
+
+		priv->acl_mirror_count++;
+		return 0;
+	}
+
+	dst = YT921X_MIRROR_PORT(to_local_port);
+	res = yt921x_reg_read(priv, YT921X_MIRROR, &val);
+	if (res)
+		return res;
+
+	if ((val & (YT921X_MIRROR_EGR_PORTS_M | YT921X_MIRROR_IGR_PORTS_M)) &&
+	    (val & YT921X_MIRROR_PORT_M) != dst) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Sniffer port already configured with a different destination");
+		return -EBUSY;
+	}
+
+	ctrl = (val & ~YT921X_MIRROR_PORT_M) | dst;
+	if (ctrl != val) {
+		res = yt921x_reg_write(priv, YT921X_MIRROR, ctrl);
+		if (res)
+			return res;
+	}
+
+	res = yt921x_mirror_prio_map_apply(priv, true);
+	if (res) {
+		if (ctrl != val)
+			yt921x_reg_write(priv, YT921X_MIRROR, val);
+		return res;
+	}
+
+	priv->acl_mirror_to_port = to_local_port;
+	priv->acl_mirror_count = 1;
+
+	return 0;
+}
+
+static void yt921x_acl_mirror_put(struct yt921x_priv *priv, int to_local_port)
+{
+	u32 val;
+	u32 ctrl;
+	bool mirror_active;
+
+	if (!priv->acl_mirror_count)
+		return;
+	if (priv->acl_mirror_to_port != to_local_port)
+		return;
+
+	priv->acl_mirror_count--;
+	if (priv->acl_mirror_count)
+		return;
+
+	priv->acl_mirror_to_port = -1;
+
+	if (yt921x_reg_read(priv, YT921X_MIRROR, &val))
+		return;
+
+	ctrl = val;
+	mirror_active = !!(ctrl & (YT921X_MIRROR_EGR_PORTS_M |
+				   YT921X_MIRROR_IGR_PORTS_M));
+	if (!mirror_active) {
+		ctrl &= ~YT921X_MIRROR_PORT_M;
+		if (ctrl != val)
+			yt921x_reg_write(priv, YT921X_MIRROR, ctrl);
+		yt921x_mirror_prio_map_apply(priv, false);
+	}
 }
 
 static void
@@ -7050,6 +8182,7 @@ static int yt921x_chip_detect(struct yt921x_priv *priv)
 	u32 chipid;
 	u32 major;
 	u32 mode;
+	u32 val;
 	int res;
 
 	res = yt921x_reg_read(priv, YT921X_CHIP_ID, &chipid);
@@ -7082,6 +8215,20 @@ static int yt921x_chip_detect(struct yt921x_priv *priv)
 			"Unsupported chipid 0x%x with chipmode 0x%x 0x%x\n",
 			chipid, mode, extmode);
 		return -ENODEV;
+	}
+
+	res = yt921x_reg_read(priv, YT921X_SYS_CLK, &val);
+	if (res)
+		return res;
+	switch (FIELD_GET(YT921X_SYS_CLK_SEL_M, val)) {
+	case 0:
+		priv->cycle_ns = info->major == YT9215_MAJOR ? 8 : 6;
+		break;
+	case YT921X_SYS_CLK_143M:
+		priv->cycle_ns = 7;
+		break;
+	default:
+		priv->cycle_ns = 8;
 	}
 
 	/* Print chipid here since we are interested in lower 16 bits */
@@ -7661,6 +8808,8 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	res = yt921x_reg_write(priv, YT921X_MIRROR_PRIO_MAP, 0);
 	if (res)
 		return res;
+	priv->acl_mirror_count = 0;
+	priv->acl_mirror_to_port = -1;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "mirror-prio-reset");
 #endif
@@ -7675,6 +8824,79 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "vlan0");
 #endif
+
+	return 0;
+}
+
+static int yt921x_chip_setup_tc(struct yt921x_priv *priv)
+{
+	unsigned int op_ns;
+	u32 ctrl;
+	int res;
+
+	op_ns = 8 * priv->cycle_ns;
+
+	ctrl = max(priv->meter_slot_ns / op_ns, YT921X_METER_SLOT_MIN);
+	res = yt921x_reg_write(priv, YT921X_METER_SLOT, ctrl);
+	if (res)
+		return res;
+	priv->meter_slot_ns = ctrl * op_ns;
+
+	ctrl = max(priv->port_shape_slot_ns / op_ns,
+		   YT921X_PORT_SHAPE_SLOT_MIN);
+	res = yt921x_reg_write(priv, YT921X_PORT_SHAPE_SLOT, ctrl);
+	if (res)
+		return res;
+	priv->port_shape_slot_ns = ctrl * op_ns;
+
+	ctrl = max(priv->queue_shape_slot_ns / op_ns,
+		   YT921X_QUEUE_SHAPE_SLOT_MIN);
+	res = yt921x_reg_write(priv, YT921X_QUEUE_SHAPE_SLOT, ctrl);
+	if (res)
+		return res;
+	priv->queue_shape_slot_ns = ctrl * op_ns;
+
+	/* Keep legacy storm limiter disabled unless explicitly used later. */
+	res = yt921x_reg_update_bits(priv, YT921X_STORM_MC_TYPE_CTRL,
+				     YT921X_STORM_MC_TYPE_CTRL_PORTS_M, 0);
+	if (res)
+		return res;
+
+	res = yt921x_reg_update_bits(priv, YT921X_STORM_CONFIG,
+				     YT921X_STORM_CONFIG_EN, 0);
+	if (res)
+		return res;
+
+	return 0;
+}
+
+static int yt921x_chip_setup_acl(struct yt921x_priv *priv)
+{
+	u32 ctrls[3] = {0};
+	u32 ctrl;
+	int res;
+
+	memset(&priv->acl, 0, sizeof(priv->acl));
+	bitmap_zero(priv->acl_meter_map, YT921X_METER_NUM);
+
+	/* Reserve one meter as a permanent blackhole used by DROP actions. */
+	__set_bit(YT921X_ACL_METER_ID_BLACKHOLE, priv->acl_meter_map);
+	ctrls[2] = YT921X_METER_CTRLc_METER_EN | YT921X_METER_CTRLc_DROP_GYR;
+	res = yt921x_reg96_write(priv,
+				 YT921X_METERn_CTRL(YT921X_ACL_METER_ID_BLACKHOLE),
+				 ctrls);
+	if (res)
+		return res;
+
+	ctrl = YT921X_ACL_PERMIT_UNMATCH_PORTS_M;
+	res = yt921x_reg_write(priv, YT921X_ACL_PERMIT_UNMATCH, ctrl);
+	if (res)
+		return res;
+
+	ctrl = YT921X_ACL_PORT_PORTS_M;
+	res = yt921x_reg_write(priv, YT921X_ACL_PORT, ctrl);
+	if (res)
+		return res;
 
 	return 0;
 }
@@ -7759,12 +8981,20 @@ static int yt921x_chip_setup(struct yt921x_priv *priv)
 	u32 ctrl;
 	int res;
 
-	ctrl = YT921X_FUNC_MIB;
+	ctrl = YT921X_FUNC_MIB | YT921X_FUNC_ACL | YT921X_FUNC_METER;
 	res = yt921x_reg_set_bits(priv, YT921X_FUNC, ctrl);
 	if (res)
 		return res;
 
 	res = yt921x_chip_setup_dsa(priv);
+	if (res)
+		return res;
+
+	res = yt921x_chip_setup_tc(priv);
+	if (res)
+		return res;
+
+	res = yt921x_chip_setup_acl(priv);
 	if (res)
 		return res;
 
@@ -7931,7 +9161,6 @@ static void yt921x_mdio_shutdown(struct mdio_device *mdiodev)
 	cancel_delayed_work_sync(&priv->storm_guard_work);
 #endif
 
-	yt921x_flower_cleanup_rules(&priv->ds);
 	dsa_switch_shutdown(&priv->ds);
 }
 
@@ -7952,7 +9181,6 @@ static void yt921x_mdio_remove(struct mdio_device *mdiodev)
 	cancel_delayed_work_sync(&priv->storm_guard_work);
 #endif
 
-	yt921x_flower_cleanup_rules(&priv->ds);
 	dsa_unregister_switch(&priv->ds);
 
 	yt921x_proc_exit(priv);
