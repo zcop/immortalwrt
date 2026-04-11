@@ -4542,6 +4542,8 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 	const struct flow_action_entry *act;
 	struct dsa_port *to_dp;
 	bool mirror_seen = false;
+	bool trap_seen = false;
+	bool police_seen = false;
 	u32 *action = group[0].action;
 	int i;
 
@@ -4554,13 +4556,6 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			/* Match + no punitive action = permit/pass. */
 			break;
 		case FLOW_ACTION_DROP:
-			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
-			    (action[2] & YT921X_ACL_ACTc_REDIR_M) ==
-				    YT921X_ACL_ACTc_REDIR_TRAP) {
-				NL_SET_ERR_MSG_MOD(extack,
-						   "Trap cannot be combined with drop");
-				return -EOPNOTSUPP;
-			}
 			action[0] |= YT921X_ACL_ACTa_METER_EN;
 			action[0] |= FIELD_PREP(YT921X_ACL_ACTa_METER_ID_M,
 						YT921X_ACL_METER_ID_BLACKHOLE);
@@ -4570,6 +4565,11 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			if (group[0].mirror_en) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Trap cannot be combined with mirror");
+				return -EOPNOTSUPP;
+			}
+			if (police_seen) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Trap cannot be combined with police");
 				return -EOPNOTSUPP;
 			}
 			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
@@ -4583,6 +4583,15 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 				       YT921X_ACL_ACTc_REDIR_DPORTS_M);
 			action[2] |= YT921X_ACL_ACTc_REDIR_EN;
 			action[2] |= YT921X_ACL_ACTc_REDIR_TRAP;
+			/* YT9215 trap is copy-to-CPU; pair with blackhole meter for
+			 * strict trap consume semantics expected by tc trap.
+			 */
+			action[0] |= YT921X_ACL_ACTa_METER_EN;
+			action[0] &= ~YT921X_ACL_ACTa_METER_ID_M;
+			action[0] |= FIELD_PREP(YT921X_ACL_ACTa_METER_ID_M,
+						YT921X_ACL_METER_ID_BLACKHOLE);
+			group[0].meter_id = YT921X_ACL_METER_ID_BLACKHOLE;
+			trap_seen = true;
 			break;
 		case FLOW_ACTION_REDIRECT:
 #ifdef FLOW_ACTION_REDIRECT_INGRESS
@@ -4663,9 +4672,10 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[1] |= YT921X_ACL_ACTb_PRIO(act->priority);
 			break;
 		case FLOW_ACTION_POLICE:
-			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
-			    (action[2] & YT921X_ACL_ACTc_REDIR_M) ==
-				    YT921X_ACL_ACTc_REDIR_TRAP) {
+			if (trap_seen ||
+			    ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
+			     (action[2] & YT921X_ACL_ACTc_REDIR_M) ==
+				     YT921X_ACL_ACTc_REDIR_TRAP)) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Trap cannot be combined with police");
 				return -EOPNOTSUPP;
@@ -4683,6 +4693,7 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 				return -EOPNOTSUPP;
 			}
 			action[0] |= YT921X_ACL_ACTa_METER_EN;
+			police_seen = true;
 			break;
 		default:
 			NL_SET_ERR_MSG_MOD(extack, "Action not supported");
