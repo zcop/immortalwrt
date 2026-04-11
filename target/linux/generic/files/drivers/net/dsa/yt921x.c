@@ -3583,10 +3583,9 @@ static int yt921x_qsch_tbf_del(struct yt921x_priv *priv, int port, u8 qid)
 }
 
 static int
-yt921x_qsch_tbf_add(struct yt921x_priv *priv, int port, u8 qid,
-		       struct tc_tbf_qopt_offload *qopt)
+yt921x_qsch_tbf_apply_raw(struct yt921x_priv *priv, int port, u8 qid,
+			  u64 rate_bytes_ps, u32 burst_bytes)
 {
-	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
 	u32 cir;
 	u32 cbs;
 	u32 idx;
@@ -3600,11 +3599,11 @@ yt921x_qsch_tbf_add(struct yt921x_priv *priv, int port, u8 qid,
 	if (res)
 		return res;
 
-	res = yt921x_tbf_rate_to_eir(params->rate.rate_bytes_ps, &cir);
+	res = yt921x_tbf_rate_to_eir(rate_bytes_ps, &cir);
 	if (res)
 		return res;
 
-	res = yt921x_tbf_burst_to_ebs(params->max_size, &cbs);
+	res = yt921x_tbf_burst_to_ebs(burst_bytes, &cbs);
 	if (res)
 		return res;
 
@@ -3635,6 +3634,64 @@ yt921x_qsch_tbf_add(struct yt921x_priv *priv, int port, u8 qid,
 	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx),
 				YT921X_QSCH_SHP_EN |
 				YT921X_QSCH_SHP_METER_ID(0));
+}
+
+static int
+yt921x_qsch_tbf_add(struct yt921x_priv *priv, int port, u8 qid,
+		    struct tc_tbf_qopt_offload *qopt)
+{
+	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
+
+	return yt921x_qsch_tbf_apply_raw(priv, port, qid,
+					 params->rate.rate_bytes_ps,
+					 params->max_size);
+}
+
+static int yt921x_trap_copp_default_apply(struct yt921x_priv *priv)
+{
+	unsigned long cpu_ports_mask = priv->cpu_ports_mask;
+	u8 prio = YT921X_TRAP_COPP_DEFAULT_PRIO;
+	u8 qid = YT921X_TRAP_COPP_DEFAULT_QID;
+	int port;
+
+	for_each_set_bit(port, &cpu_ports_mask, YT921X_PORT_NUM) {
+		u32 ucast;
+		u32 mcast;
+		int res;
+
+		res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_UCASTn(port),
+				      &ucast);
+		if (res)
+			return res;
+
+		res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_MCASTn(port),
+				      &mcast);
+		if (res)
+			return res;
+
+		ucast &= ~YT921X_QOS_UCAST_QMAP_PRIO_M(prio);
+		ucast |= YT921X_QOS_UCAST_QMAP_PRIO(prio, qid);
+		mcast &= ~YT921X_QOS_MCAST_QMAP_PRIO_M(prio);
+		mcast |= YT921X_QOS_MCAST_QMAP_PRIO(prio, min_t(u8, qid, 3));
+
+		res = yt921x_reg_write(priv, YT921X_QOS_QUEUE_MAP_UCASTn(port),
+				       ucast);
+		if (res)
+			return res;
+
+		res = yt921x_reg_write(priv, YT921X_QOS_QUEUE_MAP_MCASTn(port),
+				       mcast);
+		if (res)
+			return res;
+
+		res = yt921x_qsch_tbf_apply_raw(priv, port, qid,
+						YT921X_TRAP_COPP_DEFAULT_RATE_BYTES_PER_SEC,
+						YT921X_TRAP_COPP_DEFAULT_BURST_BYTES);
+		if (res)
+			return res;
+	}
+
+	return 0;
 }
 
 static int
@@ -4699,6 +4756,11 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			NL_SET_ERR_MSG_MOD(extack, "Action not supported");
 			return -EOPNOTSUPP;
 		}
+	}
+
+	if (trap_seen && !(action[0] & YT921X_ACL_ACTa_PRIO_EN)) {
+		action[0] |= YT921X_ACL_ACTa_PRIO_EN;
+		action[1] |= YT921X_ACL_ACTb_PRIO(YT921X_TRAP_COPP_DEFAULT_PRIO);
 	}
 
 	return 0;
@@ -9010,6 +9072,10 @@ static int yt921x_chip_setup(struct yt921x_priv *priv)
 		return res;
 
 	res = yt921x_chip_setup_qos(priv);
+	if (res)
+		return res;
+
+	res = yt921x_trap_copp_default_apply(priv);
 	if (res)
 		return res;
 
