@@ -14,7 +14,7 @@ Signed-off-by: David Yang <mmyangfl@gmail.com>
 
 --- a/drivers/net/dsa/Kconfig
 +++ b/drivers/net/dsa/Kconfig
-@@ -159,4 +159,11 @@ config NET_DSA_VITESSE_VSC73XX_PLATFORM
+@@ -159,4 +159,19 @@ config NET_DSA_VITESSE_VSC73XX_PLATFORM
  	  This enables support for the Vitesse VSC7385, VSC7388, VSC7395
  	  and VSC7398 SparX integrated ethernet switches, connected over
  	  a CPU-attached address bus and work in memory-mapped I/O mode.
@@ -25,6 +25,14 @@ Signed-off-by: David Yang <mmyangfl@gmail.com>
 +	help
 +	  This enables support for the Motorcomm YT9215 ethernet switch
 +	  chip.
++
++config NET_DSA_YT921X_DEBUG
++	bool "Motorcomm YT9215 debug command interface"
++	depends on NET_DSA_YT921X
++	help
++	  Enable debug command interface under debugfs for yt921x.
++	  This exposes raw register/table helpers and is intended for
++	  bring-up and reverse engineering.
  endmenu
 --- a/drivers/net/dsa/Makefile
 +++ b/drivers/net/dsa/Makefile
