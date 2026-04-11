@@ -45,9 +45,6 @@ struct yt921x_mib_desc {
 	const char *name;
 };
 
-#define MIB_DESC(_size, _offset, _name) \
-	{_size, _offset, _name}
-
 /* Must agree with yt921x_mib
  *
  * Unstructured fields (name != NULL) will appear in get_ethtool_stats(),
@@ -55,60 +52,60 @@ struct yt921x_mib_desc {
  * to perform 32bit MIB overflow wraparound.
  */
 static const struct yt921x_mib_desc yt921x_mib_descs[] = {
-	MIB_DESC(1, 0x00, NULL),	/* RxBroadcast */
-	MIB_DESC(1, 0x04, NULL),	/* RxPause */
-	MIB_DESC(1, 0x08, NULL),	/* RxMulticast */
-	MIB_DESC(1, 0x0c, NULL),	/* RxCrcErr */
+	YT921X_MIB_DESC(1, 0x00, NULL),	/* RxBroadcast */
+	YT921X_MIB_DESC(1, 0x04, NULL),	/* RxPause */
+	YT921X_MIB_DESC(1, 0x08, NULL),	/* RxMulticast */
+	YT921X_MIB_DESC(1, 0x0c, NULL),	/* RxCrcErr */
 
-	MIB_DESC(1, 0x10, NULL),	/* RxAlignErr */
-	MIB_DESC(1, 0x14, NULL),	/* RxUnderSizeErr */
-	MIB_DESC(1, 0x18, NULL),	/* RxFragErr */
-	MIB_DESC(1, 0x1c, NULL),	/* RxPktSz64 */
+	YT921X_MIB_DESC(1, 0x10, NULL),	/* RxAlignErr */
+	YT921X_MIB_DESC(1, 0x14, NULL),	/* RxUnderSizeErr */
+	YT921X_MIB_DESC(1, 0x18, NULL),	/* RxFragErr */
+	YT921X_MIB_DESC(1, 0x1c, NULL),	/* RxPktSz64 */
 
-	MIB_DESC(1, 0x20, NULL),	/* RxPktSz65To127 */
-	MIB_DESC(1, 0x24, NULL),	/* RxPktSz128To255 */
-	MIB_DESC(1, 0x28, NULL),	/* RxPktSz256To511 */
-	MIB_DESC(1, 0x2c, NULL),	/* RxPktSz512To1023 */
+	YT921X_MIB_DESC(1, 0x20, NULL),	/* RxPktSz65To127 */
+	YT921X_MIB_DESC(1, 0x24, NULL),	/* RxPktSz128To255 */
+	YT921X_MIB_DESC(1, 0x28, NULL),	/* RxPktSz256To511 */
+	YT921X_MIB_DESC(1, 0x2c, NULL),	/* RxPktSz512To1023 */
 
-	MIB_DESC(1, 0x30, NULL),	/* RxPktSz1024To1518 */
-	MIB_DESC(1, 0x34, NULL),	/* RxPktSz1519ToMax */
+	YT921X_MIB_DESC(1, 0x30, NULL),	/* RxPktSz1024To1518 */
+	YT921X_MIB_DESC(1, 0x34, NULL),	/* RxPktSz1519ToMax */
 	/* 0x38: unused */
-	MIB_DESC(2, 0x3c, NULL),	/* RxGoodBytes */
+	YT921X_MIB_DESC(2, 0x3c, NULL),	/* RxGoodBytes */
 
 	/* 0x40: 64 bytes */
-	MIB_DESC(2, 0x44, "RxBadBytes"),
+	YT921X_MIB_DESC(2, 0x44, "RxBadBytes"),
 	/* 0x48: 64 bytes */
-	MIB_DESC(1, 0x4c, NULL),	/* RxOverSzErr */
+	YT921X_MIB_DESC(1, 0x4c, NULL),	/* RxOverSzErr */
 
-	MIB_DESC(1, 0x50, NULL),	/* RxDropped */
-	MIB_DESC(1, 0x54, NULL),	/* TxBroadcast */
-	MIB_DESC(1, 0x58, NULL),	/* TxPause */
-	MIB_DESC(1, 0x5c, NULL),	/* TxMulticast */
+	YT921X_MIB_DESC(1, 0x50, NULL),	/* RxDropped */
+	YT921X_MIB_DESC(1, 0x54, NULL),	/* TxBroadcast */
+	YT921X_MIB_DESC(1, 0x58, NULL),	/* TxPause */
+	YT921X_MIB_DESC(1, 0x5c, NULL),	/* TxMulticast */
 
-	MIB_DESC(1, 0x60, NULL),	/* TxUnderSizeErr */
-	MIB_DESC(1, 0x64, NULL),	/* TxPktSz64 */
-	MIB_DESC(1, 0x68, NULL),	/* TxPktSz65To127 */
-	MIB_DESC(1, 0x6c, NULL),	/* TxPktSz128To255 */
+	YT921X_MIB_DESC(1, 0x60, NULL),	/* TxUnderSizeErr */
+	YT921X_MIB_DESC(1, 0x64, NULL),	/* TxPktSz64 */
+	YT921X_MIB_DESC(1, 0x68, NULL),	/* TxPktSz65To127 */
+	YT921X_MIB_DESC(1, 0x6c, NULL),	/* TxPktSz128To255 */
 
-	MIB_DESC(1, 0x70, NULL),	/* TxPktSz256To511 */
-	MIB_DESC(1, 0x74, NULL),	/* TxPktSz512To1023 */
-	MIB_DESC(1, 0x78, NULL),	/* TxPktSz1024To1518 */
-	MIB_DESC(1, 0x7c, NULL),	/* TxPktSz1519ToMax */
+	YT921X_MIB_DESC(1, 0x70, NULL),	/* TxPktSz256To511 */
+	YT921X_MIB_DESC(1, 0x74, NULL),	/* TxPktSz512To1023 */
+	YT921X_MIB_DESC(1, 0x78, NULL),	/* TxPktSz1024To1518 */
+	YT921X_MIB_DESC(1, 0x7c, NULL),	/* TxPktSz1519ToMax */
 
 	/* 0x80: unused */
-	MIB_DESC(2, 0x84, NULL),	/* TxGoodBytes */
+	YT921X_MIB_DESC(2, 0x84, NULL),	/* TxGoodBytes */
 	/* 0x88: 64 bytes */
-	MIB_DESC(1, 0x8c, NULL),	/* TxCollision */
+	YT921X_MIB_DESC(1, 0x8c, NULL),	/* TxCollision */
 
-	MIB_DESC(1, 0x90, NULL),	/* TxExcessiveCollistion */
-	MIB_DESC(1, 0x94, NULL),	/* TxMultipleCollision */
-	MIB_DESC(1, 0x98, NULL),	/* TxSingleCollision */
-	MIB_DESC(1, 0x9c, NULL),	/* TxPkt */
+	YT921X_MIB_DESC(1, 0x90, NULL),	/* TxExcessiveCollistion */
+	YT921X_MIB_DESC(1, 0x94, NULL),	/* TxMultipleCollision */
+	YT921X_MIB_DESC(1, 0x98, NULL),	/* TxSingleCollision */
+	YT921X_MIB_DESC(1, 0x9c, NULL),	/* TxPkt */
 
-	MIB_DESC(1, 0xa0, NULL),	/* TxDeferred */
-	MIB_DESC(1, 0xa4, NULL),	/* TxLateCollision */
-	MIB_DESC(1, 0xa8, "RxOAM"),
-	MIB_DESC(1, 0xac, "TxOAM"),
+	YT921X_MIB_DESC(1, 0xa0, NULL),	/* TxDeferred */
+	YT921X_MIB_DESC(1, 0xa4, NULL),	/* TxLateCollision */
+	YT921X_MIB_DESC(1, 0xa8, "RxOAM"),
+	YT921X_MIB_DESC(1, 0xac, "TxOAM"),
 };
 
 struct yt921x_info {
@@ -122,11 +119,6 @@ struct yt921x_info {
 	/* External ports */
 	u16 external_mask;
 };
-
-#define YT921X_PORT_MASK_INTn(port)	BIT(port)
-#define YT921X_PORT_MASK_INT0_n(n)	GENMASK((n) - 1, 0)
-#define YT921X_PORT_MASK_EXT0		BIT(8)
-#define YT921X_PORT_MASK_EXT1		BIT(9)
 
 static const struct yt921x_info yt921x_infos[] = {
 	{
@@ -167,56 +159,6 @@ static const struct yt921x_info yt921x_infos[] = {
 	{}
 };
 
-#define YT921X_NAME	"yt921x"
-
-#define YT921X_VID_UNWARE	4095
-
-#define YT921X_POLL_SLEEP_US	10000
-#define YT921X_POLL_TIMEOUT_US	100000
-
-/* The interval should be small enough to avoid overflow of 32bit MIBs.
- *
- * Until we can read MIBs from stats64 call directly (i.e. sleep
- * there), we have to poll stats more frequently then it is actually needed.
- * For overflow protection, normally, 100 sec interval should have been OK.
- */
-#define YT921X_STATS_INTERVAL_JIFFIES	(3 * HZ)
-
-/*
- * Empirical CR881x default-lane fit for PSCH EIR:
- *   cap_mbps ~= 0.0006516 * EIR - 0.085
- *   EIR ~= 1535 * target_mbps + 130
- */
-#define YT921X_PSCH_EIR_RATE_SCALE_NUM	1535ULL
-#define YT921X_PSCH_EIR_RATE_SCALE_DEN	1000ULL
-#define YT921X_PSCH_EIR_RATE_OFFSET	130ULL
-#define YT921X_PSCH_EIR_MIN_SAFE	300ULL
-#define YT921X_PSCH_EIR_MAX		GENMASK(17, 0)
-#define YT921X_PSCH_EBS_UNIT_BYTES	64ULL
-#define YT921X_PSCH_EBS_MAX		GENMASK(13, 0)
-#define YT921X_PSCH_SHP_PORTS		5U
-#define YT921X_QSCH_SHP_QUEUES		8U
-#define YT921X_QSCH_SHP_PORTS		11U
-#define YT921X_QSCH_SHP_FLOWS_PER_PORT	12U
-#define YT921X_QSCH_SHP_ENTRIES \
-		(YT921X_QSCH_SHP_PORTS * YT921X_QSCH_SHP_FLOWS_PER_PORT)
-#define YT921X_QSCH_SLOT_TIME_DEFAULT	1U
-#define YT921X_QSCH_METER_TOKEN_DEFAULT	0U
-
-#define YT921X_QOS_REMARK_DP_NUM	4U
-#define YT921X_FLOWER_DSCP_MASK		GENMASK(7, 2)
-#define YT921X_FLOWER_MAX_RULES		64U
-
-#define YT921X_STORM_GUARD_DEFAULT_PPS		20000U
-#define YT921X_STORM_GUARD_DEFAULT_HOLD_MS	3000U
-#define YT921X_STORM_GUARD_DEFAULT_INTERVAL_MS	1000U
-#define YT921X_STORM_RATE_UNITS_MAX		((1ULL << 29) - 1)
-#define YT921X_STOCK_RATE_SCALE_PER_SEC		1000000000ULL
-#define YT921X_STOCK_RATE_CIR_MAX		GENMASK(17, 0)
-#define YT921X_STOCK_RATE_METER_NUM		14U
-#define YT921X_STOCK_RATE_METER_STRIDE		0x10U
-#define YT921X_STOCK_RATE_METER_DEFAULT_ID	0U
-
 struct yt921x_reg_mdio {
 	struct mii_bus *bus;
 	int addr;
@@ -230,9 +172,6 @@ struct yt921x_reg_mdio {
 };
 
 /* TODO: SPI/I2C */
-
-#define to_yt921x_priv(_ds) container_of_const(_ds, struct yt921x_priv, ds)
-#define to_device(priv) ((priv)->ds.dev)
 
 static int yt921x_read_mib(struct yt921x_priv *priv, int port);
 static u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv);
@@ -324,21 +263,19 @@ yt921x_reg_toggle_bits(struct yt921x_priv *priv, u32 reg, u32 mask, bool set)
 	return yt921x_reg_update_bits(priv, reg, mask, !set ? 0 : mask);
 }
 
-enum yt921x_stock_rma_action {
-	YT921X_STOCK_RMA_ACT_FORWARD = 0,
-	YT921X_STOCK_RMA_ACT_TRAP_TO_CPU = 1,
-	YT921X_STOCK_RMA_ACT_COPY_TO_CPU = 2,
-	YT921X_STOCK_RMA_ACT_DROP = 3,
+enum yt921x_rma_action {
+	YT921X_RMA_ACT_FORWARD = 0,
+	YT921X_RMA_ACT_TRAP_TO_CPU = 1,
+	YT921X_RMA_ACT_COPY_TO_CPU = 2,
+	YT921X_RMA_ACT_DROP = 3,
 };
 
-#define YT921X_STOCK_LOOP_DETECT_DEFAULT_TPID	0x9989
-
-static int yt921x_stock_loop_detect_setup_locked(struct yt921x_priv *priv)
+static int yt921x_loop_detect_setup_locked(struct yt921x_priv *priv)
 {
 	u32 ctrl;
 	int res;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL, &ctrl);
+	res = yt921x_reg_read(priv, YT921X_LOOP_DETECT_TOP_CTRL, &ctrl);
 	if (res)
 		return res;
 
@@ -346,39 +283,39 @@ static int yt921x_stock_loop_detect_setup_locked(struct yt921x_priv *priv)
 	 * Force loop-detect enable, keep generate-way off by default, and seed a
 	 * sane TPID only when firmware left it zero.
 	 */
-	ctrl |= YT921X_STOCK_LOOP_DETECT_EN;
-	ctrl &= ~YT921X_STOCK_LOOP_DETECT_GEN_WAY;
+	ctrl |= YT921X_LOOP_DETECT_EN;
+	ctrl &= ~YT921X_LOOP_DETECT_GEN_WAY;
 
-	if (!FIELD_GET(YT921X_STOCK_LOOP_DETECT_TPID_M, ctrl)) {
-		ctrl &= ~YT921X_STOCK_LOOP_DETECT_TPID_M;
-		ctrl |= FIELD_PREP(YT921X_STOCK_LOOP_DETECT_TPID_M,
-				   YT921X_STOCK_LOOP_DETECT_DEFAULT_TPID);
+	if (!FIELD_GET(YT921X_LOOP_DETECT_TPID_M, ctrl)) {
+		ctrl &= ~YT921X_LOOP_DETECT_TPID_M;
+		ctrl |= FIELD_PREP(YT921X_LOOP_DETECT_TPID_M,
+				   YT921X_LOOP_DETECT_DEFAULT_TPID);
 	}
 
-	return yt921x_reg_write(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL, ctrl);
+	return yt921x_reg_write(priv, YT921X_LOOP_DETECT_TOP_CTRL, ctrl);
 }
 
-static int yt921x_stock_rma_ctrl_action_set(u32 *ctrl,
-					    enum yt921x_stock_rma_action action)
+static int yt921x_rma_ctrl_action_set(u32 *ctrl,
+					    enum yt921x_rma_action action)
 {
-	*ctrl &= ~(YT921X_STOCK_RMA_CTRL_F3 |
-		   YT921X_STOCK_RMA_CTRL_F4 |
-		   YT921X_STOCK_RMA_CTRL_FWD_MASK_M);
+	*ctrl &= ~(YT921X_RMA_CTRL_F3 |
+		   YT921X_RMA_CTRL_F4 |
+		   YT921X_RMA_CTRL_FWD_MASK_M);
 
 	switch (action) {
-	case YT921X_STOCK_RMA_ACT_FORWARD:
-		*ctrl |= YT921X_STOCK_RMA_CTRL_FWD_MASK_ALL;
+	case YT921X_RMA_ACT_FORWARD:
+		*ctrl |= YT921X_RMA_CTRL_FWD_MASK_ALL;
 		break;
-	case YT921X_STOCK_RMA_ACT_TRAP_TO_CPU:
-		*ctrl |= YT921X_STOCK_RMA_CTRL_F3 |
-			 YT921X_STOCK_RMA_CTRL_F4;
+	case YT921X_RMA_ACT_TRAP_TO_CPU:
+		*ctrl |= YT921X_RMA_CTRL_F3 |
+			 YT921X_RMA_CTRL_F4;
 		break;
-	case YT921X_STOCK_RMA_ACT_COPY_TO_CPU:
-		*ctrl |= YT921X_STOCK_RMA_CTRL_F4 |
-			 YT921X_STOCK_RMA_CTRL_FWD_MASK_ALL;
+	case YT921X_RMA_ACT_COPY_TO_CPU:
+		*ctrl |= YT921X_RMA_CTRL_F4 |
+			 YT921X_RMA_CTRL_FWD_MASK_ALL;
 		break;
-	case YT921X_STOCK_RMA_ACT_DROP:
-		*ctrl |= YT921X_STOCK_RMA_CTRL_F3;
+	case YT921X_RMA_ACT_DROP:
+		*ctrl |= YT921X_RMA_CTRL_F3;
 		break;
 	default:
 		return -EINVAL;
@@ -389,10 +326,10 @@ static int yt921x_stock_rma_ctrl_action_set(u32 *ctrl,
 
 static int
 yt921x_stock_rma_ctrl_set(struct yt921x_priv *priv, u8 index,
-			  enum yt921x_stock_rma_action action,
+			  enum yt921x_rma_action action,
 			  bool bypass_port_isolation, bool bypass_vlan_filter)
 {
-	u32 reg = YT921X_STOCK_RMA_CTRLn(index);
+	u32 reg = YT921X_RMA_CTRLn(index);
 	u32 ctrl;
 	int res;
 
@@ -403,21 +340,21 @@ yt921x_stock_rma_ctrl_set(struct yt921x_priv *priv, u8 index,
 	if (res)
 		return res;
 
-	res = yt921x_stock_rma_ctrl_action_set(&ctrl, action);
+	res = yt921x_rma_ctrl_action_set(&ctrl, action);
 	if (res)
 		return res;
 
 	ctrl = bypass_port_isolation ?
-		(ctrl | YT921X_STOCK_RMA_CTRL_F6) :
-		(ctrl & ~YT921X_STOCK_RMA_CTRL_F6);
+		(ctrl | YT921X_RMA_CTRL_F6) :
+		(ctrl & ~YT921X_RMA_CTRL_F6);
 	ctrl = bypass_vlan_filter ?
-		(ctrl | YT921X_STOCK_RMA_CTRL_F5) :
-		(ctrl & ~YT921X_STOCK_RMA_CTRL_F5);
+		(ctrl | YT921X_RMA_CTRL_F5) :
+		(ctrl & ~YT921X_RMA_CTRL_F5);
 
 	return yt921x_reg_write(priv, reg, ctrl);
 }
 
-static int yt921x_stock_rma_setup_locked(struct yt921x_priv *priv)
+static int yt921x_rma_setup_locked(struct yt921x_priv *priv)
 {
 	/* 01:80:c2:00:00:xx low-byte indexes:
 	 *   0x00 BPDU, 0x02 Slow Protocols (LACP), 0x03 EAPOL, 0x0e LLDP.
@@ -429,7 +366,7 @@ static int yt921x_stock_rma_setup_locked(struct yt921x_priv *priv)
 
 	for (i = 0; i < ARRAY_SIZE(trap_to_cpu); i++) {
 		res = yt921x_stock_rma_ctrl_set(
-			priv, trap_to_cpu[i], YT921X_STOCK_RMA_ACT_TRAP_TO_CPU,
+			priv, trap_to_cpu[i], YT921X_RMA_ACT_TRAP_TO_CPU,
 			true, true);
 		if (res)
 			return res;
@@ -651,11 +588,21 @@ static int yt921x_mbus_wait(struct yt921x_priv *priv, bool extif)
 			       YT921X_MBUS_OP_START, &val);
 }
 
+static int yt921x_intif_wait(struct yt921x_priv *priv)
+{
+	return yt921x_mbus_wait(priv, false);
+}
+
+static int yt921x_extif_wait(struct yt921x_priv *priv)
+{
+	return yt921x_mbus_wait(priv, true);
+}
+
 static int
 yt921x_mbus_read(struct yt921x_priv *priv, bool extif, int port, int reg,
 		 u16 *valp)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	u32 op_reg = yt921x_mbus_op_reg(extif);
 	u32 ctrl_reg = yt921x_mbus_ctrl_reg(extif);
 	u32 din_reg = yt921x_mbus_din_reg(extif);
@@ -664,7 +611,7 @@ yt921x_mbus_read(struct yt921x_priv *priv, bool extif, int port, int reg,
 	u32 val;
 	int res;
 
-	res = yt921x_mbus_wait(priv, extif);
+	res = extif ? yt921x_extif_wait(priv) : yt921x_intif_wait(priv);
 	if (res)
 		return res;
 
@@ -685,7 +632,7 @@ yt921x_mbus_read(struct yt921x_priv *priv, bool extif, int port, int reg,
 	if (res)
 		return res;
 
-	res = yt921x_mbus_wait(priv, extif);
+	res = extif ? yt921x_extif_wait(priv) : yt921x_intif_wait(priv);
 	if (res)
 		return res;
 
@@ -714,7 +661,7 @@ yt921x_mbus_write(struct yt921x_priv *priv, bool extif, int port, int reg,
 	u32 ctrl;
 	int res;
 
-	res = yt921x_mbus_wait(priv, extif);
+	res = extif ? yt921x_extif_wait(priv) : yt921x_intif_wait(priv);
 	if (res)
 		return res;
 
@@ -739,7 +686,7 @@ yt921x_mbus_write(struct yt921x_priv *priv, bool extif, int port, int reg,
 	if (res)
 		return res;
 
-	return yt921x_mbus_wait(priv, extif);
+	return extif ? yt921x_extif_wait(priv) : yt921x_intif_wait(priv);
 }
 
 static int
@@ -816,7 +763,7 @@ yt921x_mbus_int_write(struct mii_bus *mbus, int port, int reg, u16 data)
 static int
 yt921x_mbus_int_init(struct yt921x_priv *priv, struct device_node *mnp)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	struct mii_bus *mbus;
 	int res;
 
@@ -930,7 +877,7 @@ yt921x_mbus_ext_write_c45(struct mii_bus *mbus, int port, int devnum,
 static int
 yt921x_mbus_ext_init(struct yt921x_priv *priv, struct device_node *mnp)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	struct mii_bus *mbus;
 	int res;
 
@@ -1033,10 +980,10 @@ struct yt921x_proc_ctrlpkt_desc {
 };
 
 static const struct yt921x_proc_ctrlpkt_desc yt921x_proc_ctrlpkt_descs[] = {
-	{ "arp", YT921X_STOCK_CTRLPKT_ARP_ACT, 0x74 },
-	{ "nd", YT921X_STOCK_CTRLPKT_ND_ACT, 0x75 },
-	{ "lldp_eee", YT921X_STOCK_CTRLPKT_LLDP_EEE_ACT, 0x76 },
-	{ "lldp", YT921X_STOCK_CTRLPKT_LLDP_ACT, 0x77 },
+	{ "arp", YT921X_CTRLPKT_ARP_ACT, 0x74 },
+	{ "nd", YT921X_CTRLPKT_ND_ACT, 0x75 },
+	{ "lldp_eee", YT921X_CTRLPKT_LLDP_EEE_ACT, 0x76 },
+	{ "lldp", YT921X_CTRLPKT_LLDP_ACT, 0x77 },
 };
 
 static const struct yt921x_proc_ctrlpkt_desc *
@@ -1083,12 +1030,12 @@ static int yt921x_proc_reply_dot1x(struct yt921x_priv *priv, u32 start, u32 end)
 		u32 port_based;
 		u32 bypass;
 
-		res = yt921x_reg_read(priv, YT921X_STOCK_DOT1X_PORT_BASEDn(port),
+		res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASEDn(port),
 				      &port_based);
 		if (res)
 			return res;
 
-		res = yt921x_reg_read(priv, YT921X_STOCK_DOT1X_BYPASS_CTRLn(port),
+		res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRLn(port),
 				      &bypass);
 		if (res)
 			return res;
@@ -1230,7 +1177,7 @@ static int yt921x_proc_reply_vlan_dump(struct yt921x_priv *priv, u32 vid)
 	u32 stp_id;
 	int res;
 
-	if (vid > YT921X_VID_UNWARE)
+	if (vid > YT921X_VID_UNAWARE)
 		return -ERANGE;
 
 	res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
@@ -1284,23 +1231,23 @@ static int yt921x_proc_reply_loop_detect(struct yt921x_priv *priv)
 	u32 ctrl;
 	int res;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL, &ctrl);
+	res = yt921x_reg_read(priv, YT921X_LOOP_DETECT_TOP_CTRL, &ctrl);
 	if (res)
 		return res;
 
 	yt921x_proc_reply_append(
 		priv,
 		"loop_detect reg=0x%06x val=0x%08x en=%u tpid=0x%04x gen_way=%u f0=%u f1=%u unit={%u,%u,%u} f7=%u\n",
-		YT921X_STOCK_LOOP_DETECT_TOP_CTRL, ctrl,
-		!!(ctrl & YT921X_STOCK_LOOP_DETECT_EN),
-		(u16)FIELD_GET(YT921X_STOCK_LOOP_DETECT_TPID_M, ctrl),
-		!!(ctrl & YT921X_STOCK_LOOP_DETECT_GEN_WAY),
-		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_F0_M, ctrl),
-		!!(ctrl & YT921X_STOCK_LOOP_DETECT_F1),
-		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_UNIT_ID0_M, ctrl),
-		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_UNIT_ID1_M, ctrl),
-		(u32)FIELD_GET(YT921X_STOCK_LOOP_DETECT_UNIT_ID2_M, ctrl),
-		!!(ctrl & YT921X_STOCK_LOOP_DETECT_F7));
+		YT921X_LOOP_DETECT_TOP_CTRL, ctrl,
+		!!(ctrl & YT921X_LOOP_DETECT_EN),
+		(u16)FIELD_GET(YT921X_LOOP_DETECT_TPID_M, ctrl),
+		!!(ctrl & YT921X_LOOP_DETECT_GEN_WAY),
+		(u32)FIELD_GET(YT921X_LOOP_DETECT_F0_M, ctrl),
+		!!(ctrl & YT921X_LOOP_DETECT_F1),
+		(u32)FIELD_GET(YT921X_LOOP_DETECT_UNIT_ID0_M, ctrl),
+		(u32)FIELD_GET(YT921X_LOOP_DETECT_UNIT_ID1_M, ctrl),
+		(u32)FIELD_GET(YT921X_LOOP_DETECT_UNIT_ID2_M, ctrl),
+		!!(ctrl & YT921X_LOOP_DETECT_F7));
 
 	return 0;
 }
@@ -1374,8 +1321,6 @@ static void yt921x_storm_guard_workfn(struct work_struct *work)
 				      msecs_to_jiffies(interval_ms));
 }
 
-#define YT921X_PROC_TBL_MAX_WORDS	4
-
 struct yt921x_proc_tbl_field_desc {
 	u8 width;
 	u8 word;
@@ -1393,9 +1338,6 @@ struct yt921x_proc_tbl_desc {
 	const struct yt921x_proc_tbl_field_desc *fields;
 	size_t nfields;
 };
-
-#define YT921X_PROC_FIELD(_width, _word, _shift, _name)	\
-	{ .width = (_width), .word = (_word), .shift = (_shift), .name = (_name) }
 
 /* Stock ingress-meter tables (reverse-mapped from yt_switch.ko):
  *  - tbl 0xc7: meter_timeslotm_field
@@ -1466,47 +1408,47 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ec[] = {
 
 static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 	{
-		.id = 0x34, .name = "acl-rule-ctrl", .base = YT921X_STOCK_ACL_RULE_CTRL,
+		.id = 0x34, .name = "acl-rule-ctrl", .base = YT921X_ACL_RULE_CTRL,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
-		.id = 0x35, .name = "acl-port-ctrl", .base = YT921X_STOCK_ACL_PORT_CTRL,
+		.id = 0x35, .name = "acl-port-ctrl", .base = YT921X_ACL_PORT_CTRL,
 		.entry_words = 1, .rw_words = 1, .entries = 11,
 	},
 	{
-		.id = 0x36, .name = "acl-block-ctrl", .base = YT921X_STOCK_ACL_BLOCK_CTRL,
+		.id = 0x36, .name = "acl-block-ctrl", .base = YT921X_ACL_BLOCK_CTRL,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
-		.id = 0x37, .name = "acl-rule-data", .base = YT921X_STOCK_ACL_RULE_DATA,
+		.id = 0x37, .name = "acl-rule-data", .base = YT921X_ACL_RULE_DATA,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
-		.id = 0x74, .name = "ctrlpkt-arp-act", .base = YT921X_STOCK_CTRLPKT_ARP_ACT,
+		.id = 0x74, .name = "ctrlpkt-arp-act", .base = YT921X_CTRLPKT_ARP_ACT,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
-		.id = 0x75, .name = "ctrlpkt-nd-act", .base = YT921X_STOCK_CTRLPKT_ND_ACT,
+		.id = 0x75, .name = "ctrlpkt-nd-act", .base = YT921X_CTRLPKT_ND_ACT,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
-		.id = 0x76, .name = "ctrlpkt-lldp-eee-act", .base = YT921X_STOCK_CTRLPKT_LLDP_EEE_ACT,
+		.id = 0x76, .name = "ctrlpkt-lldp-eee-act", .base = YT921X_CTRLPKT_LLDP_EEE_ACT,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
-		.id = 0x77, .name = "ctrlpkt-lldp-act", .base = YT921X_STOCK_CTRLPKT_LLDP_ACT,
+		.id = 0x77, .name = "ctrlpkt-lldp-act", .base = YT921X_CTRLPKT_LLDP_ACT,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
-		.id = 0x9e, .name = "dot1x-port-based", .base = YT921X_STOCK_DOT1X_PORT_BASED,
+		.id = 0x9e, .name = "dot1x-port-based", .base = YT921X_DOT1X_PORT_BASED,
 		.entry_words = 1, .rw_words = 1, .entries = 11,
 	},
 	{
-		.id = 0x9f, .name = "dot1x-bypass-ctrl", .base = YT921X_STOCK_DOT1X_BYPASS_CTRL,
+		.id = 0x9f, .name = "dot1x-bypass-ctrl", .base = YT921X_DOT1X_BYPASS_CTRL,
 		.entry_words = 1, .rw_words = 1, .entries = 11,
 	},
 	{
-		.id = 0xa5, .name = "acl-unmatch-permit", .base = YT921X_STOCK_ACL_UNMATCH_PERMIT,
+		.id = 0xa5, .name = "acl-unmatch-permit", .base = YT921X_ACL_UNMATCH_PERMIT,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 	},
 	{
@@ -1930,11 +1872,11 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 
 			mutex_lock(&priv->reg_lock);
 			res = yt921x_reg_write(priv,
-					       YT921X_STOCK_DOT1X_PORT_BASEDn(port),
+					       YT921X_DOT1X_PORT_BASEDn(port),
 					       port_based);
 			if (!res)
 				res = yt921x_reg_write(priv,
-						       YT921X_STOCK_DOT1X_BYPASS_CTRLn(port),
+						       YT921X_DOT1X_BYPASS_CTRLn(port),
 						       bypass);
 			if (!res)
 				res = yt921x_proc_reply_dot1x(priv, port, port);
@@ -1983,23 +1925,23 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 			}
 
 			mutex_lock(&priv->reg_lock);
-			res = yt921x_reg_read(priv, YT921X_STOCK_LOOP_DETECT_TOP_CTRL,
+			res = yt921x_reg_read(priv, YT921X_LOOP_DETECT_TOP_CTRL,
 					      &ctrl);
 			if (!res) {
-				ctrl = enable ? (ctrl | YT921X_STOCK_LOOP_DETECT_EN) :
-						(ctrl & ~YT921X_STOCK_LOOP_DETECT_EN);
+				ctrl = enable ? (ctrl | YT921X_LOOP_DETECT_EN) :
+						(ctrl & ~YT921X_LOOP_DETECT_EN);
 				if (argc >= 4) {
-					ctrl &= ~YT921X_STOCK_LOOP_DETECT_TPID_M;
-					ctrl |= FIELD_PREP(YT921X_STOCK_LOOP_DETECT_TPID_M,
+					ctrl &= ~YT921X_LOOP_DETECT_TPID_M;
+					ctrl |= FIELD_PREP(YT921X_LOOP_DETECT_TPID_M,
 							   tpid);
 				}
 				if (argc >= 5) {
 					ctrl = gen_way ?
-						(ctrl | YT921X_STOCK_LOOP_DETECT_GEN_WAY) :
-						(ctrl & ~YT921X_STOCK_LOOP_DETECT_GEN_WAY);
+						(ctrl | YT921X_LOOP_DETECT_GEN_WAY) :
+						(ctrl & ~YT921X_LOOP_DETECT_GEN_WAY);
 				}
 				res = yt921x_reg_write(priv,
-						       YT921X_STOCK_LOOP_DETECT_TOP_CTRL,
+						       YT921X_LOOP_DETECT_TOP_CTRL,
 						       ctrl);
 			}
 			if (!res)
@@ -2554,7 +2496,7 @@ static const struct file_operations yt921x_debugfs_fops = {
 
 static int yt921x_proc_init(struct yt921x_priv *priv)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 
 	mutex_init(&priv->proc_lock);
 	yt921x_proc_reply_help(priv);
@@ -2603,7 +2545,7 @@ static u32 yt921x_tbf_eir_to_rate_kbps(u32 eir)
 static int yt921x_read_mib(struct yt921x_priv *priv, int port)
 {
 	struct yt921x_port *pp = &priv->ports[port];
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	struct yt921x_mib *mib = &pp->mib;
 	int res = 0;
 
@@ -2712,48 +2654,48 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 	int qid;
 	int res;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), &ucast);
+	res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_UCASTn(port), &ucast);
 	if (res)
 		ucast = 0;
-	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port), &mcast);
+	res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_MCASTn(port), &mcast);
 	if (res)
 		mcast = 0;
 
 	for (qid = 0; qid < YT921X_PRIO_NUM; qid++)
-		data[j++] = (ucast & YT921X_STOCK_QOS_UCAST_QMAP_PRIO_M(qid)) >>
-			    YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(qid);
+		data[j++] = (ucast & YT921X_QOS_UCAST_QMAP_PRIO_M(qid)) >>
+			    YT921X_QOS_UCAST_QMAP_PRIO_SHIFT(qid);
 
 	for (qid = 0; qid < YT921X_PRIO_NUM; qid++)
-		data[j++] = (mcast & YT921X_STOCK_QOS_MCAST_QMAP_PRIO_M(qid)) >>
-			    YT921X_STOCK_QOS_MCAST_QMAP_PRIO_SHIFT(qid);
+		data[j++] = (mcast & YT921X_QOS_MCAST_QMAP_PRIO_M(qid)) >>
+			    YT921X_QOS_MCAST_QMAP_PRIO_SHIFT(qid);
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_SCHED_SPn(port), &sp);
+	res = yt921x_reg_read(priv, YT921X_QOS_SCHED_SPn(port), &sp);
 	if (res)
 		sp = 0;
-	data[j++] = FIELD_GET(YT921X_STOCK_QOS_SCHED_SP_MASK, sp);
+	data[j++] = FIELD_GET(YT921X_QOS_SCHED_SP_MASK, sp);
 
 	data[j] = 0;
-	if (port >= 0 && port < YT921X_STOCK_QOS_SCHED_PORTS) {
-		for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS; qid++) {
-			u32 idx = (u32)port * YT921X_STOCK_QOS_SCHED_FLOWS_PER_PORT + qid;
+	if (port >= 0 && port < YT921X_QOS_SCHED_PORTS) {
+		for (qid = 0; qid < YT921X_QOS_SCHED_UCAST_FLOWS; qid++) {
+			u32 idx = (u32)port * YT921X_QOS_SCHED_FLOWS_PER_PORT + qid;
 			u32 v = 0;
 
-			res = yt921x_reg_read(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx), &v);
-			if (!res && (v & YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN))
+			res = yt921x_reg_read(priv, YT921X_QOS_SCHED_DWRR_MODE0n(idx), &v);
+			if (!res && (v & YT921X_QOS_SCHED_DWRR_CFG_EN))
 				data[j]++;
 		}
 	}
 	j++;
 
 	data[j] = 0;
-	if (port >= 0 && port < YT921X_STOCK_QOS_SCHED_PORTS) {
-		for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_MCAST_FLOWS; qid++) {
-			u32 idx = (u32)port * YT921X_STOCK_QOS_SCHED_FLOWS_PER_PORT +
-				  YT921X_STOCK_QOS_SCHED_UCAST_FLOWS + qid;
+	if (port >= 0 && port < YT921X_QOS_SCHED_PORTS) {
+		for (qid = 0; qid < YT921X_QOS_SCHED_MCAST_FLOWS; qid++) {
+			u32 idx = (u32)port * YT921X_QOS_SCHED_FLOWS_PER_PORT +
+				  YT921X_QOS_SCHED_UCAST_FLOWS + qid;
 			u32 v = 0;
 
-			res = yt921x_reg_read(priv, YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx), &v);
-			if (!res && (v & YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN))
+			res = yt921x_reg_read(priv, YT921X_QOS_SCHED_DWRR_MODE0n(idx), &v);
+			if (!res && (v & YT921X_QOS_SCHED_DWRR_CFG_EN))
 				data[j]++;
 		}
 	}
@@ -2832,7 +2774,7 @@ yt921x_dsa_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 static void
 yt921x_dsa_get_ethtool_stats(struct dsa_switch *ds, int port, uint64_t *data)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct yt921x_port *pp = &priv->ports[port];
 	struct yt921x_mib *mib = &pp->mib;
 	size_t j;
@@ -2879,7 +2821,7 @@ static void
 yt921x_dsa_get_eth_mac_stats(struct dsa_switch *ds, int port,
 			     struct ethtool_eth_mac_stats *mac_stats)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct yt921x_port *pp = &priv->ports[port];
 	struct yt921x_mib *mib = &pp->mib;
 
@@ -2915,7 +2857,7 @@ static void
 yt921x_dsa_get_eth_ctrl_stats(struct dsa_switch *ds, int port,
 			      struct ethtool_eth_ctrl_stats *ctrl_stats)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct yt921x_port *pp = &priv->ports[port];
 	struct yt921x_mib *mib = &pp->mib;
 
@@ -2944,7 +2886,7 @@ yt921x_dsa_get_rmon_stats(struct dsa_switch *ds, int port,
 			  struct ethtool_rmon_stats *rmon_stats,
 			  const struct ethtool_rmon_hist_range **ranges)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct yt921x_port *pp = &priv->ports[port];
 	struct yt921x_mib *mib = &pp->mib;
 
@@ -2980,7 +2922,7 @@ static void
 yt921x_dsa_get_stats64(struct dsa_switch *ds, int port,
 		       struct rtnl_link_stats64 *stats)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct yt921x_port *pp = &priv->ports[port];
 	struct yt921x_mib *mib = &pp->mib;
 	u64 rx_fcs_bytes;
@@ -3034,7 +2976,7 @@ static void
 yt921x_dsa_get_pause_stats(struct dsa_switch *ds, int port,
 			   struct ethtool_pause_stats *pause_stats)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct yt921x_port *pp = &priv->ports[port];
 	struct yt921x_mib *mib = &pp->mib;
 
@@ -3089,7 +3031,7 @@ yt921x_set_eee(struct yt921x_priv *priv, int port, struct ethtool_keee *e)
 static int
 yt921x_dsa_set_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -3106,7 +3048,7 @@ yt921x_dsa_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 	 * maximum after reset
 	 */
 
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct dsa_port *dp = dsa_to_port(ds, port);
 	int frame_size;
 	int res;
@@ -3401,30 +3343,30 @@ yt921x_mqprio_apply(struct yt921x_priv *priv, int port, const u8 map[YT921X_PRIO
 	int res;
 	int i;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), &ucast);
+	res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_UCASTn(port), &ucast);
 	if (res)
 		return res;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port), &mcast);
+	res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_MCASTn(port), &mcast);
 	if (res)
 		return res;
 
 	for (i = 0; i < YT921X_PRIO_NUM; i++) {
 		u32 qid = map[i] & GENMASK(2, 0);
 
-		ucast &= ~YT921X_STOCK_QOS_UCAST_QMAP_PRIO_M(i);
-		ucast |= YT921X_STOCK_QOS_UCAST_QMAP_PRIO(i, qid);
+		ucast &= ~YT921X_QOS_UCAST_QMAP_PRIO_M(i);
+		ucast |= YT921X_QOS_UCAST_QMAP_PRIO(i, qid);
 
 		/* Stock mcast map field is 2-bit wide; keep best-effort map. */
-		mcast &= ~YT921X_STOCK_QOS_MCAST_QMAP_PRIO_M(i);
-		mcast |= YT921X_STOCK_QOS_MCAST_QMAP_PRIO(i, min_t(u32, qid, 3));
+		mcast &= ~YT921X_QOS_MCAST_QMAP_PRIO_M(i);
+		mcast |= YT921X_QOS_MCAST_QMAP_PRIO(i, min_t(u32, qid, 3));
 	}
 
-	res = yt921x_reg_write(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), ucast);
+	res = yt921x_reg_write(priv, YT921X_QOS_QUEUE_MAP_UCASTn(port), ucast);
 	if (res)
 		return res;
 
-	return yt921x_reg_write(priv, YT921X_STOCK_QOS_QUEUE_MAP_MCASTn(port), mcast);
+	return yt921x_reg_write(priv, YT921X_QOS_QUEUE_MAP_MCASTn(port), mcast);
 }
 
 static int
@@ -3437,14 +3379,14 @@ yt921x_mqprio_sched_apply(struct yt921x_priv *priv, int port,
 	int i;
 	int res;
 
-	if (port < 0 || port >= YT921X_STOCK_QOS_SCHED_PORTS)
+	if (port < 0 || port >= YT921X_QOS_SCHED_PORTS)
 		return -ERANGE;
 
 	/* Keep plain mqprio in fully fair mode unless explicitly overridden
 	 * by ETS offload.
 	 */
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_SPn(port),
-				     YT921X_STOCK_QOS_SCHED_SP_MASK, 0);
+	res = yt921x_reg_update_bits(priv, YT921X_QOS_SCHED_SPn(port),
+				     YT921X_QOS_SCHED_SP_MASK, 0);
 	if (res)
 		return res;
 
@@ -3453,7 +3395,7 @@ yt921x_mqprio_sched_apply(struct yt921x_priv *priv, int port,
 	 */
 	for (i = 0; i < YT921X_PRIO_NUM; i++) {
 		u32 uqid = map[i] & GENMASK(2, 0);
-		u32 mqid = min_t(u32, uqid, YT921X_STOCK_QOS_SCHED_MCAST_FLOWS - 1);
+		u32 mqid = min_t(u32, uqid, YT921X_QOS_SCHED_MCAST_FLOWS - 1);
 
 		used_ucast_qid |= BIT(uqid);
 		used_mcast_qid |= BIT(mqid);
@@ -3464,34 +3406,34 @@ yt921x_mqprio_sched_apply(struct yt921x_priv *priv, int port,
 	 * current mqprio map, disable it on unused queues.
 	 */
 	for (qid = 0;
-	     qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS +
-		   YT921X_STOCK_QOS_SCHED_MCAST_FLOWS;
+	     qid < YT921X_QOS_SCHED_UCAST_FLOWS +
+		   YT921X_QOS_SCHED_MCAST_FLOWS;
 	     qid++) {
-		bool is_mcast = qid >= YT921X_STOCK_QOS_SCHED_UCAST_FLOWS;
-		u32 local_qid = is_mcast ? qid - YT921X_STOCK_QOS_SCHED_UCAST_FLOWS :
+		bool is_mcast = qid >= YT921X_QOS_SCHED_UCAST_FLOWS;
+		u32 local_qid = is_mcast ? qid - YT921X_QOS_SCHED_UCAST_FLOWS :
 					   qid;
-		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, local_qid, is_mcast);
+		u32 idx = YT921X_QOS_SCHED_FLOW_INDEX(port, local_qid, is_mcast);
 		u32 en = 0;
 
 		if (is_mcast)
 			en = (used_mcast_qid & BIT(local_qid)) ?
-				      YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN :
+				      YT921X_QOS_SCHED_DWRR_CFG_EN :
 				      0;
 		else
 			en = (used_ucast_qid & BIT(local_qid)) ?
-				      YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN :
+				      YT921X_QOS_SCHED_DWRR_CFG_EN :
 				      0;
 
 		res = yt921x_reg_update_bits(priv,
-					     YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
-					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
+					     YT921X_QOS_SCHED_DWRR_MODE0n(idx),
+					     YT921X_QOS_SCHED_DWRR_CFG_EN,
 					     en);
 		if (res)
 			return res;
 
 		res = yt921x_reg_update_bits(priv,
-					     YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
-					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
+					     YT921X_QOS_SCHED_DWRR_MODE1n(idx),
+					     YT921X_QOS_SCHED_DWRR_CFG_EN,
 					     en);
 		if (res)
 			return res;
@@ -3503,7 +3445,7 @@ yt921x_mqprio_sched_apply(struct yt921x_priv *priv, int port,
 static int yt921x_ets_supported_port(struct dsa_switch *ds, int port)
 {
 	return dsa_is_user_port(ds, port) &&
-	       port < YT921X_STOCK_QOS_SCHED_PORTS;
+	       port < YT921X_QOS_SCHED_PORTS;
 }
 
 static int
@@ -3570,12 +3512,12 @@ yt921x_qos_read_ucast_prio_qid_map(struct yt921x_priv *priv, int port,
 	int i;
 	int res;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_QOS_QUEUE_MAP_UCASTn(port), &ucast);
+	res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_UCASTn(port), &ucast);
 	if (res)
 		return res;
 
 	for (i = 0; i < YT921X_PRIO_NUM; i++)
-		map[i] = (ucast >> YT921X_STOCK_QOS_UCAST_QMAP_PRIO_SHIFT(i)) &
+		map[i] = (ucast >> YT921X_QOS_UCAST_QMAP_PRIO_SHIFT(i)) &
 			 GENMASK(2, 0);
 
 	return 0;
@@ -3627,8 +3569,8 @@ yt921x_ets_apply(struct yt921x_priv *priv, int port,
 	if (res)
 		return res;
 
-	for (qid = 0; qid < YT921X_STOCK_QOS_SCHED_UCAST_FLOWS; qid++) {
-		u32 idx = YT921X_STOCK_QOS_SCHED_FLOW_INDEX(port, qid, false);
+	for (qid = 0; qid < YT921X_QOS_SCHED_UCAST_FLOWS; qid++) {
+		u32 idx = YT921X_QOS_SCHED_FLOW_INDEX(port, qid, false);
 		u32 en = 0;
 		u32 weight = 0;
 		s8 band = qid_band[qid];
@@ -3645,33 +3587,33 @@ yt921x_ets_apply(struct yt921x_priv *priv, int port,
 			u32 w = min_t(u32, weight, (u32)GENMASK(9, 0));
 
 			res = yt921x_reg_update_bits(priv,
-						     YT921X_STOCK_QOS_SCHED_DWRRn(idx),
-						     YT921X_STOCK_QOS_SCHED_FLOW_F0_M |
-						     YT921X_STOCK_QOS_SCHED_FLOW_F1_M,
-						     YT921X_STOCK_QOS_SCHED_FLOW_F0(w) |
-						     YT921X_STOCK_QOS_SCHED_FLOW_F1(w));
+						     YT921X_QOS_SCHED_DWRRn(idx),
+						     YT921X_QOS_SCHED_FLOW_F0_M |
+						     YT921X_QOS_SCHED_FLOW_F1_M,
+						     YT921X_QOS_SCHED_FLOW_F0(w) |
+						     YT921X_QOS_SCHED_FLOW_F1(w));
 			if (res)
 				return res;
-			en = YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN;
+			en = YT921X_QOS_SCHED_DWRR_CFG_EN;
 		}
 
 		res = yt921x_reg_update_bits(priv,
-					     YT921X_STOCK_QOS_SCHED_DWRR_MODE0n(idx),
-					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
+					     YT921X_QOS_SCHED_DWRR_MODE0n(idx),
+					     YT921X_QOS_SCHED_DWRR_CFG_EN,
 					     en);
 		if (res)
 			return res;
 
 		res = yt921x_reg_update_bits(priv,
-					     YT921X_STOCK_QOS_SCHED_DWRR_MODE1n(idx),
-					     YT921X_STOCK_QOS_SCHED_DWRR_CFG_EN,
+					     YT921X_QOS_SCHED_DWRR_MODE1n(idx),
+					     YT921X_QOS_SCHED_DWRR_CFG_EN,
 					     en);
 		if (res)
 			return res;
 	}
 
-	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_SCHED_SPn(port),
-				      YT921X_STOCK_QOS_SCHED_SP_MASK, sp);
+	return yt921x_reg_update_bits(priv, YT921X_QOS_SCHED_SPn(port),
+				      YT921X_QOS_SCHED_SP_MASK, sp);
 }
 
 static int
@@ -3687,254 +3629,12 @@ yt921x_ets_destroy(struct yt921x_priv *priv, int port)
 	return yt921x_mqprio_sched_apply(priv, port, map);
 }
 
-struct yt921x_flower_rule {
-	struct list_head list;
-	struct dsa_switch *ds;
-	unsigned long cookie;
-	u8 dscp;
-	u8 old_prio;
-	u8 new_prio;
-};
-
-static LIST_HEAD(yt921x_flower_rules);
-static DEFINE_MUTEX(yt921x_flower_lock);
-
-static struct yt921x_flower_rule *
-yt921x_flower_find_cookie(struct dsa_switch *ds, unsigned long cookie)
-{
-	struct yt921x_flower_rule *rule;
-
-	list_for_each_entry(rule, &yt921x_flower_rules, list)
-		if (rule->ds == ds && rule->cookie == cookie)
-			return rule;
-
-	return NULL;
-}
-
-static struct yt921x_flower_rule *
-yt921x_flower_find_dscp(struct dsa_switch *ds, u8 dscp)
-{
-	struct yt921x_flower_rule *rule;
-
-	list_for_each_entry(rule, &yt921x_flower_rules, list)
-		if (rule->ds == ds && rule->dscp == dscp)
-			return rule;
-
-	return NULL;
-}
-
-static u32 yt921x_flower_rule_count(struct dsa_switch *ds)
-{
-	struct yt921x_flower_rule *rule;
-	u32 n = 0;
-
-	list_for_each_entry(rule, &yt921x_flower_rules, list)
-		if (rule->ds == ds)
-			n++;
-
-	return n;
-}
-
-static void yt921x_flower_cleanup_rules(struct dsa_switch *ds)
-{
-	struct yt921x_flower_rule *rule, *tmp;
-
-	mutex_lock(&yt921x_flower_lock);
-	list_for_each_entry_safe(rule, tmp, &yt921x_flower_rules, list) {
-		if (rule->ds != ds)
-			continue;
-		list_del(&rule->list);
-		kfree(rule);
-	}
-	mutex_unlock(&yt921x_flower_lock);
-}
-
-static int
-yt921x_cls_flower_parse(struct flow_cls_offload *cls, u8 *dscp, u8 *prio)
-{
-	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
-	struct flow_match_ip match;
-	const struct flow_action_entry *act;
-	bool have_prio = false;
-	int i;
-
-	if (!rule)
-		return -EINVAL;
-
-	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP))
-		return -EOPNOTSUPP;
-
-	flow_rule_match_ip(rule, &match);
-	if (match.mask->ttl)
-		return -EOPNOTSUPP;
-	if ((match.mask->tos & YT921X_FLOWER_DSCP_MASK) != YT921X_FLOWER_DSCP_MASK)
-		return -EOPNOTSUPP;
-	if (match.mask->tos & ~YT921X_FLOWER_DSCP_MASK)
-		return -EOPNOTSUPP;
-
-	*dscp = (match.key->tos & YT921X_FLOWER_DSCP_MASK) >> 2;
-
-	flow_action_for_each(i, act, &rule->action) {
-		switch (act->id) {
-		case FLOW_ACTION_PRIORITY:
-			if (have_prio)
-				return -EOPNOTSUPP;
-			if (act->priority >= YT921X_PRIO_NUM)
-				return -EOPNOTSUPP;
-			*prio = act->priority;
-			have_prio = true;
-			break;
-		default:
-			return -EOPNOTSUPP;
-		}
-	}
-
-	return have_prio ? 0 : -EOPNOTSUPP;
-}
-
-static int
-yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
-			  struct flow_cls_offload *cls, bool ingress)
-{
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct netlink_ext_ack *extack = cls->common.extack;
-	struct yt921x_flower_rule *rule, *existing;
-	u8 dscp, prio;
-	u32 val;
-	int res;
-
-	if (!ingress) {
-		NL_SET_ERR_MSG_MOD(extack, "egress flower offload is not supported");
-		return -EOPNOTSUPP;
-	}
-
-	if (!dsa_is_user_port(ds, port)) {
-		NL_SET_ERR_MSG_MOD(extack, "flower offload is supported on user ports only");
-		return -EOPNOTSUPP;
-	}
-
-	if (cls->common.chain_index) {
-		NL_SET_ERR_MSG_MOD(extack, "chain is not supported");
-		return -EOPNOTSUPP;
-	}
-
-	if (cls->common.protocol != htons(ETH_P_IP) &&
-	    cls->common.protocol != htons(ETH_P_IPV6)) {
-		NL_SET_ERR_MSG_MOD(extack, "only IPv4/IPv6 DSCP rules are supported");
-		return -EOPNOTSUPP;
-	}
-
-	res = yt921x_cls_flower_parse(cls, &dscp, &prio);
-	if (res) {
-		NL_SET_ERR_MSG_MOD(extack, "only exact DSCP match + skbedit priority is supported");
-		return res;
-	}
-
-	rule = kzalloc(sizeof(*rule), GFP_KERNEL);
-	if (!rule)
-		return -ENOMEM;
-
-	mutex_lock(&yt921x_flower_lock);
-	if (yt921x_flower_rule_count(ds) >= YT921X_FLOWER_MAX_RULES) {
-		NL_SET_ERR_MSG_MOD(extack, "too many flower rules");
-		res = -ENOSPC;
-		goto out_unlock;
-	}
-
-	if (yt921x_flower_find_cookie(ds, cls->cookie)) {
-		NL_SET_ERR_MSG_MOD(extack, "cookie already exists");
-		res = -EEXIST;
-		goto out_unlock;
-	}
-
-	existing = yt921x_flower_find_dscp(ds, dscp);
-	if (existing && existing->new_prio != prio) {
-		NL_SET_ERR_MSG_MOD(extack, "conflicting rule for the same DSCP");
-		res = -EBUSY;
-		goto out_unlock;
-	}
-	if (existing) {
-		NL_SET_ERR_MSG_MOD(extack, "DSCP rule already installed");
-		res = -EEXIST;
-		goto out_unlock;
-	}
-
-	mutex_lock(&priv->reg_lock);
-	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(dscp), &val);
-	if (!res)
-		res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp), YT921X_IPM_PRIO(prio));
-	mutex_unlock(&priv->reg_lock);
-	if (res)
-		goto out_unlock;
-
-	rule->ds = ds;
-	rule->cookie = cls->cookie;
-	rule->dscp = dscp;
-	rule->old_prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
-	rule->new_prio = prio;
-	list_add_tail(&rule->list, &yt921x_flower_rules);
-	res = 0;
-	rule = NULL;
-
-out_unlock:
-	mutex_unlock(&yt921x_flower_lock);
-	kfree(rule);
-	return res;
-}
-
-static int
-yt921x_dsa_cls_flower_del(struct dsa_switch *ds, int port,
-			  struct flow_cls_offload *cls, bool ingress)
-{
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct yt921x_flower_rule *rule;
-	u8 prio;
-	u32 val;
-	int res;
-
-	if (!ingress || !dsa_is_user_port(ds, port))
-		return -EOPNOTSUPP;
-
-	mutex_lock(&yt921x_flower_lock);
-	rule = yt921x_flower_find_cookie(ds, cls->cookie);
-	if (!rule) {
-		res = -ENOENT;
-		goto out_unlock;
-	}
-
-	mutex_lock(&priv->reg_lock);
-	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(rule->dscp), &val);
-	if (!res) {
-		prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
-		if (prio == rule->new_prio)
-			res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(rule->dscp),
-					       YT921X_IPM_PRIO(rule->old_prio));
-	}
-	mutex_unlock(&priv->reg_lock);
-	if (res)
-		goto out_unlock;
-
-	list_del(&rule->list);
-	kfree(rule);
-	res = 0;
-
-out_unlock:
-	mutex_unlock(&yt921x_flower_lock);
-	return res;
-}
-
-static int
-yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
-			    struct flow_cls_offload *cls, bool ingress)
-{
-	return 0;
-}
 
 static int
 yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 			 enum tc_setup_type type, void *type_data)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct tc_ets_qopt_offload *ets;
 	struct tc_mqprio_qopt_offload *mqprio;
 	struct tc_tbf_qopt_offload *qopt;
@@ -4058,327 +3758,249 @@ yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static bool yt921x_storm_policer_supported_port(struct dsa_switch *ds, int port)
+struct yt921x_flower_rule {
+	struct list_head list;
+	struct dsa_switch *ds;
+	unsigned long cookie;
+	u8 dscp;
+	u8 old_prio;
+	u8 new_prio;
+};
+
+static LIST_HEAD(yt921x_flower_rules);
+static DEFINE_MUTEX(yt921x_flower_lock);
+
+static struct yt921x_flower_rule *
+yt921x_flower_find_cookie(struct dsa_switch *ds, unsigned long cookie)
 {
-	return dsa_is_user_port(ds, port);
+	struct yt921x_flower_rule *rule;
+
+	list_for_each_entry(rule, &yt921x_flower_rules, list)
+		if (rule->ds == ds && rule->cookie == cookie)
+			return rule;
+
+	return NULL;
 }
 
-static int
-yt921x_storm_rate_to_fields(struct yt921x_priv *priv, u64 rate_bytes_per_sec,
-			    u32 *rate_f0, u32 *rate_f1)
+static struct yt921x_flower_rule *
+yt921x_flower_find_dscp(struct dsa_switch *ds, u8 dscp)
 {
-	u64 units_per_sec;
-	u32 io;
-	u32 slot;
-	int res;
+	struct yt921x_flower_rule *rule;
 
-	if (!rate_bytes_per_sec)
-		return -EINVAL;
+	list_for_each_entry(rule, &yt921x_flower_rules, list)
+		if (rule->ds == ds && rule->dscp == dscp)
+			return rule;
 
-	/* Stock code derives storm config fields from this timeslot register.
-	 * Keep using the same source and encode as a 29-bit split value
-	 * ([31:13] + [12:3]) expected by 0x220200.
-	 */
-	res = yt921x_reg_read(priv, YT921X_STOCK_STORM_RATE_IO, &io);
-	if (res)
-		return res;
-
-	slot = FIELD_GET(YT921X_STOCK_STORM_RATE_IO_TIMESLOT_M, io);
-	if (!slot)
-		slot = 1;
-
-	units_per_sec = DIV_ROUND_UP_ULL(rate_bytes_per_sec, slot);
-	units_per_sec = clamp_t(u64, units_per_sec, 1, YT921X_STORM_RATE_UNITS_MAX);
-
-	*rate_f0 = (u32)(units_per_sec >> 10);
-	*rate_f1 = (u32)(units_per_sec & GENMASK(9, 0));
-
-	return 0;
+	return NULL;
 }
 
-static int yt921x_storm_policer_apply(struct yt921x_priv *priv)
+static u32 yt921x_flower_rule_count(struct dsa_switch *ds)
 {
-	u32 storm_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
-	u32 cfg;
-	u32 f0;
-	u32 f1;
-	int res;
+	struct yt921x_flower_rule *rule;
+	u32 n = 0;
 
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_STORM_MC_TYPE_CTRL,
-				     YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS_M,
-				     YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS(storm_ports));
-	if (res)
-		return res;
+	list_for_each_entry(rule, &yt921x_flower_rules, list)
+		if (rule->ds == ds)
+			n++;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_STORM_CONFIG, &cfg);
-	if (res)
-		return res;
-
-	if (!storm_ports) {
-		cfg &= ~YT921X_STOCK_STORM_CONFIG_EN;
-		return yt921x_reg_write(priv, YT921X_STOCK_STORM_CONFIG, cfg);
-	}
-
-	res = yt921x_storm_rate_to_fields(priv, priv->storm_policer_rate_bytes_per_sec,
-					  &f0, &f1);
-	if (res)
-		return res;
-
-	cfg &= ~(YT921X_STOCK_STORM_CONFIG_RATE_F0_M |
-		 YT921X_STOCK_STORM_CONFIG_RATE_F1_M);
-	cfg |= YT921X_STOCK_STORM_CONFIG_RATE_F0(f0) |
-	       YT921X_STOCK_STORM_CONFIG_RATE_F1(f1) |
-	       YT921X_STOCK_STORM_CONFIG_EN;
-
-	return yt921x_reg_write(priv, YT921X_STOCK_STORM_CONFIG, cfg);
+	return n;
 }
 
-static int
-yt921x_stock_ingress_meter_token_level(struct yt921x_priv *priv, u32 *token_level)
+static void yt921x_flower_cleanup_rules(struct dsa_switch *ds)
 {
-	u32 chip_id;
-	u32 io;
-	u32 timeslot;
-	u32 token_bytes;
-	int res;
+	struct yt921x_flower_rule *rule, *tmp;
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_RATE_IGR_BW_CTRL, &io);
-	if (res)
-		return res;
-
-	timeslot = FIELD_GET(YT921X_STOCK_RATE_IGR_BW_CTRL_TIMESLOT_M, io);
-	if (!timeslot)
-		timeslot = 1;
-
-	res = yt921x_reg_read(priv, YT921X_CHIP_ID, &chip_id);
-	if (res)
-		return res;
-
-	token_bytes = (FIELD_GET(YT921X_CHIP_ID_MINOR, chip_id) == 0x9001) ? 7 : 8;
-	*token_level = token_bytes * (timeslot << 3);
-	if (!*token_level)
-		return -ERANGE;
-
-	return 0;
-}
-
-static int
-yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
-				 u32 meter_f4, bool meter_f6, u32 *cirp)
-{
-	u64 rate_bits_per_sec;
-	u64 scaled;
-	u64 cir;
-	int shift;
-
-	if (!rate_bytes_per_sec || !token_level)
-		return -EINVAL;
-	if (rate_bytes_per_sec > U64_MAX / 8)
-		return -ERANGE;
-
-	/* Stock helper uses 1e9 scaling in bit/s domain. */
-	rate_bits_per_sec = rate_bytes_per_sec * 8;
-	if (rate_bits_per_sec > U64_MAX / token_level)
-		return -ERANGE;
-	scaled = rate_bits_per_sec * token_level;
-
-	shift = (meter_f4 ? 21 : 11) - (meter_f6 ? 2 : 0);
-	if (shift > 0) {
-		if (scaled > (U64_MAX >> shift))
-			return -ERANGE;
-		scaled <<= shift;
-	} else if (shift < 0) {
-		scaled >>= -shift;
-	}
-
-	cir = div_u64(scaled, YT921X_STOCK_RATE_SCALE_PER_SEC);
-	if (!cir)
-		cir = 1;
-	if (cir > YT921X_STOCK_RATE_CIR_MAX)
-		return -ERANGE;
-
-	*cirp = (u32)cir;
-	return 0;
-}
-
-static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
-{
-	u32 policer_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
-	unsigned long targets_mask = yt921x_non_cpu_port_mask(priv);
-	u32 meter_word1;
-	u32 meter_word2;
-	u32 token_level;
-	u32 cir;
-	u32 c8;
-	u32 f4;
-	bool f6;
-	int port;
-	int res;
-
-	if (YT921X_STOCK_RATE_METER_DEFAULT_ID >= YT921X_STOCK_RATE_METER_NUM)
-		return -EINVAL;
-
-	if (!policer_ports)
-		goto disable_port_ctrl;
-
-	res = yt921x_stock_ingress_meter_token_level(priv, &token_level);
-	if (res)
-		return res;
-
-	res = yt921x_reg_read(priv,
-			      YT921X_STOCK_RATE_METER_CONFIG_WORD2(YT921X_STOCK_RATE_METER_DEFAULT_ID),
-			      &meter_word2);
-	if (res)
-		return res;
-
-	f4 = FIELD_GET(YT921X_STOCK_RATE_METER_CFG_F4_M, meter_word2);
-	f6 = !!(meter_word2 & YT921X_STOCK_RATE_METER_CFG_F6);
-
-	res = yt921x_stock_ingress_rate_to_cir(priv->storm_policer_rate_bytes_per_sec,
-					       token_level, f4, f6, &cir);
-	if (res)
-		return res;
-
-	res = yt921x_reg_read(priv,
-			      YT921X_STOCK_RATE_METER_CONFIG_WORD1(YT921X_STOCK_RATE_METER_DEFAULT_ID),
-			      &meter_word1);
-	if (res)
-		return res;
-
-	meter_word1 &= ~YT921X_STOCK_RATE_METER_CFG_CIR_M;
-	meter_word1 |= YT921X_STOCK_RATE_METER_CFG_CIR(cir);
-	res = yt921x_reg_write(priv,
-			       YT921X_STOCK_RATE_METER_CONFIG_WORD1(YT921X_STOCK_RATE_METER_DEFAULT_ID),
-			       meter_word1);
-	if (res)
-		return res;
-
-disable_port_ctrl:
-	for_each_set_bit(port, &targets_mask, YT921X_PORT_NUM) {
-		if (!dsa_is_user_port(&priv->ds, port))
+	mutex_lock(&yt921x_flower_lock);
+	list_for_each_entry_safe(rule, tmp, &yt921x_flower_rules, list) {
+		if (rule->ds != ds)
 			continue;
-
-		res = yt921x_reg_read(priv, YT921X_STOCK_RATE_IGR_BW_ENABLE + 4 * port, &c8);
-		if (res)
-			return res;
-
-		c8 &= ~(YT921X_STOCK_RATE_IGR_BW_ENABLE_EN |
-			YT921X_STOCK_RATE_IGR_BW_ENABLE_METER_ID_M);
-		if (policer_ports & BIT(port))
-			c8 |= YT921X_STOCK_RATE_IGR_BW_ENABLE_EN |
-			      YT921X_STOCK_RATE_IGR_BW_ENABLE_METER_ID(
-				      YT921X_STOCK_RATE_METER_DEFAULT_ID);
-
-		res = yt921x_reg_write(priv, YT921X_STOCK_RATE_IGR_BW_ENABLE + 4 * port, c8);
-		if (res)
-			return res;
+		list_del(&rule->list);
+		kfree(rule);
 	}
-
-	/* Keep legacy storm-path disabled when ingress-meter path is active. */
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_STORM_MC_TYPE_CTRL,
-				     YT921X_STOCK_STORM_MC_TYPE_CTRL_PORTS_M, 0);
-	if (res)
-		return res;
-
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_STORM_CONFIG,
-				     YT921X_STOCK_STORM_CONFIG_EN, 0);
-	if (res)
-		return res;
-
-	return 0;
-}
-
-static int yt921x_dsa_policer_apply(struct yt921x_priv *priv)
-{
-	int res;
-
-	res = yt921x_ingress_meter_policer_apply(priv);
-	if (!res)
-		return 0;
-
-	dev_warn(to_device(priv),
-		 "ingress policer apply failed (%d), fallback to storm path\n", res);
-	return yt921x_storm_policer_apply(priv);
+	mutex_unlock(&yt921x_flower_lock);
 }
 
 static int
-yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
-			    struct dsa_mall_policer_tc_entry *policer)
+yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
+			    struct flow_cls_offload *cls, bool ingress)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	u64 old_rate_bytes_per_sec;
-	u16 old_ports;
-	u32 old_burst;
-	int res = 0;
+	return 0;
+}
 
-	if (!yt921x_storm_policer_supported_port(ds, port))
+static int
+yt921x_dsa_cls_flower_del(struct dsa_switch *ds, int port,
+			  struct flow_cls_offload *cls, bool ingress)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct yt921x_flower_rule *rule;
+	u8 prio;
+	u32 val;
+	int res;
+
+	if (!ingress || !dsa_is_user_port(ds, port))
 		return -EOPNOTSUPP;
-	if (!policer->rate_bytes_per_sec)
-		return -EINVAL;
 
-	mutex_lock(&priv->reg_lock);
-
-	old_ports = priv->storm_policer_ports;
-	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
-	old_burst = priv->storm_policer_burst;
-
-	if (old_ports &&
-	    (old_rate_bytes_per_sec != policer->rate_bytes_per_sec ||
-	     old_burst != policer->burst)) {
-		res = -EOPNOTSUPP;
+	mutex_lock(&yt921x_flower_lock);
+	rule = yt921x_flower_find_cookie(ds, cls->cookie);
+	if (!rule) {
+		res = -ENOENT;
 		goto out_unlock;
 	}
 
-	priv->storm_policer_ports |= BIT(port);
-	priv->storm_policer_rate_bytes_per_sec = policer->rate_bytes_per_sec;
-	priv->storm_policer_burst = policer->burst;
-
-	res = yt921x_dsa_policer_apply(priv);
-	if (res) {
-		priv->storm_policer_ports = old_ports;
-		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
-		priv->storm_policer_burst = old_burst;
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(rule->dscp), &val);
+	if (!res) {
+		prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
+		if (prio == rule->new_prio)
+			res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(rule->dscp),
+					       YT921X_IPM_PRIO(rule->old_prio));
 	}
+	mutex_unlock(&priv->reg_lock);
+	if (res)
+		goto out_unlock;
+
+	list_del(&rule->list);
+	kfree(rule);
+	res = 0;
 
 out_unlock:
-	mutex_unlock(&priv->reg_lock);
+	mutex_unlock(&yt921x_flower_lock);
 	return res;
 }
 
-static void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
+static int
+yt921x_cls_flower_parse(struct flow_cls_offload *cls, u8 *dscp, u8 *prio)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	u64 old_rate_bytes_per_sec;
-	u16 old_ports;
-	u32 old_burst;
+	struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
+	struct flow_match_ip match;
+	const struct flow_action_entry *act;
+	bool have_prio = false;
+	int i;
+
+	if (!rule)
+		return -EINVAL;
+
+	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP))
+		return -EOPNOTSUPP;
+
+	flow_rule_match_ip(rule, &match);
+	if (match.mask->ttl)
+		return -EOPNOTSUPP;
+	if ((match.mask->tos & YT921X_FLOWER_DSCP_MASK) != YT921X_FLOWER_DSCP_MASK)
+		return -EOPNOTSUPP;
+	if (match.mask->tos & ~YT921X_FLOWER_DSCP_MASK)
+		return -EOPNOTSUPP;
+
+	*dscp = (match.key->tos & YT921X_FLOWER_DSCP_MASK) >> 2;
+
+	flow_action_for_each(i, act, &rule->action) {
+		switch (act->id) {
+		case FLOW_ACTION_PRIORITY:
+			if (have_prio)
+				return -EOPNOTSUPP;
+			if (act->priority >= YT921X_PRIO_NUM)
+				return -EOPNOTSUPP;
+			*prio = act->priority;
+			have_prio = true;
+			break;
+		default:
+			return -EOPNOTSUPP;
+		}
+	}
+
+	return have_prio ? 0 : -EOPNOTSUPP;
+}
+
+static int
+yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
+			  struct flow_cls_offload *cls, bool ingress)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct netlink_ext_ack *extack = cls->common.extack;
+	struct yt921x_flower_rule *rule, *existing;
+	u8 dscp, prio;
+	u32 val;
 	int res;
 
-	if (!yt921x_storm_policer_supported_port(ds, port))
-		return;
+	if (!ingress) {
+		NL_SET_ERR_MSG_MOD(extack, "egress flower offload is not supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (!dsa_is_user_port(ds, port)) {
+		NL_SET_ERR_MSG_MOD(extack, "flower offload is supported on user ports only");
+		return -EOPNOTSUPP;
+	}
+
+	if (cls->common.chain_index) {
+		NL_SET_ERR_MSG_MOD(extack, "chain is not supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (cls->common.protocol != htons(ETH_P_IP) &&
+	    cls->common.protocol != htons(ETH_P_IPV6)) {
+		NL_SET_ERR_MSG_MOD(extack, "only IPv4/IPv6 DSCP rules are supported");
+		return -EOPNOTSUPP;
+	}
+
+	res = yt921x_cls_flower_parse(cls, &dscp, &prio);
+	if (res) {
+		NL_SET_ERR_MSG_MOD(extack, "only exact DSCP match + skbedit priority is supported");
+		return res;
+	}
+
+	rule = kzalloc(sizeof(*rule), GFP_KERNEL);
+	if (!rule)
+		return -ENOMEM;
+
+	mutex_lock(&yt921x_flower_lock);
+	if (yt921x_flower_rule_count(ds) >= YT921X_FLOWER_MAX_RULES) {
+		NL_SET_ERR_MSG_MOD(extack, "too many flower rules");
+		res = -ENOSPC;
+		goto out_unlock;
+	}
+
+	if (yt921x_flower_find_cookie(ds, cls->cookie)) {
+		NL_SET_ERR_MSG_MOD(extack, "cookie already exists");
+		res = -EEXIST;
+		goto out_unlock;
+	}
+
+	existing = yt921x_flower_find_dscp(ds, dscp);
+	if (existing && existing->new_prio != prio) {
+		NL_SET_ERR_MSG_MOD(extack, "conflicting rule for the same DSCP");
+		res = -EBUSY;
+		goto out_unlock;
+	}
+	if (existing) {
+		NL_SET_ERR_MSG_MOD(extack, "DSCP rule already installed");
+		res = -EEXIST;
+		goto out_unlock;
+	}
 
 	mutex_lock(&priv->reg_lock);
-
-	old_ports = priv->storm_policer_ports;
-	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
-	old_burst = priv->storm_policer_burst;
-
-	priv->storm_policer_ports &= ~BIT(port);
-	if (!priv->storm_policer_ports) {
-		priv->storm_policer_rate_bytes_per_sec = 0;
-		priv->storm_policer_burst = 0;
-	}
-
-	res = yt921x_dsa_policer_apply(priv);
-	if (res) {
-		priv->storm_policer_ports = old_ports;
-		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
-		priv->storm_policer_burst = old_burst;
-		dev_warn(to_device(priv), "policer remove failed on port %d: %d\n",
-			 port, res);
-	}
-
+	res = yt921x_reg_read(priv, YT921X_IPM_DSCPn(dscp), &val);
+	if (!res)
+		res = yt921x_reg_write(priv, YT921X_IPM_DSCPn(dscp), YT921X_IPM_PRIO(prio));
 	mutex_unlock(&priv->reg_lock);
+	if (res)
+		goto out_unlock;
+
+	rule->ds = ds;
+	rule->cookie = cls->cookie;
+	rule->dscp = dscp;
+	rule->old_prio = FIELD_GET(YT921X_IPM_PRIO_M, val);
+	rule->new_prio = prio;
+	list_add_tail(&rule->list, &yt921x_flower_rules);
+	res = 0;
+	rule = NULL;
+
+out_unlock:
+	mutex_unlock(&yt921x_flower_lock);
+	kfree(rule);
+	return res;
 }
+
 
 static int
 yt921x_mirror_prio_map_apply(struct yt921x_priv *priv, bool enable)
@@ -4388,21 +4010,21 @@ yt921x_mirror_prio_map_apply(struct yt921x_priv *priv, bool enable)
 	int res;
 
 	if (enable) {
-		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_IGR_EN;
-		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_IGR_PRIO
-			(YT921X_STOCK_MIRROR_PRIO_MAP_DEFAULT_PRIO);
-		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_EGR_EN;
-		ctrl |= YT921X_STOCK_MIRROR_PRIO_MAP_EGR_PRIO
-			(YT921X_STOCK_MIRROR_PRIO_MAP_DEFAULT_PRIO);
+		ctrl |= YT921X_MIRROR_PRIO_MAP_IGR_EN;
+		ctrl |= YT921X_MIRROR_PRIO_MAP_IGR_PRIO
+			(YT921X_MIRROR_PRIO_MAP_DEFAULT_PRIO);
+		ctrl |= YT921X_MIRROR_PRIO_MAP_EGR_EN;
+		ctrl |= YT921X_MIRROR_PRIO_MAP_EGR_PRIO
+			(YT921X_MIRROR_PRIO_MAP_DEFAULT_PRIO);
 	}
 
-	res = yt921x_reg_read(priv, YT921X_STOCK_MIRROR_PRIO_MAP, &val);
+	res = yt921x_reg_read(priv, YT921X_MIRROR_PRIO_MAP, &val);
 	if (res)
 		return res;
 	if (val == ctrl)
 		return 0;
 
-	return yt921x_reg_write(priv, YT921X_STOCK_MIRROR_PRIO_MAP, ctrl);
+	return yt921x_reg_write(priv, YT921X_MIRROR_PRIO_MAP, ctrl);
 }
 
 static int
@@ -4492,8 +4114,8 @@ static void
 yt921x_dsa_port_mirror_del(struct dsa_switch *ds, int port,
 			   struct dsa_mall_mirror_tc_entry *mirror)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct device *dev = to_device(priv);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct device *dev = yt921x_dev(priv);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -4510,7 +4132,7 @@ yt921x_dsa_port_mirror_add(struct dsa_switch *ds, int port,
 			   struct dsa_mall_mirror_tc_entry *mirror,
 			   bool ingress, struct netlink_ext_ack *extack)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int to_port = mirror->to_local_port;
 	int res;
 
@@ -4593,7 +4215,7 @@ static int yt921x_lag_set(struct yt921x_priv *priv, u8 index, u16 ports_mask)
 static int
 yt921x_dsa_port_lag_leave(struct dsa_switch *ds, int port, struct dsa_lag lag)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct dsa_port *dp;
 	u32 ctrl;
 	int res;
@@ -4668,7 +4290,7 @@ yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag,
 			 struct netdev_lag_upper_info *info,
 			 struct netlink_ext_ack *extack)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct dsa_port *dp;
 	bool unique_lag;
 	unsigned int i;
@@ -4731,7 +4353,7 @@ yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag,
 
 static int yt921x_fdb_wait(struct yt921x_priv *priv, u32 *valp)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	u32 val = YT921X_FDB_RESULT_DONE;
 	int res;
 
@@ -4800,7 +4422,7 @@ static int
 yt921x_fdb_read(struct yt921x_priv *priv, unsigned char *addr, u16 *vidp,
 		u16 *ports_maskp, u16 *indexp, u8 *statusp)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	u16 index;
 	u32 data0;
 	u32 data1;
@@ -4855,7 +4477,7 @@ static int
 yt921x_fdb_dump(struct yt921x_priv *priv, u16 ports_mask,
 		dsa_fdb_dump_cb_t *cb, void *data)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	unsigned char addr[ETH_ALEN];
 	u8 status;
 	u16 pmask;
@@ -5103,7 +4725,7 @@ static int
 yt921x_dsa_port_fdb_dump(struct dsa_switch *ds, int port,
 			 dsa_fdb_dump_cb_t *cb, void *data)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -5118,8 +4740,8 @@ yt921x_dsa_port_fdb_dump(struct dsa_switch *ds, int port,
 
 static void yt921x_dsa_port_fast_age(struct dsa_switch *ds, int port)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct device *dev = to_device(priv);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct device *dev = yt921x_dev(priv);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -5134,7 +4756,7 @@ static void yt921x_dsa_port_fast_age(struct dsa_switch *ds, int port)
 static int
 yt921x_dsa_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 ctrl;
 	int res;
 
@@ -5152,7 +4774,7 @@ static int
 yt921x_dsa_port_fdb_del(struct dsa_switch *ds, int port,
 			const unsigned char *addr, u16 vid, struct dsa_db db)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -5166,7 +4788,7 @@ static int
 yt921x_dsa_port_fdb_add(struct dsa_switch *ds, int port,
 			const unsigned char *addr, u16 vid, struct dsa_db db)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -5181,8 +4803,8 @@ yt921x_dsa_port_mdb_del(struct dsa_switch *ds, int port,
 			const struct switchdev_obj_port_mdb *mdb,
 			struct dsa_db db)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct device *dev = to_device(priv);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct device *dev = yt921x_dev(priv);
 	const unsigned char *addr = mdb->addr;
 	u16 vid = mdb->vid;
 	int res;
@@ -5202,8 +4824,8 @@ yt921x_dsa_port_mdb_add(struct dsa_switch *ds, int port,
 			const struct switchdev_obj_port_mdb *mdb,
 			struct dsa_db db)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct device *dev = to_device(priv);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct device *dev = yt921x_dev(priv);
 	const unsigned char *addr = mdb->addr;
 	u16 vid = mdb->vid;
 	int res;
@@ -5261,7 +4883,7 @@ yt921x_vlan_filtering(struct yt921x_priv *priv, int port, bool vlan_filtering)
 	bdev = dsa_port_bridge_dev_get(dp);
 
 	if (!bdev || !vlan_filtering)
-		pvid = YT921X_VID_UNWARE;
+		pvid = YT921X_VID_UNAWARE;
 	else if (br_vlan_get_pvid(bdev, &pvid))
 		pvid = 0;
 	res = yt921x_port_set_pvid(priv, port, pvid);
@@ -5350,7 +4972,7 @@ yt921x_pvid_clear(struct yt921x_priv *priv, int port)
 	vlan_filtering = dsa_port_is_vlan_filtering(dp);
 
 	res = yt921x_port_set_pvid(priv, port,
-				   vlan_filtering ? 0 : YT921X_VID_UNWARE);
+				   vlan_filtering ? 0 : YT921X_VID_UNAWARE);
 	if (res)
 		return res;
 
@@ -5394,7 +5016,7 @@ yt921x_dsa_port_vlan_filtering(struct dsa_switch *ds, int port,
 			       bool vlan_filtering,
 			       struct netlink_ext_ack *extack)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	if (dsa_is_cpu_port(ds, port))
@@ -5420,7 +5042,7 @@ static int
 yt921x_dsa_port_vlan_del(struct dsa_switch *ds, int port,
 			 const struct switchdev_obj_port_vlan *vlan)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u16 vid = vlan->vid;
 	u16 pvid = 0;
 	int res;
@@ -5453,7 +5075,7 @@ yt921x_dsa_port_vlan_add(struct dsa_switch *ds, int port,
 			 const struct switchdev_obj_port_vlan *vlan,
 			 struct netlink_ext_ack *extack)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u16 vid = vlan->vid;
 	u16 pvid = 0;
 	int res;
@@ -5660,7 +5282,7 @@ static int yt921x_userport_standalone(struct yt921x_priv *priv, int port)
 	/* Unrelated since learning is off and all packets are trapped;
 	 * set it anyway
 	 */
-	res = yt921x_port_set_pvid(priv, port, YT921X_VID_UNWARE);
+	res = yt921x_port_set_pvid(priv, port, YT921X_VID_UNAWARE);
 	if (res)
 		return res;
 
@@ -5851,13 +5473,13 @@ yt921x_bridge_flags(struct yt921x_priv *priv, int port,
 
 		dsa_switch_for_each_user_port(dp, ds) {
 			if (priv->ports[dp->index].mcast_fast_leave) {
-				fast_leave = YT921X_STOCK_MCAST_FWD_POLICY_FAST_LEAVE;
+				fast_leave = YT921X_MCAST_FWD_POLICY_FAST_LEAVE;
 				break;
 			}
 		}
 
-		res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_FWD_POLICY,
-					     YT921X_STOCK_MCAST_FWD_POLICY_FAST_LEAVE,
+		res = yt921x_reg_update_bits(priv, YT921X_MCAST_FWD_POLICY,
+					     YT921X_MCAST_FWD_POLICY_FAST_LEAVE,
 					     fast_leave);
 		if (res)
 			return res;
@@ -5883,7 +5505,7 @@ yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 			     struct switchdev_brport_flags flags,
 			     struct netlink_ext_ack *extack)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	if (dsa_is_cpu_port(ds, port))
@@ -5900,8 +5522,8 @@ static void
 yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 			     struct dsa_bridge bridge)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct device *dev = to_device(priv);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct device *dev = yt921x_dev(priv);
 	int res;
 
 	if (dsa_is_cpu_port(ds, port))
@@ -5923,7 +5545,7 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 			    struct dsa_bridge bridge, bool *tx_fwd_offload,
 			    struct netlink_ext_ack *extack)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u16 ports_mask;
 	int res;
 
@@ -5988,7 +5610,7 @@ yt921x_mdio_polling_set(struct yt921x_priv *priv, int port, bool link,
 static int
 yt921x_port_ctrl_apply_dt(struct yt921x_priv *priv, int port, bool allow_managed)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
 	u32 mask = 0;
 	u32 val = 0;
@@ -6046,7 +5668,7 @@ static int
 yt921x_dsa_port_mst_state_set(struct dsa_switch *ds, int port,
 			      const struct switchdev_mst_state *st)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 mask;
 	u32 ctrl;
 	int res;
@@ -6070,7 +5692,7 @@ static int
 yt921x_dsa_vlan_msti_set(struct dsa_switch *ds, struct dsa_bridge bridge,
 			 const struct switchdev_vlan_msti *msti)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u64 mask64;
 	u64 ctrl64;
 	int res;
@@ -6094,9 +5716,9 @@ yt921x_dsa_vlan_msti_set(struct dsa_switch *ds, struct dsa_bridge bridge,
 static void
 yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct dsa_port *dp = dsa_to_port(ds, port);
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	bool learning;
 	u32 mask;
 	u32 ctrl;
@@ -6134,7 +5756,7 @@ yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
 static int __maybe_unused
 yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 val;
 	int res;
 
@@ -6151,7 +5773,7 @@ yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port)
 static int __maybe_unused
 yt921x_dsa_port_set_default_prio(struct dsa_switch *ds, int port, u8 prio)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 mask;
 	u32 ctrl;
 	int res;
@@ -6177,7 +5799,7 @@ static int __maybe_unused
 yt921x_dsa_port_get_apptrust(struct dsa_switch *ds, int port, u8 *sel,
 			     int *nselp)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u8 appprios[2][2] = {};
 	int nsel;
 	u32 val;
@@ -6211,8 +5833,8 @@ static int __maybe_unused
 yt921x_dsa_port_set_apptrust(struct dsa_switch *ds, int port, const u8 *sel,
 			     int nsel)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct device *dev = to_device(priv);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct device *dev = yt921x_dev(priv);
 	u32 ctrl;
 	int res;
 
@@ -6245,6 +5867,328 @@ yt921x_dsa_port_set_apptrust(struct dsa_switch *ds, int port, const u8 *sel,
 	mutex_unlock(&priv->reg_lock);
 
 	return res;
+}
+
+static bool yt921x_storm_policer_supported_port(struct dsa_switch *ds, int port)
+{
+	return dsa_is_user_port(ds, port);
+}
+
+static int
+yt921x_storm_rate_to_fields(struct yt921x_priv *priv, u64 rate_bytes_per_sec,
+			    u32 *rate_f0, u32 *rate_f1)
+{
+	u64 units_per_sec;
+	u32 io;
+	u32 slot;
+	int res;
+
+	if (!rate_bytes_per_sec)
+		return -EINVAL;
+
+	/* Stock code derives storm config fields from this timeslot register.
+	 * Keep using the same source and encode as a 29-bit split value
+	 * ([31:13] + [12:3]) expected by 0x220200.
+	 */
+	res = yt921x_reg_read(priv, YT921X_STORM_RATE_IO, &io);
+	if (res)
+		return res;
+
+	slot = FIELD_GET(YT921X_STORM_RATE_IO_TIMESLOT_M, io);
+	if (!slot)
+		slot = 1;
+
+	units_per_sec = DIV_ROUND_UP_ULL(rate_bytes_per_sec, slot);
+	units_per_sec = clamp_t(u64, units_per_sec, 1, YT921X_STORM_RATE_UNITS_MAX);
+
+	*rate_f0 = (u32)(units_per_sec >> 10);
+	*rate_f1 = (u32)(units_per_sec & GENMASK(9, 0));
+
+	return 0;
+}
+
+static int yt921x_storm_policer_apply(struct yt921x_priv *priv)
+{
+	u32 storm_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
+	u32 cfg;
+	u32 f0;
+	u32 f1;
+	int res;
+
+	res = yt921x_reg_update_bits(priv, YT921X_STORM_MC_TYPE_CTRL,
+				     YT921X_STORM_MC_TYPE_CTRL_PORTS_M,
+				     YT921X_STORM_MC_TYPE_CTRL_PORTS(storm_ports));
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_STORM_CONFIG, &cfg);
+	if (res)
+		return res;
+
+	if (!storm_ports) {
+		cfg &= ~YT921X_STORM_CONFIG_EN;
+		return yt921x_reg_write(priv, YT921X_STORM_CONFIG, cfg);
+	}
+
+	res = yt921x_storm_rate_to_fields(priv, priv->storm_policer_rate_bytes_per_sec,
+					  &f0, &f1);
+	if (res)
+		return res;
+
+	cfg &= ~(YT921X_STORM_CONFIG_RATE_F0_M |
+		 YT921X_STORM_CONFIG_RATE_F1_M);
+	cfg |= YT921X_STORM_CONFIG_RATE_F0(f0) |
+	       YT921X_STORM_CONFIG_RATE_F1(f1) |
+	       YT921X_STORM_CONFIG_EN;
+
+	return yt921x_reg_write(priv, YT921X_STORM_CONFIG, cfg);
+}
+
+static int
+yt921x_stock_ingress_meter_token_level(struct yt921x_priv *priv, u32 *token_level)
+{
+	u32 chip_id;
+	u32 io;
+	u32 timeslot;
+	u32 token_bytes;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_RATE_IGR_BW_CTRL, &io);
+	if (res)
+		return res;
+
+	timeslot = FIELD_GET(YT921X_RATE_IGR_BW_CTRL_TIMESLOT_M, io);
+	if (!timeslot)
+		timeslot = 1;
+
+	res = yt921x_reg_read(priv, YT921X_CHIP_ID, &chip_id);
+	if (res)
+		return res;
+
+	token_bytes = (FIELD_GET(YT921X_CHIP_ID_MINOR, chip_id) == 0x9001) ? 7 : 8;
+	*token_level = token_bytes * (timeslot << 3);
+	if (!*token_level)
+		return -ERANGE;
+
+	return 0;
+}
+
+static int
+yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
+				 u32 meter_f4, bool meter_f6, u32 *cirp)
+{
+	u64 rate_bits_per_sec;
+	u64 scaled;
+	u64 cir;
+	int shift;
+
+	if (!rate_bytes_per_sec || !token_level)
+		return -EINVAL;
+	if (rate_bytes_per_sec > U64_MAX / 8)
+		return -ERANGE;
+
+	/* Stock helper uses 1e9 scaling in bit/s domain. */
+	rate_bits_per_sec = rate_bytes_per_sec * 8;
+	if (rate_bits_per_sec > U64_MAX / token_level)
+		return -ERANGE;
+	scaled = rate_bits_per_sec * token_level;
+
+	shift = (meter_f4 ? 21 : 11) - (meter_f6 ? 2 : 0);
+	if (shift > 0) {
+		if (scaled > (U64_MAX >> shift))
+			return -ERANGE;
+		scaled <<= shift;
+	} else if (shift < 0) {
+		scaled >>= -shift;
+	}
+
+	cir = div_u64(scaled, YT921X_RATE_SCALE_PER_SEC);
+	if (!cir)
+		cir = 1;
+	if (cir > YT921X_RATE_CIR_MAX)
+		return -ERANGE;
+
+	*cirp = (u32)cir;
+	return 0;
+}
+
+static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
+{
+	u32 policer_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
+	unsigned long targets_mask = yt921x_non_cpu_port_mask(priv);
+	u32 meter_word1;
+	u32 meter_word2;
+	u32 token_level;
+	u32 cir;
+	u32 c8;
+	u32 f4;
+	bool f6;
+	int port;
+	int res;
+
+	if (YT921X_RATE_METER_DEFAULT_ID >= YT921X_RATE_METER_NUM)
+		return -EINVAL;
+
+	if (!policer_ports)
+		goto disable_port_ctrl;
+
+	res = yt921x_stock_ingress_meter_token_level(priv, &token_level);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv,
+			      YT921X_RATE_METER_CONFIG_WORD2(YT921X_RATE_METER_DEFAULT_ID),
+			      &meter_word2);
+	if (res)
+		return res;
+
+	f4 = FIELD_GET(YT921X_RATE_METER_CFG_F4_M, meter_word2);
+	f6 = !!(meter_word2 & YT921X_RATE_METER_CFG_F6);
+
+	res = yt921x_stock_ingress_rate_to_cir(priv->storm_policer_rate_bytes_per_sec,
+					       token_level, f4, f6, &cir);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv,
+			      YT921X_RATE_METER_CONFIG_WORD1(YT921X_RATE_METER_DEFAULT_ID),
+			      &meter_word1);
+	if (res)
+		return res;
+
+	meter_word1 &= ~YT921X_RATE_METER_CFG_CIR_M;
+	meter_word1 |= YT921X_RATE_METER_CFG_CIR(cir);
+	res = yt921x_reg_write(priv,
+			       YT921X_RATE_METER_CONFIG_WORD1(YT921X_RATE_METER_DEFAULT_ID),
+			       meter_word1);
+	if (res)
+		return res;
+
+disable_port_ctrl:
+	for_each_set_bit(port, &targets_mask, YT921X_PORT_NUM) {
+		if (!dsa_is_user_port(&priv->ds, port))
+			continue;
+
+		res = yt921x_reg_read(priv, YT921X_RATE_IGR_BW_ENABLE + 4 * port, &c8);
+		if (res)
+			return res;
+
+		c8 &= ~(YT921X_RATE_IGR_BW_ENABLE_EN |
+			YT921X_RATE_IGR_BW_ENABLE_METER_ID_M);
+		if (policer_ports & BIT(port))
+			c8 |= YT921X_RATE_IGR_BW_ENABLE_EN |
+			      YT921X_RATE_IGR_BW_ENABLE_METER_ID(
+				      YT921X_RATE_METER_DEFAULT_ID);
+
+		res = yt921x_reg_write(priv, YT921X_RATE_IGR_BW_ENABLE + 4 * port, c8);
+		if (res)
+			return res;
+	}
+
+	/* Keep legacy storm-path disabled when ingress-meter path is active. */
+	res = yt921x_reg_update_bits(priv, YT921X_STORM_MC_TYPE_CTRL,
+				     YT921X_STORM_MC_TYPE_CTRL_PORTS_M, 0);
+	if (res)
+		return res;
+
+	res = yt921x_reg_update_bits(priv, YT921X_STORM_CONFIG,
+				     YT921X_STORM_CONFIG_EN, 0);
+	if (res)
+		return res;
+
+	return 0;
+}
+
+static int yt921x_dsa_policer_apply(struct yt921x_priv *priv)
+{
+	int res;
+
+	res = yt921x_ingress_meter_policer_apply(priv);
+	if (!res)
+		return 0;
+
+	dev_warn(yt921x_dev(priv),
+		 "ingress policer apply failed (%d), fallback to storm path\n", res);
+	return yt921x_storm_policer_apply(priv);
+}
+
+static int
+yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
+			    struct dsa_mall_policer_tc_entry *policer)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u64 old_rate_bytes_per_sec;
+	u16 old_ports;
+	u32 old_burst;
+	int res = 0;
+
+	if (!yt921x_storm_policer_supported_port(ds, port))
+		return -EOPNOTSUPP;
+	if (!policer->rate_bytes_per_sec)
+		return -EINVAL;
+
+	mutex_lock(&priv->reg_lock);
+
+	old_ports = priv->storm_policer_ports;
+	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
+	old_burst = priv->storm_policer_burst;
+
+	if (old_ports &&
+	    (old_rate_bytes_per_sec != policer->rate_bytes_per_sec ||
+	     old_burst != policer->burst)) {
+		res = -EOPNOTSUPP;
+		goto out_unlock;
+	}
+
+	priv->storm_policer_ports |= BIT(port);
+	priv->storm_policer_rate_bytes_per_sec = policer->rate_bytes_per_sec;
+	priv->storm_policer_burst = policer->burst;
+
+	res = yt921x_dsa_policer_apply(priv);
+	if (res) {
+		priv->storm_policer_ports = old_ports;
+		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
+		priv->storm_policer_burst = old_burst;
+	}
+
+out_unlock:
+	mutex_unlock(&priv->reg_lock);
+	return res;
+}
+
+static void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u64 old_rate_bytes_per_sec;
+	u16 old_ports;
+	u32 old_burst;
+	int res;
+
+	if (!yt921x_storm_policer_supported_port(ds, port))
+		return;
+
+	mutex_lock(&priv->reg_lock);
+
+	old_ports = priv->storm_policer_ports;
+	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
+	old_burst = priv->storm_policer_burst;
+
+	priv->storm_policer_ports &= ~BIT(port);
+	if (!priv->storm_policer_ports) {
+		priv->storm_policer_rate_bytes_per_sec = 0;
+		priv->storm_policer_burst = 0;
+	}
+
+	res = yt921x_dsa_policer_apply(priv);
+	if (res) {
+		priv->storm_policer_ports = old_ports;
+		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
+		priv->storm_policer_burst = old_burst;
+		dev_warn(yt921x_dev(priv), "policer remove failed on port %d: %d\n",
+			 port, res);
+	}
+
+	mutex_unlock(&priv->reg_lock);
 }
 
 static int yt921x_port_down(struct yt921x_priv *priv, int port)
@@ -6322,7 +6266,7 @@ yt921x_port_up(struct yt921x_priv *priv, int port, unsigned int mode,
 	       phy_interface_t interface, int speed, int duplex,
 	       bool tx_pause, bool rx_pause)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	u32 mask;
 	u32 ctrl;
 	int res;
@@ -6431,7 +6375,7 @@ static int
 yt921x_port_get_serdes_mode(struct yt921x_priv *priv, int port,
 			    phy_interface_t interface, u32 *ctrl)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
 	const char *mode;
 	u32 force_mode;
@@ -6530,7 +6474,7 @@ static int
 yt921x_port_config(struct yt921x_priv *priv, int port, unsigned int mode,
 		   phy_interface_t interface)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	u32 mask;
 	u32 ctrl;
 	int res;
@@ -6583,7 +6527,7 @@ yt921x_phylink_mac_link_down(struct phylink_config *config, unsigned int mode,
 			     phy_interface_t interface)
 {
 	struct dsa_port *dp = dsa_phylink_to_port(config);
-	struct yt921x_priv *priv = to_yt921x_priv(dp->ds);
+	struct yt921x_priv *priv = yt921x_to_priv(dp->ds);
 	int port = dp->index;
 	int res;
 
@@ -6606,7 +6550,7 @@ yt921x_phylink_mac_link_up(struct phylink_config *config,
 			   bool tx_pause, bool rx_pause)
 {
 	struct dsa_port *dp = dsa_phylink_to_port(config);
-	struct yt921x_priv *priv = to_yt921x_priv(dp->ds);
+	struct yt921x_priv *priv = yt921x_to_priv(dp->ds);
 	int port = dp->index;
 	int res;
 
@@ -6630,7 +6574,7 @@ yt921x_phylink_mac_config(struct phylink_config *config, unsigned int mode,
 			  const struct phylink_link_state *state)
 {
 	struct dsa_port *dp = dsa_phylink_to_port(config);
-	struct yt921x_priv *priv = to_yt921x_priv(dp->ds);
+	struct yt921x_priv *priv = yt921x_to_priv(dp->ds);
 	int port = dp->index;
 	int res;
 
@@ -6681,7 +6625,7 @@ static void
 yt921x_dsa_phylink_get_caps(struct dsa_switch *ds, int port,
 			    struct phylink_config *config)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	const struct yt921x_info *info = priv->info;
 	struct dsa_port *dp = dsa_to_port(ds, port);
 	phy_interface_t interface;
@@ -6804,7 +6748,7 @@ static enum dsa_tag_protocol
 yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 			    enum dsa_tag_protocol m)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 
 	if (dsa_is_cpu_port(ds, port) &&
 	    yt921x_is_secondary_cpu_port(priv, port))
@@ -6815,7 +6759,7 @@ yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 
 static int yt921x_dsa_port_setup(struct dsa_switch *ds, int port)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -6830,7 +6774,7 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 			       struct net_device *conduit,
 			       struct netlink_ext_ack *extack)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct dsa_port *dp = dsa_to_port(ds, port);
 	struct dsa_port *user_dp;
 	int old_cpu_port;
@@ -6927,7 +6871,7 @@ out_unlock:
 static int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
 				  struct phy_device *phydev)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 mask = YT921X_PORT_CTRL_ADMIN_M;
 	int res;
 
@@ -6951,7 +6895,7 @@ static int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
 
 static void yt921x_dsa_port_disable(struct dsa_switch *ds, int port)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 stp_ctrl;
 	u32 stp_mask;
 	int res;
@@ -6991,7 +6935,7 @@ static void yt921x_dsa_port_disable(struct dsa_switch *ds, int port)
 static int __maybe_unused
 yt921x_dsa_port_get_dscp_prio(struct dsa_switch *ds, int port, u8 dscp)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 val;
 	int res;
 
@@ -7008,7 +6952,7 @@ yt921x_dsa_port_get_dscp_prio(struct dsa_switch *ds, int port, u8 dscp)
 static int __maybe_unused
 yt921x_dsa_port_del_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 val;
 	int res;
 
@@ -7033,7 +6977,7 @@ yt921x_dsa_port_del_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
 static int __maybe_unused
 yt921x_dsa_port_add_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
 	if (prio >= YT921X_PRIO_NUM)
@@ -7100,7 +7044,7 @@ static int yt921x_edata_read(struct yt921x_priv *priv, u8 addr, u8 *valp)
 
 static int yt921x_chip_detect(struct yt921x_priv *priv)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	const struct yt921x_info *info;
 	u8 extmode;
 	u32 chipid;
@@ -7151,7 +7095,7 @@ static int yt921x_chip_detect(struct yt921x_priv *priv)
 
 static int yt921x_chip_reset(struct yt921x_priv *priv)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	u16 eth_p_tag;
 	u32 val;
 	int res;
@@ -7207,7 +7151,7 @@ static bool yt921x_mdio_phyid_valid(u16 id1, u16 id2)
 
 static int yt921x_validate_setup_locked(struct yt921x_priv *priv)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	int cpu_port = priv->primary_cpu_port;
 	u16 tpid;
 	u32 val;
@@ -7251,7 +7195,7 @@ static int yt921x_validate_setup_locked(struct yt921x_priv *priv)
 
 static void yt921x_log_mdio_summary_locked(struct yt921x_priv *priv)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	unsigned long int_valid_mask = 0;
 	unsigned long int_placeholder_mask = 0;
 	u32 ext_valid_mask = 0;
@@ -7300,6 +7244,79 @@ static void yt921x_log_mdio_summary_locked(struct yt921x_priv *priv)
 			dev_info(dev,
 				 "mdio-ext responders: none detected on ports 0..31\n");
 	}
+}
+
+static int yt921x_qos_remark_index(u8 prio, u8 dp, bool spri, u8 *idxp)
+{
+	u8 idx;
+
+	if (prio >= YT921X_PRIO_NUM || dp >= YT921X_QOS_REMARK_DP_NUM)
+		return -ERANGE;
+
+	idx = (prio << 2) | dp;
+	if (spri)
+		idx |= BIT(5);
+	*idxp = idx;
+	return 0;
+}
+
+static int yt921x_qos_remark_dscp_set(struct yt921x_priv *priv, u8 prio, u8 dp,
+				      u8 dscp)
+{
+	u8 idx;
+	int res;
+
+	if (dscp >= DSCP_MAX)
+		return -ERANGE;
+
+	res = yt921x_qos_remark_index(prio, dp, false, &idx);
+	if (res)
+		return res;
+
+	return yt921x_reg_update_bits(priv, YT921X_QOS_REMARK_DSCPn(idx),
+				      YT921X_QOS_REMARK_DSCP_VAL_M,
+				      YT921X_QOS_REMARK_DSCP_VAL(dscp));
+}
+
+static int yt921x_qos_remark_prio_set(struct yt921x_priv *priv, u8 prio, u8 dp,
+				      bool spri, u8 pcp, bool enable)
+{
+	u8 idx;
+	u32 val;
+	int res;
+
+	if (pcp >= YT921X_PRIO_NUM)
+		return -ERANGE;
+
+	res = yt921x_qos_remark_index(prio, dp, spri, &idx);
+	if (res)
+		return res;
+
+	val = YT921X_QOS_REMARK_PRIO_VAL(pcp);
+	if (enable)
+		val |= YT921X_QOS_REMARK_PRIO_EN;
+
+	return yt921x_reg_update_bits(priv, YT921X_QOS_REMARK_PRIOn(idx),
+				      YT921X_QOS_REMARK_PRIO_VAL_M |
+				      YT921X_QOS_REMARK_PRIO_EN, val);
+}
+
+static int yt921x_qos_remark_port_enable(struct yt921x_priv *priv, int port,
+					 bool cpri_enable, bool spri_enable)
+{
+	u32 val = 0;
+
+	if (port < 0 || port >= YT921X_PORT_NUM)
+		return -ERANGE;
+
+	if (cpri_enable)
+		val |= YT921X_QOS_REMARK_PORT_CPRI_EN;
+	if (spri_enable)
+		val |= YT921X_QOS_REMARK_PORT_SPRI_EN;
+
+	return yt921x_reg_update_bits(priv, YT921X_QOS_REMARK_PORT_CTRLn(port),
+				      YT921X_QOS_REMARK_PORT_CPRI_EN |
+				      YT921X_QOS_REMARK_PORT_SPRI_EN, val);
 }
 
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -7374,7 +7391,7 @@ yt921x_debug_log_reg_delta_locked(struct yt921x_priv *priv, const char *stage,
 				  const u32 *after, const int *after_err,
 				  const char *label)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	unsigned int i;
 	int changed = 0;
 
@@ -7443,7 +7460,7 @@ yt921x_debug_init_checkpoint_locked(struct yt921x_priv *priv,
 				    struct yt921x_init_dbg_snapshot *prev,
 				    const char *stage)
 {
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	struct yt921x_init_dbg_snapshot now;
 	int changed_watch;
 	int changed_2c;
@@ -7474,7 +7491,7 @@ yt921x_debug_init_checkpoint_locked(struct yt921x_priv *priv,
 static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 {
 	struct dsa_switch *ds = &priv->ds;
-	struct device *dev = to_device(priv);
+	struct device *dev = yt921x_dev(priv);
 	unsigned long cpu_ports_mask;
 	u64 ctrl64;
 	u32 ctrl;
@@ -7528,7 +7545,7 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 #endif
 
 	/* Keep stock loop-detect block enabled with safe defaults. */
-	res = yt921x_stock_loop_detect_setup_locked(priv);
+	res = yt921x_loop_detect_setup_locked(priv);
 	if (res)
 		return res;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -7536,7 +7553,7 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 #endif
 
 	/* Program explicit handling for key 802.1 link-local RMAs. */
-	res = yt921x_stock_rma_setup_locked(priv);
+	res = yt921x_rma_setup_locked(priv);
 	if (res)
 		return res;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -7549,30 +7566,30 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	 * - IGMP bypasses port isolation
 	 * - fast leave disabled until requested by bridge flags
 	 */
-	ctrl = priv->cpu_ports_mask & YT921X_STOCK_MCAST_STATIC_ROUTER_PORT_M;
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_STATIC_ROUTER_PORT,
-				     YT921X_STOCK_MCAST_STATIC_ROUTER_PORT_M,
+	ctrl = priv->cpu_ports_mask & YT921X_MCAST_STATIC_ROUTER_PORT_M;
+	res = yt921x_reg_update_bits(priv, YT921X_MCAST_STATIC_ROUTER_PORT,
+				     YT921X_MCAST_STATIC_ROUTER_PORT_M,
 				     ctrl);
 	if (res)
 		return res;
 
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT,
-				     YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M,
-				     YT921X_STOCK_MCAST_DYNAMIC_ROUTER_PORT_ALLOW(ctrl));
+	res = yt921x_reg_update_bits(priv, YT921X_MCAST_DYNAMIC_ROUTER_PORT,
+				     YT921X_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M,
+				     YT921X_MCAST_DYNAMIC_ROUTER_PORT_ALLOW(ctrl));
 	if (res)
 		return res;
 
-	ctrl = YT921X_STOCK_MCAST_PORT_POLICY_LEAVE_ALLOW |
-	       YT921X_STOCK_MCAST_PORT_POLICY_REPORT_ALLOW |
-	       YT921X_STOCK_MCAST_PORT_POLICY_QUERY_ALLOW |
-	       YT921X_STOCK_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_PORT_POLICY, ctrl,
+	ctrl = YT921X_MCAST_PORT_POLICY_LEAVE_ALLOW |
+	       YT921X_MCAST_PORT_POLICY_REPORT_ALLOW |
+	       YT921X_MCAST_PORT_POLICY_QUERY_ALLOW |
+	       YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
+	res = yt921x_reg_update_bits(priv, YT921X_MCAST_PORT_POLICY, ctrl,
 				     ctrl);
 	if (res)
 		return res;
 
-	res = yt921x_reg_update_bits(priv, YT921X_STOCK_MCAST_FWD_POLICY,
-				     YT921X_STOCK_MCAST_FWD_POLICY_FAST_LEAVE,
+	res = yt921x_reg_update_bits(priv, YT921X_MCAST_FWD_POLICY,
+				     YT921X_MCAST_FWD_POLICY_FAST_LEAVE,
 				     0);
 	if (res)
 		return res;
@@ -7641,7 +7658,7 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	/* Reset mirror-priority map. Keep it disabled until mirror rules are
 	 * installed, then enable with a safe low-priority class.
 	 */
-	res = yt921x_reg_write(priv, YT921X_STOCK_MIRROR_PRIO_MAP, 0);
+	res = yt921x_reg_write(priv, YT921X_MIRROR_PRIO_MAP, 0);
 	if (res)
 		return res;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -7662,78 +7679,6 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	return 0;
 }
 
-static int yt921x_qos_remark_index(u8 prio, u8 dp, bool spri, u8 *idxp)
-{
-	u8 idx;
-
-	if (prio >= YT921X_PRIO_NUM || dp >= YT921X_QOS_REMARK_DP_NUM)
-		return -ERANGE;
-
-	idx = (prio << 2) | dp;
-	if (spri)
-		idx |= BIT(5);
-	*idxp = idx;
-	return 0;
-}
-
-static int yt921x_qos_remark_dscp_set(struct yt921x_priv *priv, u8 prio, u8 dp,
-				      u8 dscp)
-{
-	u8 idx;
-	int res;
-
-	if (dscp >= DSCP_MAX)
-		return -ERANGE;
-
-	res = yt921x_qos_remark_index(prio, dp, false, &idx);
-	if (res)
-		return res;
-
-	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_REMARK_DSCPn(idx),
-				      YT921X_STOCK_QOS_REMARK_DSCP_VAL_M,
-				      YT921X_STOCK_QOS_REMARK_DSCP_VAL(dscp));
-}
-
-static int yt921x_qos_remark_prio_set(struct yt921x_priv *priv, u8 prio, u8 dp,
-				      bool spri, u8 pcp, bool enable)
-{
-	u8 idx;
-	u32 val;
-	int res;
-
-	if (pcp >= YT921X_PRIO_NUM)
-		return -ERANGE;
-
-	res = yt921x_qos_remark_index(prio, dp, spri, &idx);
-	if (res)
-		return res;
-
-	val = YT921X_STOCK_QOS_REMARK_PRIO_VAL(pcp);
-	if (enable)
-		val |= YT921X_STOCK_QOS_REMARK_PRIO_EN;
-
-	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_REMARK_PRIOn(idx),
-				      YT921X_STOCK_QOS_REMARK_PRIO_VAL_M |
-				      YT921X_STOCK_QOS_REMARK_PRIO_EN, val);
-}
-
-static int yt921x_qos_remark_port_enable(struct yt921x_priv *priv, int port,
-					 bool cpri_enable, bool spri_enable)
-{
-	u32 val = 0;
-
-	if (port < 0 || port >= YT921X_PORT_NUM)
-		return -ERANGE;
-
-	if (cpri_enable)
-		val |= YT921X_STOCK_QOS_REMARK_PORT_CPRI_EN;
-	if (spri_enable)
-		val |= YT921X_STOCK_QOS_REMARK_PORT_SPRI_EN;
-
-	return yt921x_reg_update_bits(priv, YT921X_STOCK_QOS_REMARK_PORT_CTRLn(port),
-				      YT921X_STOCK_QOS_REMARK_PORT_CPRI_EN |
-				      YT921X_STOCK_QOS_REMARK_PORT_SPRI_EN, val);
-}
 
 static int __maybe_unused yt921x_chip_setup_qos(struct yt921x_priv *priv)
 {
@@ -7855,8 +7800,8 @@ static int yt921x_chip_setup(struct yt921x_priv *priv)
 
 static int yt921x_dsa_setup(struct dsa_switch *ds)
 {
-	struct yt921x_priv *priv = to_yt921x_priv(ds);
-	struct device *dev = to_device(priv);
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct device *dev = yt921x_dev(priv);
 	struct device_node *np = dev->of_node;
 	struct device_node *child;
 	int res;
