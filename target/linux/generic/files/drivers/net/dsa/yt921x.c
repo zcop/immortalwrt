@@ -25,6 +25,7 @@
 #include <linux/of_net.h>
 #include <linux/slab.h>
 #include <linux/sort.h>
+#include <linux/tc_act/tc_csum.h>
 #include <linux/workqueue.h>
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 #include <linux/debugfs.h>
@@ -4760,7 +4761,8 @@ too_complex:
 static int
 yt921x_acl_parse_mangle_dscp(const struct flow_rule *rule,
 			     const struct flow_action_entry *act,
-			     struct netlink_ext_ack *extack, u8 *dscp)
+			     struct netlink_ext_ack *extack, u8 *dscp,
+			     bool *is_ipv4)
 {
 	struct flow_match_basic basic = {};
 	u32 mask_be, val_be;
@@ -4838,6 +4840,8 @@ yt921x_acl_parse_mangle_dscp(const struct flow_rule *rule,
 		}
 
 		*dscp = byte_val >> 2;
+		if (is_ipv4)
+			*is_ipv4 = true;
 		return 0;
 	}
 
@@ -4865,6 +4869,8 @@ yt921x_acl_parse_mangle_dscp(const struct flow_rule *rule,
 	}
 
 	*dscp = ((byte0_val & 0x0f) << 2) | ((byte1_val & 0xc0) >> 6);
+	if (is_ipv4)
+		*is_ipv4 = false;
 	return 0;
 }
 
@@ -4881,6 +4887,9 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 	bool trap_seen = false;
 	bool police_seen = false;
 	bool dscp_seen = false;
+	bool dscp_ipv4_seen = false;
+	bool dscp_ipv6_seen = false;
+	bool csum_seen = false;
 	u32 *action = group[0].action;
 	int i;
 
@@ -5034,9 +5043,11 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			break;
 		case FLOW_ACTION_MANGLE: {
 			u8 dscp;
+			bool is_ipv4;
 			int res;
 
-			res = yt921x_acl_parse_mangle_dscp(rule, act, extack, &dscp);
+			res = yt921x_acl_parse_mangle_dscp(rule, act, extack, &dscp,
+							   &is_ipv4);
 			if (res)
 				return res;
 
@@ -5050,11 +5061,40 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[0] &= ~YT921X_ACL_ACTa_DSCP_M;
 			action[0] |= FIELD_PREP(YT921X_ACL_ACTa_DSCP_M, dscp);
 			action[0] |= YT921X_ACL_ACTa_DSCP_REPLACE;
+			if (is_ipv4)
+				dscp_ipv4_seen = true;
+			else
+				dscp_ipv6_seen = true;
 			dscp_seen = true;
 			break;
 		}
+		case FLOW_ACTION_CSUM:
+			/* HW rewrites DSCP in-pipeline; IPv4 checksum is
+			 * auto-updated by egress logic. Accept csum ip as a
+			 * compatibility no-op for tc action chains.
+			 */
+			if (act->csum_flags != TCA_CSUM_UPDATE_FLAG_IPV4HDR) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Only csum ip is supported with DSCP rewrite");
+				return -EOPNOTSUPP;
+			}
+			csum_seen = true;
+			break;
 		default:
 			NL_SET_ERR_MSG_MOD(extack, "Action not supported");
+			return -EOPNOTSUPP;
+		}
+	}
+
+	if (csum_seen) {
+		if (!dscp_seen) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "csum ip requires DSCP pedit rewrite");
+			return -EOPNOTSUPP;
+		}
+		if (dscp_ipv6_seen || !dscp_ipv4_seen) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "csum ip is only valid with IPv4 DSCP rewrite");
 			return -EOPNOTSUPP;
 		}
 	}
