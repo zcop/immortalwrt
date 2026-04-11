@@ -324,6 +324,37 @@ static int yt921x_rma_ctrl_action_set(u32 *ctrl,
 	return 0;
 }
 
+static enum yt921x_rma_action yt921x_rma_ctrl_action_get(u32 ctrl)
+{
+	bool f3 = !!(ctrl & YT921X_RMA_CTRL_F3);
+	bool f4 = !!(ctrl & YT921X_RMA_CTRL_F4);
+
+	if (f3 && f4)
+		return YT921X_RMA_ACT_TRAP_TO_CPU;
+	if (!f3 && f4)
+		return YT921X_RMA_ACT_COPY_TO_CPU;
+	if (f3)
+		return YT921X_RMA_ACT_DROP;
+
+	return YT921X_RMA_ACT_FORWARD;
+}
+
+static const char *yt921x_rma_action_name(enum yt921x_rma_action action)
+{
+	switch (action) {
+	case YT921X_RMA_ACT_FORWARD:
+		return "forward";
+	case YT921X_RMA_ACT_TRAP_TO_CPU:
+		return "trap";
+	case YT921X_RMA_ACT_COPY_TO_CPU:
+		return "copy";
+	case YT921X_RMA_ACT_DROP:
+		return "drop";
+	default:
+		return "unknown";
+	}
+}
+
 static int
 yt921x_stock_rma_ctrl_set(struct yt921x_priv *priv, u8 index,
 			  enum yt921x_rma_action action,
@@ -987,6 +1018,8 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  dot1x set <port> <port_based_val> <bypass_val>\n"
 				 "  loop_detect show\n"
 				 "  loop_detect set <0|1> [tpid] [gen_way]\n"
+				 "  rma show [idx]\n"
+				 "  rma set <idx> <forward|trap|copy|drop> [bypass_iso] [bypass_vlan]\n"
 				 "  storm_guard show\n"
 				 "  storm_guard set <0|1> <pps> <hold_ms> <interval_ms>\n"
 				 "  mirror\n"
@@ -1007,6 +1040,55 @@ static int yt921x_proc_parse_u32(const char *s, u32 *val)
 static int yt921x_proc_parse_u16(const char *s, u16 *val)
 {
 	return kstrtou16(s, 0, val);
+}
+
+static int
+yt921x_proc_parse_rma_action(const char *s, enum yt921x_rma_action *action)
+{
+	if (!strcmp(s, "forward") || !strcmp(s, "fwd")) {
+		*action = YT921X_RMA_ACT_FORWARD;
+		return 0;
+	}
+	if (!strcmp(s, "trap")) {
+		*action = YT921X_RMA_ACT_TRAP_TO_CPU;
+		return 0;
+	}
+	if (!strcmp(s, "copy")) {
+		*action = YT921X_RMA_ACT_COPY_TO_CPU;
+		return 0;
+	}
+	if (!strcmp(s, "drop")) {
+		*action = YT921X_RMA_ACT_DROP;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static int yt921x_proc_reply_rma_index(struct yt921x_priv *priv, u32 index)
+{
+	enum yt921x_rma_action action;
+	u32 ctrl;
+	int res;
+
+	if (index >= 0x30)
+		return -ERANGE;
+
+	res = yt921x_reg_read(priv, YT921X_RMA_CTRLn(index), &ctrl);
+	if (res)
+		return res;
+
+	action = yt921x_rma_ctrl_action_get(ctrl);
+	yt921x_proc_reply_append(
+		priv,
+		"rma idx=0x%02x reg=0x%06x val=0x%08x action=%s fwd_mask=0x%02x bypass_iso=%u bypass_vlan=%u\n",
+		index, YT921X_RMA_CTRLn(index), ctrl,
+		yt921x_rma_action_name(action),
+		(u32)FIELD_GET(YT921X_RMA_CTRL_FWD_MASK_M, ctrl),
+		!!(ctrl & YT921X_RMA_CTRL_F6),
+		!!(ctrl & YT921X_RMA_CTRL_F5));
+
+	return 0;
 }
 
 struct yt921x_proc_ctrlpkt_desc {
@@ -2134,6 +2216,90 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 			}
 			if (!res)
 				res = yt921x_proc_reply_loop_detect(priv);
+			mutex_unlock(&priv->reg_lock);
+			goto out;
+		}
+
+		res = -EINVAL;
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "rma")) {
+		if (argc == 1 || !strcmp(argv[1], "show")) {
+			static const u8 defaults[] = { 0x00, 0x02, 0x03, 0x0e };
+			unsigned int i;
+
+			mutex_lock(&priv->reg_lock);
+			if (argc >= 3) {
+				u32 index;
+
+				res = yt921x_proc_parse_u32(argv[2], &index);
+				if (!res)
+					res = yt921x_proc_reply_rma_index(priv, index);
+				mutex_unlock(&priv->reg_lock);
+				goto out;
+			}
+
+			for (i = 0; i < ARRAY_SIZE(defaults); i++) {
+				res = yt921x_proc_reply_rma_index(priv, defaults[i]);
+				if (res)
+					break;
+			}
+			if (!res)
+				yt921x_proc_reply_append(
+					priv,
+					"hint: use `rma show <idx>` for any index in [0x00..0x2f]\n");
+			mutex_unlock(&priv->reg_lock);
+			goto out;
+		}
+
+		if (!strcmp(argv[1], "set") && argc >= 4) {
+			enum yt921x_rma_action action;
+			bool bypass_iso;
+			bool bypass_vlan;
+			u32 index;
+			u32 ctrl;
+			u32 val;
+
+			res = yt921x_proc_parse_u32(argv[2], &index);
+			if (res)
+				goto out;
+			if (index >= 0x30) {
+				res = -ERANGE;
+				goto out;
+			}
+
+			res = yt921x_proc_parse_rma_action(argv[3], &action);
+			if (res)
+				goto out;
+
+			mutex_lock(&priv->reg_lock);
+			res = yt921x_reg_read(priv, YT921X_RMA_CTRLn(index), &ctrl);
+			if (res)
+				goto out_unlock_rma;
+
+			bypass_iso = !!(ctrl & YT921X_RMA_CTRL_F6);
+			bypass_vlan = !!(ctrl & YT921X_RMA_CTRL_F5);
+
+			if (argc >= 5) {
+				res = yt921x_proc_parse_u32(argv[4], &val);
+				if (res)
+					goto out_unlock_rma;
+				bypass_iso = !!val;
+			}
+			if (argc >= 6) {
+				res = yt921x_proc_parse_u32(argv[5], &val);
+				if (res)
+					goto out_unlock_rma;
+				bypass_vlan = !!val;
+			}
+
+			res = yt921x_stock_rma_ctrl_set(priv, index, action,
+							bypass_iso, bypass_vlan);
+			if (!res)
+				res = yt921x_proc_reply_rma_index(priv, index);
+
+out_unlock_rma:
 			mutex_unlock(&priv->reg_lock);
 			goto out;
 		}
