@@ -1087,6 +1087,8 @@ static int yt921x_chip_setup_acl(struct yt921x_priv *priv)
 
 	memset(&priv->acl, 0, sizeof(priv->acl));
 	bitmap_zero(priv->acl_meter_map, YT921X_METER_NUM);
+	memset(priv->udfs_ctrl, 0, sizeof(priv->udfs_ctrl));
+	memset(priv->udfs_refcnt, 0, sizeof(priv->udfs_refcnt));
 
 	/* Reserve one meter as a permanent blackhole used by DROP actions. */
 	__set_bit(YT921X_ACL_METER_ID_BLACKHOLE, priv->acl_meter_map);

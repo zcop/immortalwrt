@@ -1031,6 +1031,14 @@ enum yt921x_app_selector {
 #define  YT921X_LAG_HASH_MAC_SA			BIT(2)
 #define  YT921X_LAG_HASH_MAC_DA			BIT(1)
 #define  YT921X_LAG_HASH_SRC_PORT		BIT(0)
+#define YT921X_UDFn_CTRL(x)		(0x210094 + 4 * (x))
+#define  YT921X_UDF_CTRL_UDF_TYPE_M		GENMASK(8, 7)
+#define   YT921X_UDF_CTRL_UDF_TYPE(x)			FIELD_PREP(YT921X_UDF_CTRL_UDF_TYPE_M, (x))
+#define   YT921X_UDF_CTRL_UDF_TYPE_ETH			YT921X_UDF_CTRL_UDF_TYPE(0)
+#define   YT921X_UDF_CTRL_UDF_TYPE_L3			YT921X_UDF_CTRL_UDF_TYPE(1)
+#define   YT921X_UDF_CTRL_UDF_TYPE_L4			YT921X_UDF_CTRL_UDF_TYPE(2)
+#define  YT921X_UDF_CTRL_UDF_OFFSET_M		GENMASK(6, 0)
+#define   YT921X_UDF_CTRL_UDF_OFFSET(x)			FIELD_PREP(YT921X_UDF_CTRL_UDF_OFFSET_M, (x))
 
 #define YT921X_PORTn_VLAN_CTRL(port)	(0x230010 + 4 * (port))
 #define  YT921X_PORT_VLAN_CTRL_SVLAN_PRIO_EN	BIT(31)
@@ -1103,6 +1111,7 @@ enum yt921x_fdb_entry_status {
 #define YT921X_ACL_BLK_NUM	48
 #define YT921X_ACL_ENT_PER_BLK	8
 #define YT921X_ACL_NUM		(YT921X_ACL_BLK_NUM * YT921X_ACL_ENT_PER_BLK)
+#define YT921X_UDF_NUM		8
 
 /* 8 internal + 2 external + 1 mcu */
 #define YT921X_PORT_NUM			11
@@ -1252,6 +1261,8 @@ struct yt921x_priv {
 	u16 acl_mirror_count;
 	int acl_mirror_to_port;
 	unsigned long acl_meter_map[BITS_TO_LONGS(YT921X_METER_NUM)];
+	u32 udfs_ctrl[YT921X_UDF_NUM];
+	u16 udfs_refcnt[YT921X_UDF_NUM];
 	u16 storm_policer_ports;
 	u64 storm_policer_rate_bytes_per_sec;
 	u32 storm_policer_burst;

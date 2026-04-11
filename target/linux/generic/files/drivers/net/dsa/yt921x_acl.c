@@ -39,6 +39,51 @@ static int yt921x_acl_meter_clear_hw(struct yt921x_priv *priv, u32 meter_id)
 }
 
 static int
+yt921x_acl_remap_udf(struct yt921x_priv *priv, const u32 *udfs,
+		     unsigned int cnt, struct netlink_ext_ack *extack,
+		     u8 *remap)
+{
+	u32 ctrls[YT921X_UDF_NUM];
+	unsigned long used = 0;
+	unsigned int i;
+
+	if (!cnt)
+		return 0;
+	if (cnt > YT921X_UDF_NUM) {
+		NL_SET_ERR_MSG_MOD(extack, "Too many UDF selectors");
+		return -EOPNOTSUPP;
+	}
+
+	memcpy(ctrls, priv->udfs_ctrl, sizeof(ctrls));
+	for (i = 0; i < YT921X_UDF_NUM; i++)
+		if (priv->udfs_refcnt[i])
+			used |= BIT(i);
+
+	for (i = 0; i < cnt; i++) {
+		unsigned int j;
+
+		for (j = 0; j < YT921X_UDF_NUM; j++)
+			if ((used & BIT(j)) && ctrls[j] == udfs[i])
+				break;
+
+		if (j >= YT921X_UDF_NUM) {
+			j = find_first_zero_bit(&used, YT921X_UDF_NUM);
+			if (j >= YT921X_UDF_NUM) {
+				NL_SET_ERR_MSG_MOD(extack, "UDF entry limit reached");
+				return -EOPNOTSUPP;
+			}
+
+			used |= BIT(j);
+			ctrls[j] = udfs[i];
+		}
+
+		remap[i] = j;
+	}
+
+	return 0;
+}
+
+static int
 yt921x_acl_meter_apply(struct yt921x_priv *priv, int port, u32 meter_id,
 		       const struct flow_action_entry *act,
 		       struct netlink_ext_ack *extack)
@@ -929,8 +974,20 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 
 	ents_mask = 0;
 	for (unsigned int i = offset; i < YT921X_ACL_ENT_PER_BLK; i++) {
+		u32 type;
+		unsigned int udf;
+
 		if (entries[i].cookie != cookie)
 			continue;
+
+		type = FIELD_GET(YT921X_ACL_KEYb_TYPE_M, entries[i].key[1]);
+		if (type >= YT921X_ACL_TYPE_UDF0 && type <= YT921X_ACL_TYPE_UDF7) {
+			udf = type - YT921X_ACL_TYPE_UDF0;
+			WARN_ON(!priv->udfs_refcnt[udf]);
+			if (priv->udfs_refcnt[udf])
+				priv->udfs_refcnt[udf]--;
+		}
+
 		entries[i] = (typeof(*entries)){};
 		ents_mask |= BIT(i);
 	}
@@ -955,9 +1012,11 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 
 static int
 yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
-	       unsigned int size, struct netlink_ext_ack *extack)
+	       unsigned int size, const u32 *udfs_ctrl, unsigned int udfs_cnt,
+	       struct netlink_ext_ack *extack)
 {
 	struct yt921x_acl_entry *entries;
+	u8 udfs_remap[YT921X_UDF_NUM] = {};
 	unsigned int used_total = 0;
 	unsigned int best_free;
 	unsigned int offset = 0;
@@ -965,6 +1024,32 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 	unsigned int free;
 	unsigned int used;
 	u8 ents_mask;
+	int res;
+
+	for (unsigned int i = 0; i < size; i++) {
+		u32 type = FIELD_GET(YT921X_ACL_KEYb_TYPE_M, group[i].key[1]);
+
+		if (type < YT921X_ACL_TYPE_UDF0 || type > YT921X_ACL_TYPE_UDF7)
+			continue;
+		if (type - YT921X_ACL_TYPE_UDF0 < udfs_cnt)
+			continue;
+
+		NL_SET_ERR_MSG_MOD(extack, "UDF selector mapping is missing");
+		return -EOPNOTSUPP;
+	}
+
+	res = yt921x_acl_remap_udf(priv, udfs_ctrl, udfs_cnt, extack, udfs_remap);
+	if (res)
+		return res;
+	for (unsigned int i = 0; i < udfs_cnt; i++) {
+		unsigned int o = udfs_remap[i];
+
+		if (priv->udfs_refcnt[o])
+			continue;
+		res = yt921x_reg_write(priv, YT921X_UDFn_CTRL(o), udfs_ctrl[i]);
+		if (res)
+			return res;
+	}
 
 	best_free = UINT_MAX;
 	blkid = UINT_MAX;
@@ -1001,10 +1086,20 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 	entries = &priv->acl.entries[YT921X_ACL_ENT_PER_BLK * blkid];
 	ents_mask = 0;
 	for (unsigned int i = 0, j = 0; i < YT921X_ACL_ENT_PER_BLK; i++) {
+		u32 type;
+
 		if (entries[i].cookie)
 			continue;
 
 		entries[i] = group[j];
+		type = FIELD_GET(YT921X_ACL_KEYb_TYPE_M, entries[i].key[1]);
+		if (type >= YT921X_ACL_TYPE_UDF0 && type <= YT921X_ACL_TYPE_UDF7) {
+			unsigned int udf = type - YT921X_ACL_TYPE_UDF0;
+			u32 remap_type = YT921X_ACL_TYPE_UDF0 + udfs_remap[udf];
+
+			entries[i].key[1] &= ~YT921X_ACL_KEYb_TYPE_M;
+			entries[i].key[1] |= YT921X_ACL_KEYb_TYPE(remap_type);
+		}
 		if (!j)
 			offset = i;
 		else
@@ -1019,7 +1114,19 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 	priv->acl.useds[blkid] += size;
 	WARN_ON(priv->acl.useds[blkid] > YT921X_ACL_ENT_PER_BLK);
 
-	return yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
+	res = yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
+	if (res)
+		return res;
+
+	for (unsigned int i = 0; i < udfs_cnt; i++) {
+		unsigned int o = udfs_remap[i];
+
+		if (!priv->udfs_refcnt[o])
+			priv->udfs_ctrl[o] = udfs_ctrl[i];
+		priv->udfs_refcnt[o]++;
+	}
+
+	return 0;
 }
 
 static int yt921x_acl_mirror_get(struct yt921x_priv *priv, int to_local_port,
@@ -1064,9 +1171,11 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 			  struct flow_cls_offload *cls, bool ingress)
 {
 	struct yt921x_acl_entry group[YT921X_ACL_ENT_PER_BLK];
+	u32 udfs_ctrl[YT921X_UDF_NUM] = {};
 	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
 	const struct flow_action_entry *act;
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	unsigned int udfs_cnt = 0;
 	u32 meter_id = YT921X_ACL_METER_ID_INVALID;
 	bool mirror_prepared = false;
 	bool police_seen = false;
@@ -1136,7 +1245,8 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		mirror_prepared = true;
 	}
 
-	res = yt921x_acl_add(priv, group, size, cls->common.extack);
+	res = yt921x_acl_add(priv, group, size, udfs_ctrl, udfs_cnt,
+			     cls->common.extack);
 	if (res && meter_id != YT921X_ACL_METER_ID_INVALID) {
 		yt921x_acl_meter_clear_hw(priv, meter_id);
 		yt921x_acl_meter_free(priv, meter_id);
