@@ -14,6 +14,7 @@
 #include <linux/if_hsr.h>
 #include <linux/if_vlan.h>
 #include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <linux/iopoll.h>
 #include <linux/jiffies.h>
 #include <linux/mdio.h>
@@ -4763,65 +4764,107 @@ yt921x_acl_parse_mangle_dscp(const struct flow_rule *rule,
 {
 	struct flow_match_basic basic = {};
 	u32 mask_be, val_be;
-	unsigned int byte_idx;
-	u8 byte_mask, byte_val;
+	u16 n_proto;
+	u8 byte0_mask, byte1_mask;
+	u8 byte0_val, byte1_val;
 	int i;
-
-	if (act->mangle.htype != FLOW_ACT_MANGLE_HDR_TYPE_IP4) {
-		NL_SET_ERR_MSG_MOD(extack,
-				   "Only IPv4 DSCP pedit offload is supported");
-		return -EOPNOTSUPP;
-	}
 
 	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC)) {
 		NL_SET_ERR_MSG_MOD(extack,
-				   "DSCP rewrite requires IPv4 protocol match");
+				   "DSCP rewrite requires explicit protocol match");
 		return -EOPNOTSUPP;
 	}
 
 	flow_rule_match_basic(rule, &basic);
-	if (basic.mask->n_proto != htons(0xffff) ||
-	    basic.key->n_proto != htons(ETH_P_IP)) {
+	if (basic.mask->n_proto != htons(0xffff)) {
 		NL_SET_ERR_MSG_MOD(extack,
-				   "DSCP rewrite requires protocol ip");
+				   "DSCP rewrite requires exact ethertype match");
 		return -EOPNOTSUPP;
 	}
+	n_proto = ntohs(basic.key->n_proto);
 
-	if (act->mangle.offset > offsetof(struct iphdr, tos) ||
-	    act->mangle.offset + sizeof(u32) <= offsetof(struct iphdr, tos)) {
-		NL_SET_ERR_MSG_MOD(extack,
-				   "Unsupported DSCP pedit offset");
-		return -EOPNOTSUPP;
-	}
-
-	byte_idx = offsetof(struct iphdr, tos) - act->mangle.offset;
 	mask_be = cpu_to_be32(act->mangle.mask);
 	val_be = cpu_to_be32(act->mangle.val);
+	byte0_mask = (mask_be >> 24) & 0xff;
+	byte1_mask = (mask_be >> 16) & 0xff;
+	byte0_val = (val_be >> 24) & 0xff;
+	byte1_val = (val_be >> 16) & 0xff;
 
-	for (i = 0; i < 4; i++) {
+	for (i = 2; i < 4; i++) {
 		u8 m = (mask_be >> (24 - i * 8)) & 0xff;
 		u8 v = (val_be >> (24 - i * 8)) & 0xff;
 
-		if (i == byte_idx) {
-			byte_mask = m;
-			byte_val = v;
-			continue;
-		}
-
 		if (m != 0xff || v) {
 			NL_SET_ERR_MSG_MOD(extack,
-					   "DSCP pedit must only modify IPv4 DS field byte");
+					   "DSCP pedit must not modify bytes beyond DS field");
 			return -EOPNOTSUPP;
 		}
 	}
 
-	if (byte_mask != 0x03 || (byte_val & 0x03)) {
+	if (act->mangle.htype == FLOW_ACT_MANGLE_HDR_TYPE_IP4) {
+		unsigned int byte_idx;
+		u8 byte_mask, byte_val;
+
+		if (n_proto != ETH_P_IP) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "IPv4 DSCP rewrite requires protocol ip");
+			return -EOPNOTSUPP;
+		}
+
+		if (act->mangle.offset > offsetof(struct iphdr, tos) ||
+		    act->mangle.offset + sizeof(u32) <= offsetof(struct iphdr, tos)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Unsupported IPv4 DSCP pedit offset");
+			return -EOPNOTSUPP;
+		}
+
+		byte_idx = offsetof(struct iphdr, tos) - act->mangle.offset;
+		if (byte_idx == 0) {
+			byte_mask = byte0_mask;
+			byte_val = byte0_val;
+		} else if (byte_idx == 1) {
+			byte_mask = byte1_mask;
+			byte_val = byte1_val;
+		} else {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Unsupported IPv4 DSCP pedit alignment");
+			return -EOPNOTSUPP;
+		}
+
+		if (byte_mask != 0x03 || (byte_val & 0x03)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "IPv4 DSCP rewrite requires 'retain 0xfc'");
+			return -EOPNOTSUPP;
+		}
+
+		*dscp = byte_val >> 2;
+		return 0;
+	}
+
+	if (act->mangle.htype != FLOW_ACT_MANGLE_HDR_TYPE_IP6) {
 		NL_SET_ERR_MSG_MOD(extack,
-				   "DSCP rewrite requires 'retain 0xfc' semantics");
+				   "Only IPv4/IPv6 DSCP pedit offload is supported");
 		return -EOPNOTSUPP;
 	}
 
-	*dscp = byte_val >> 2;
+	if (n_proto != ETH_P_IPV6) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "IPv6 DSCP rewrite requires protocol ipv6");
+		return -EOPNOTSUPP;
+	}
+
+	/* IPv6 traffic_class spans byte0[3:0] and byte1[7:4]. tc pedit
+	 * encodes 'retain 0xfc' as mask f03fffff / val 0b800000 for DSCP=46.
+	 */
+	if (act->mangle.offset != 0 ||
+	    byte0_mask != 0xf0 || byte1_mask != 0x3f ||
+	    (byte0_val & 0xf0) || (byte1_val & 0x3f)) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "IPv6 DSCP rewrite requires 'ip6 traffic_class ... retain 0xfc'");
+		return -EOPNOTSUPP;
+	}
+
+	*dscp = ((byte0_val & 0x0f) << 2) | ((byte1_val & 0xc0) >> 6);
 	return 0;
 }
 
