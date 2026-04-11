@@ -1,5 +1,21 @@
 # YT9215 Register Map Changelog
 
+## 2026-04-11: adding new register map rows from current driver and stock paths
+
+What changed:
+- Added global/system row:
+  - `YT921X_SYS_CLK` (`0x0e0040`)
+- Added bridge/filter/pipeline rows:
+  - `YT921X_VLAN_IGR_TRANSPARENT` (`0x00180518`, `tbl 0x9c`)
+  - `YT921X_PORT_CASCADE_CTRL` (`0x001806b4`, `tbl 0xa8`)
+- Added ACL SRAM/formula rows used by current driver path:
+  - `YT921X_ACLn_ACT(n)` (`0x1c0000 + 0x10 * n`)
+  - `YT921X_ACLn_KEYm(blk, off)` (`0x204000 + 0x200 * off + 8 * blk`)
+  - `YT921X_ACLn_MASKm(blk, off)` (`0x205000 + 0x200 * off + 8 * blk`)
+- Added QoS/shaper companion rows:
+  - `YT921X_PORT_SHAPE_SLOT` (`0x0034000c`, `tbl 0xe5`)
+  - `YT921X_PSCH_METER_CFG` (`0x00357000`, `tbl 0xec`)
+
 ## 2026-04-11: refactor symbol naming to current header style
 
 What changed:

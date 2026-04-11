@@ -51,6 +51,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_EXT_CPU_PORT` | `0x8000c` | 0x0000c008 | Select tagged CPU conduit. 0x0000c008 => p8; 0x0000c004 => p4. | High |
 | `YT921X_CPU_TAG_TPID` | `0x80010` | 0x00009988 | CPU-tag TPID register; default 0x9988. | High |
 | `YT921X_PVID_SEL` | `0x80014` | 0x00000000 | Global PVID select path; low bits latch, no gate-unlock effect found. | High |
+| `YT921X_SYS_CLK` | `0x0e0040` | dynamic / see probes | System clock selector used by meter/shaper conversion logic (`YT921X_SYS_CLK_SEL_M`). | Medium |
 | `YT921X_SERDES_CTRL` | `0x80028` | 0x00000041 | Header-defined register/formula; behavior not yet fully profiled. | Medium |
 | `YT921X_IO_LEVEL` | `0x80030` | dynamic / see probes | Pad IO voltage level control. | Medium |
 | `YT921X_MAC_ADDR_HI2` | `0x80080` | dynamic / see probes | Global MAC address registers. | Medium |
@@ -161,12 +162,14 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_FILTER_UNK_MCAST` | `0x18050c` | dynamic / see probes | Unknown-multicast destination-port mask (`[10:0]` => p0..p10). | Medium |
 | `YT921X_FILTER_MCAST` | `0x180510` | 0x00000400 (safe baseline) | Multicast flood/filter mask. 0x400 safe baseline; 0x7ff correlated with blackhole in bad runtime. | High |
 | `YT921X_FILTER_BCAST` | `0x180514` | 0x00000400 (safe baseline) | Broadcast flood/filter mask. 0x400 safe baseline; 0x7ff correlated with blackhole in bad runtime. | High |
+| `YT921X_VLAN_IGR_TRANSPARENT` | `0x00180518` | stock-path reverse mapped | Ingress-VLAN transparent control (`tbl id 0x9c`) from stock `fal_tiger_vlan_ingrTransparent_set` path. | Medium |
 | `YT921X_VLAN_EGR_FILTER` | `0x180598` | dynamic / see probes | Per-port VLAN egress filter enable mask. | Medium |
 | `YT921X_MCAST_IPMC_BYPASS_ISO` | `0x001805a4` | stock-path only | IP multicast bypass-port-isolation control (`tbl id 0xa0`). | Medium |
 | `YT921X_LAG_GROUPn(n)` | `(0x1805a8 + 4 * (n))` | dynamic / see probes | LAG group member-port mask and member count. | Medium |
 | `YT921X_LAG_MEMBERnm(n, m)` | `(0x1805b0 + 4 * (4 * (n) + (m)))` | dynamic / see probes | LAG member slot to physical port mapping. | Medium |
 | `YT921X_LAG_LEARNLIMIT` | `0x00180808` | stock-path only | LAG learn-limit control table (`tbl id 0xaf`). | Medium |
 | `YT921X_CPU_COPY` | `0x180690` | 0x00000001 | CPU copy policy: bit0 copy to ext CPU, bit1 to int CPU, bit2 force-int-port path. | Medium |
+| `YT921X_PORT_CASCADE_CTRL` | `0x001806b4` | stock-path reverse mapped | Port cascade/uplink behavior control (`tbl id 0xa8`) seen in stock `fal_tiger_port_cascade_set` path. | Medium |
 | `YT921X_MCAST_ROUTER_PORT_AGE_C` | `0x001806bc` | stock-path only | Extended dynamic-routerport aging control (`tbl id 0xaa`). | Medium |
 | `YT921X_MCAST_VLAN_TABLE` | `0x00180700` | stock-path only | Multicast VLAN (MVR-like) add/get/del table (`tbl id 0xab`). | Medium |
 | `YT921X_RMA_CTRLn(n)` | `(0x1805d0 + 4 * (n))` | stock-path only | Reserved-multicast action/bypass control table (`tbl id 0xa3`) used by `fal_tiger_rma_action_*` and bypass policy calls. | Medium |
@@ -190,6 +193,9 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_ACL_PORT_CTRL` | `0x00202000` | stock-path only | ACL per-port enable block (`tbl id 0x35`) used by `fal_tiger_acl_port_en_{set,get}`. | Medium |
 | `YT921X_ACL_BLOCK_CTRL` | `0x00202004` | stock-path only | ACL block command/control block (`tbl id 0x36`) used in stock ACL rule programming flow. | Medium |
 | `YT921X_ACL_RULE_DATA` | `0x00203000` | stock-path only | ACL rule key/mask/action data block (`tbl id 0x37`) used by stock ACL create/delete paths. | Medium |
+| `YT921X_ACLn_ACT(n)` | `(0x1c0000 + 0x10 * (n))` | driver-wired | ACL action SRAM base used by current tc flower action programming path. | High |
+| `YT921X_ACLn_KEYm(blk, off)` | `(0x204000 + 0x200 * (off) + 8 * (blk))` | driver-wired | ACL key SRAM matrix (`off=0..7`) used by current ACL key programming flow. | High |
+| `YT921X_ACLn_MASKm(blk, off)` | `(0x205000 + 0x200 * (off) + 8 * (blk))` | driver-wired | ACL mask SRAM matrix (`off=0..7`) used by current ACL mask programming flow. | High |
 | `YT921X_DOT1X_PORT_BASED` | `0x0018059c` | stock-path only | 802.1X port-based enable/auth status control (`tbl id 0x9e`) used by stock `fal_tiger_dot1x_portBased*`. | Medium |
 | `YT921X_DOT1X_BYPASS_CTRL` | `0x001805a0` | stock-path only | 802.1X direction + tx/rx bypass control (`tbl id 0x9f`) used by stock `fal_tiger_dot1x_*_bypass*` and direction/auth orchestration. | Medium |
 | `YT921X_ACL_UNMATCH_PERMIT` | `0x001806a0` | stock-path only | ACL unmatched-permit policy (`tbl id 0xa5`) used by `fal_tiger_acl_unmatch_permit_en_{set,get}`. | Medium |
@@ -207,6 +213,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_QOS_SCHED_DWRR_MODE0` | `0x00342000` | dynamic / ets-mapped (subset) | DWRR mode bank0 (`tbl id 0xe7`), used by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_QOS_SCHED_DWRR_MODE1` | `0x00343000` | dynamic / ets-mapped (subset) | DWRR mode bank1 (`tbl id 0xe8`), used by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_QSCH_SHP_SLOT_TIME` | `0x00340008` | dynamic / queue-tbf-mapped | Queue scheduler slot-time word (`tbl id 0xe4`), currently ensured/set by queue `tc tbf` path. | Medium |
+| `YT921X_PORT_SHAPE_SLOT` | `0x0034000c` | dynamic / port-tbf-mapped | Port scheduler slot-time word (`tbl id 0xe5`) used by stock port shaping path. | Medium |
 | `YT921X_QSCH_SHP_CFG` | `0x0034c000` | dynamic / queue-tbf-mapped | Queue shaper config base (`tbl id 0xe9`), per-flow shaper words used by queue `tc tbf`. | High |
 | `YT921X_QSCH_METER_CFG` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
 | `YT921X_QOS_REMARK_PORT_CTRL` | `0x00100000` | dynamic / remark-default-mapped | Per-port remark control (`tbl id 0xd9`): stock `fal_tiger_qos_remark_port_{set,get}` use field IDs `4/1/3/0/2`; CPRI/SPRI toggles use `f7/f8`; egr TPID index API uses `f5/f6`. | Medium |
@@ -221,6 +228,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_MIRROR_PRIO_MAP` | `0x300304` | stock-path decoded / not actively programmed | Mirror QoS map control (`tbl id 0xd6`): igrMirror uses fields `1/0`, egrMirror uses fields `3/2`. | Medium |
 | `YT921X_PSCH_SHPn_EBS_EIR(port)` | `(0x354000 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper EBS/EIR word. Used with `tc tbf` offload mapping on `wan`. | High |
 | `YT921X_PSCH_SHPn_CTRL(port)` | `(0x354004 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper enable/mode control word. | High |
+| `YT921X_PSCH_METER_CFG` | `0x00357000` | stock-path reverse mapped | Port-shaper meter config companion (`tbl id 0xec`) used by stock `fal_tiger_rate_shaping_port_mode_set`. | Medium |
 | `UNKNOWN_1802C0_180308` | `0x1802c0-0x180308` | `0xdeadbeef` | Gated window A; reads gated, no stable unlock sequence confirmed. | Low |
 | `UNKNOWN_18030C_180334` | `0x18030c-0x180334` | `0x00000000` | Writable 11-word table (`& 0x7ff` values persist); function still unknown. | Medium |
 | `UNKNOWN_180338_180388` | `0x180338-0x180388` | `0xdeadbeef` | Gated window B; reads gated, no stable unlock sequence confirmed. | Low |
