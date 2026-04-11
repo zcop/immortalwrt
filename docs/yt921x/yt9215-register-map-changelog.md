@@ -1,5 +1,13 @@
 # YT9215 Register Map Changelog
 
+## 2026-04-11: refactor symbol naming to current header style
+
+What changed:
+- Renamed unified map symbols from `YT921X_STOCK_*` to `YT921X_*` where the
+  current driver header already provides a direct equivalent.
+- Kept `YT921X_STOCK_WOL_CTRL` unchanged because there is no
+  `YT921X_WOL_CTRL` define in the current header.
+
 ## 2026-04-02: synchronized register-map symbols with current `yt921x` header
 
 What changed:
