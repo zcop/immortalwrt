@@ -1146,27 +1146,27 @@ static int yt921x_proc_reply_ctrlpkt(struct yt921x_priv *priv)
 
 static int yt921x_proc_reply_dot1x(struct yt921x_priv *priv, u32 start, u32 end)
 {
+	u32 port_based_mask;
+	u32 bypass_mask;
 	u32 port;
 	int res;
 
+	res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASED, &port_based_mask);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRL, &bypass_mask);
+	if (res)
+		return res;
+
 	for (port = start; port <= end; port++) {
-		u32 port_based;
-		u32 bypass;
-
-		res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASEDn(port),
-				      &port_based);
-		if (res)
-			return res;
-
-		res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRLn(port),
-				      &bypass);
-		if (res)
-			return res;
-
 		yt921x_proc_reply_append(
 			priv,
-			"dot1x p%u port_based=0x%08x bypass=0x%08x\n",
-			port, port_based, bypass);
+			"dot1x p%u port_based=%u bypass=%u raw_port_based=0x%08x raw_bypass=0x%08x\n",
+			port,
+			!!(port_based_mask & BIT(port)),
+			!!(bypass_mask & BIT(port)),
+			port_based_mask, bypass_mask);
 	}
 
 	return 0;
@@ -2128,6 +2128,8 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 		}
 
 		if (!strcmp(argv[1], "set") && argc >= 5) {
+			u32 port_based_mask;
+			u32 bypass_mask;
 			u32 port;
 			u32 port_based;
 			u32 bypass;
@@ -2145,15 +2147,37 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 			res = yt921x_proc_parse_u32(argv[4], &bypass);
 			if (res)
 				goto out;
+			if (port_based > 1 || bypass > 1) {
+				res = -ERANGE;
+				goto out;
+			}
 
 			mutex_lock(&priv->reg_lock);
-			res = yt921x_reg_write(priv,
-					       YT921X_DOT1X_PORT_BASEDn(port),
-					       port_based);
-			if (!res)
+			res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASED,
+					      &port_based_mask);
+			if (!res) {
+				if (port_based)
+					port_based_mask |= BIT(port);
+				else
+					port_based_mask &= ~BIT(port);
+
 				res = yt921x_reg_write(priv,
-						       YT921X_DOT1X_BYPASS_CTRLn(port),
-						       bypass);
+						       YT921X_DOT1X_PORT_BASED,
+						       port_based_mask);
+			}
+			if (!res)
+				res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRL,
+						      &bypass_mask);
+			if (!res) {
+				if (bypass)
+					bypass_mask |= BIT(port);
+				else
+					bypass_mask &= ~BIT(port);
+
+				res = yt921x_reg_write(priv,
+						       YT921X_DOT1X_BYPASS_CTRL,
+						       bypass_mask);
+			}
 			if (!res)
 				res = yt921x_proc_reply_dot1x(priv, port, port);
 			mutex_unlock(&priv->reg_lock);
