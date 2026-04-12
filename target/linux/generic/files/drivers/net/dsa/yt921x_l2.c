@@ -694,6 +694,26 @@ yt921x_dsa_port_fdb_add(struct dsa_switch *ds, int port,
 	return res;
 }
 
+static u16 yt921x_mdb_resolve_vid(struct yt921x_priv *priv, int port, u16 vid)
+{
+	struct dsa_port *dp;
+	struct net_device *bdev;
+	u16 pvid = 0;
+
+	if (vid)
+		return vid;
+
+	dp = dsa_to_port(&priv->ds, port);
+	if (!dsa_port_is_vlan_filtering(dp))
+		return YT921X_VID_UNAWARE;
+
+	bdev = dsa_port_bridge_dev_get(dp);
+	if (bdev && !br_vlan_get_pvid(bdev, &pvid) && pvid)
+		return pvid;
+
+	return 0;
+}
+
 static int
 yt921x_dsa_port_mdb_del(struct dsa_switch *ds, int port,
 			const struct switchdev_obj_port_mdb *mdb,
@@ -702,15 +722,15 @@ yt921x_dsa_port_mdb_del(struct dsa_switch *ds, int port,
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct device *dev = yt921x_dev(priv);
 	const unsigned char *addr = mdb->addr;
-	u16 vid = mdb->vid;
+	u16 vid = yt921x_mdb_resolve_vid(priv, port, mdb->vid);
 	int res;
 
 	mutex_lock(&priv->reg_lock);
 	res = yt921x_fdb_leave(priv, addr, vid, BIT(port));
 	mutex_unlock(&priv->reg_lock);
 
-	dev_dbg(dev, "mdb del: grp=%pM vid=%u port=%d res=%d\n",
-		addr, vid, port, res);
+	dev_dbg(dev, "mdb del: grp=%pM vid=%u (orig %u) port=%d res=%d\n",
+		addr, vid, mdb->vid, port, res);
 
 	return res;
 }
@@ -723,7 +743,7 @@ yt921x_dsa_port_mdb_add(struct dsa_switch *ds, int port,
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct device *dev = yt921x_dev(priv);
 	const unsigned char *addr = mdb->addr;
-	u16 vid = mdb->vid;
+	u16 vid = yt921x_mdb_resolve_vid(priv, port, mdb->vid);
 	int res;
 
 	/* Bridge core rejects static MDB programming when multicast snooping
@@ -733,8 +753,8 @@ yt921x_dsa_port_mdb_add(struct dsa_switch *ds, int port,
 	res = yt921x_fdb_join(priv, addr, vid, BIT(port));
 	mutex_unlock(&priv->reg_lock);
 
-	dev_dbg(dev, "mdb add: grp=%pM vid=%u port=%d res=%d\n",
-		addr, vid, port, res);
+	dev_dbg(dev, "mdb add: grp=%pM vid=%u (orig %u) port=%d res=%d\n",
+		addr, vid, mdb->vid, port, res);
 
 	return res;
 }
