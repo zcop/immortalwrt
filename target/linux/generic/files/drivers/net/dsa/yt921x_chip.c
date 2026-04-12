@@ -939,14 +939,32 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	       YT921X_MCAST_PORT_POLICY_REPORT_ALLOW |
 	       YT921X_MCAST_PORT_POLICY_QUERY_ALLOW |
 	       YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
-	res = yt921x_reg_update_bits(priv, YT921X_MCAST_PORT_POLICY, ctrl,
-				     ctrl);
+	for (port = 0; port < YT921X_PORT_NUM; port++) {
+		res = yt921x_reg_update_bits(priv, YT921X_MCAST_PORT_POLICYn(port),
+					     ctrl, ctrl);
+		if (res)
+			return res;
+	}
+
+	/* Stock path programs IGMP/MLD opmodes explicitly (tbl 0x8e fields 4/3).
+	 * Keep mode=1 for both protocols and fast-leave disabled by default.
+	 */
+	res = yt921x_reg_update_bits(priv, YT921X_MCAST_FWD_POLICY,
+				     YT921X_MCAST_FWD_POLICY_IGMP_OPMODE_M |
+				     YT921X_MCAST_FWD_POLICY_MLD_OPMODE_M |
+				     YT921X_MCAST_FWD_POLICY_FAST_LEAVE,
+				     YT921X_MCAST_FWD_POLICY_IGMP_OPMODE(1) |
+				     YT921X_MCAST_FWD_POLICY_MLD_OPMODE(1));
 	if (res)
 		return res;
 
-	res = yt921x_reg_update_bits(priv, YT921X_MCAST_FWD_POLICY,
-				     YT921X_MCAST_FWD_POLICY_FAST_LEAVE,
-				     0);
+	/* Allow IGMP parser traffic to bypass ingress VLAN filter (tbl 0x73).
+	 * This matches the stock multicast control-plane behavior.
+	 */
+	ctrl = 0;
+	for (port = 0; port < YT921X_PORT_NUM; port++)
+		ctrl |= YT921X_VLAN_IGR_FILTER_PORTn_BYPASS_IGMP(port);
+	res = yt921x_reg_update_bits(priv, YT921X_VLAN_IGR_FILTER, ctrl, ctrl);
 	if (res)
 		return res;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
