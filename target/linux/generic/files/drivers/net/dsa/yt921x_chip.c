@@ -187,7 +187,7 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 		res = yt921x_secondary_cpu_isolation_sync(priv, new_cpu_port);
 	if (!res && new_cpu_port != old_cpu_port)
 		res = yt921x_secondary_cpu_isolation_sync(priv, old_cpu_port);
-	if (!res)
+	if (!res) {
 		res = yt921x_conduit_fdb_retarget(priv, port, old_cpu_port,
 						  new_cpu_port);
 		if (!res) {
@@ -203,6 +203,7 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 						FIELD_GET(YT921X_EXT_CPU_PORT_PORT_M, val));
 			}
 		}
+	}
 out_unlock:
 	mutex_unlock(&priv->reg_lock);
 

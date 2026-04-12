@@ -1022,6 +1022,10 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  dot1x set <port> <port_based_val> <bypass_val>\n"
 				 "  loop_detect show\n"
 				 "  loop_detect set <0|1> [tpid] [gen_way]\n"
+				 "  unk show\n"
+				 "  unk set filter <ucast|mcast|both> <mask>\n"
+				 "  unk set action <ucast|mcast> <port> <flood|trap|drop|copy>\n"
+				 "  unk set bypass <igmp|rma> <0|1>\n"
 				 "  rma show [idx]\n"
 				 "  rma set <idx> <forward|trap|copy|drop> [bypass_iso] [bypass_vlan]\n"
 				 "  storm_guard show\n"
@@ -1070,6 +1074,44 @@ yt921x_proc_parse_rma_action(const char *s, enum yt921x_rma_action *action)
 	return -EINVAL;
 }
 
+static const char *yt921x_proc_unk_action_name(u32 act)
+{
+	switch (act) {
+	case 0:
+		return "flood";
+	case 1:
+		return "trap";
+	case 2:
+		return "drop";
+	case 3:
+		return "copy";
+	default:
+		return "unknown";
+	}
+}
+
+static int yt921x_proc_parse_unk_action(const char *s, u32 *act)
+{
+	if (!strcmp(s, "flood")) {
+		*act = 0;
+		return 0;
+	}
+	if (!strcmp(s, "trap")) {
+		*act = 1;
+		return 0;
+	}
+	if (!strcmp(s, "drop")) {
+		*act = 2;
+		return 0;
+	}
+	if (!strcmp(s, "copy")) {
+		*act = 3;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static int yt921x_proc_reply_rma_index(struct yt921x_priv *priv, u32 index)
 {
 	enum yt921x_rma_action action;
@@ -1092,6 +1134,51 @@ static int yt921x_proc_reply_rma_index(struct yt921x_priv *priv, u32 index)
 		(u32)FIELD_GET(YT921X_RMA_CTRL_FWD_MASK_M, ctrl),
 		!!(ctrl & YT921X_RMA_CTRL_F6),
 		!!(ctrl & YT921X_RMA_CTRL_F5));
+
+	return 0;
+}
+
+static int yt921x_proc_reply_unknown_policy(struct yt921x_priv *priv)
+{
+	u32 filter_uc;
+	u32 filter_mc;
+	u32 act_uc;
+	u32 act_mc;
+	u32 port;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_FILTER_UNK_UCAST, &filter_uc);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_FILTER_UNK_MCAST, &filter_mc);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_ACT_UNK_UCAST, &act_uc);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_ACT_UNK_MCAST, &act_mc);
+	if (res)
+		return res;
+
+	yt921x_proc_reply_append(
+		priv,
+		"unk filter_ucast=0x%03x filter_mcast=0x%03x act_ucast=0x%08x act_mcast=0x%08x bypass_igmp=%u bypass_rma=%u\n",
+		filter_uc & YT921X_FILTER_PORTS_M,
+		filter_mc & YT921X_FILTER_PORTS_M,
+		act_uc, act_mc,
+		!!(act_mc & YT921X_ACT_UNK_MCAST_BYPASS_DROP_IGMP),
+		!!(act_mc & YT921X_ACT_UNK_MCAST_BYPASS_DROP_RMA));
+
+	for (port = 0; port < YT921X_PORT_NUM; port++) {
+		u32 shift = 2 * port;
+		u32 uc = (act_uc >> shift) & 0x3;
+		u32 mc = (act_mc >> shift) & 0x3;
+
+		yt921x_proc_reply_append(priv,
+					 "unk p%u ucast=%s(%u) mcast=%s(%u)\n",
+					 port, yt921x_proc_unk_action_name(uc), uc,
+					 yt921x_proc_unk_action_name(mc), mc);
+	}
 
 	return 0;
 }
@@ -2248,6 +2335,145 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 				res = yt921x_proc_reply_loop_detect(priv);
 			mutex_unlock(&priv->reg_lock);
 			goto out;
+		}
+
+		res = -EINVAL;
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "unk")) {
+		if (argc == 1 || !strcmp(argv[1], "show")) {
+			mutex_lock(&priv->reg_lock);
+			res = yt921x_proc_reply_unknown_policy(priv);
+			mutex_unlock(&priv->reg_lock);
+			goto out;
+		}
+
+		if (!strcmp(argv[1], "set") && argc >= 3) {
+			if (!strcmp(argv[2], "filter") && argc >= 5) {
+				u32 mask;
+
+				res = yt921x_proc_parse_u32(argv[4], &mask);
+				if (res)
+					goto out;
+				mask &= YT921X_FILTER_PORTS_M;
+
+				mutex_lock(&priv->reg_lock);
+				if (!strcmp(argv[3], "ucast") ||
+				    !strcmp(argv[3], "both")) {
+					res = yt921x_reg_write(priv,
+							       YT921X_FILTER_UNK_UCAST,
+							       mask);
+					if (res)
+						goto out_unlock_unk;
+				}
+				if (!strcmp(argv[3], "mcast") ||
+				    !strcmp(argv[3], "both")) {
+					res = yt921x_reg_write(priv,
+							       YT921X_FILTER_UNK_MCAST,
+							       mask);
+					if (res)
+						goto out_unlock_unk;
+				}
+				if (strcmp(argv[3], "ucast") &&
+				    strcmp(argv[3], "mcast") &&
+				    strcmp(argv[3], "both")) {
+					res = -EINVAL;
+					goto out_unlock_unk;
+				}
+
+				res = yt921x_proc_reply_unknown_policy(priv);
+out_unlock_unk:
+				mutex_unlock(&priv->reg_lock);
+				goto out;
+			}
+
+			if (!strcmp(argv[2], "action") && argc >= 6) {
+				u32 reg;
+				u32 port;
+				u32 act;
+				u32 val;
+				u32 mask;
+				u32 shift;
+
+				if (!strcmp(argv[3], "ucast"))
+					reg = YT921X_ACT_UNK_UCAST;
+				else if (!strcmp(argv[3], "mcast"))
+					reg = YT921X_ACT_UNK_MCAST;
+				else {
+					res = -EINVAL;
+					goto out;
+				}
+
+				res = yt921x_proc_parse_u32(argv[4], &port);
+				if (res)
+					goto out;
+				if (port >= YT921X_PORT_NUM) {
+					res = -ERANGE;
+					goto out;
+				}
+
+				res = yt921x_proc_parse_unk_action(argv[5], &act);
+				if (res)
+					goto out;
+
+				mutex_lock(&priv->reg_lock);
+				res = yt921x_reg_read(priv, reg, &val);
+				if (res)
+					goto out_unlock_unk_act;
+
+				shift = 2 * port;
+				mask = 0x3u << shift;
+				val &= ~mask;
+				val |= (act & 0x3) << shift;
+
+				res = yt921x_reg_write(priv, reg, val);
+				if (!res)
+					res = yt921x_proc_reply_unknown_policy(priv);
+out_unlock_unk_act:
+				mutex_unlock(&priv->reg_lock);
+				goto out;
+			}
+
+			if (!strcmp(argv[2], "bypass") && argc >= 5) {
+				u32 enable;
+				u32 val;
+				u32 bit;
+
+				if (!strcmp(argv[3], "igmp"))
+					bit = YT921X_ACT_UNK_MCAST_BYPASS_DROP_IGMP;
+				else if (!strcmp(argv[3], "rma"))
+					bit = YT921X_ACT_UNK_MCAST_BYPASS_DROP_RMA;
+				else {
+					res = -EINVAL;
+					goto out;
+				}
+
+				res = yt921x_proc_parse_u32(argv[4], &enable);
+				if (res)
+					goto out;
+				if (enable > 1) {
+					res = -ERANGE;
+					goto out;
+				}
+
+				mutex_lock(&priv->reg_lock);
+				res = yt921x_reg_read(priv, YT921X_ACT_UNK_MCAST, &val);
+				if (res)
+					goto out_unlock_unk_bypass;
+
+				if (enable)
+					val |= bit;
+				else
+					val &= ~bit;
+
+				res = yt921x_reg_write(priv, YT921X_ACT_UNK_MCAST, val);
+				if (!res)
+					res = yt921x_proc_reply_unknown_policy(priv);
+out_unlock_unk_bypass:
+				mutex_unlock(&priv->reg_lock);
+				goto out;
+			}
 		}
 
 		res = -EINVAL;
