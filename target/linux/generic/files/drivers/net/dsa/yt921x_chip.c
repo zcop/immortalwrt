@@ -190,19 +190,19 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 	if (!res)
 		res = yt921x_conduit_fdb_retarget(priv, port, old_cpu_port,
 						  new_cpu_port);
-	if (!res) {
-		res = yt921x_reg_update_bits(priv, YT921X_EXT_CPU_PORT,
-					     YT921X_EXT_CPU_PORT_PORT_M,
-					     YT921X_EXT_CPU_PORT_PORT(new_cpu_port));
 		if (!res) {
-			res = yt921x_reg_read(priv, YT921X_EXT_CPU_PORT, &val);
-			if (!res)
-				dev_info(ds->dev,
-					 "port%d conduit cpu%d->cpu%d ext_cpu=%lu\n",
-					 port, old_cpu_port, new_cpu_port,
-					 FIELD_GET(YT921X_EXT_CPU_PORT_PORT_M, val));
+			res = yt921x_reg_update_bits(priv, YT921X_EXT_CPU_PORT,
+						     YT921X_EXT_CPU_PORT_PORT_M,
+						     YT921X_EXT_CPU_PORT_PORT(new_cpu_port));
+			if (!res) {
+				res = yt921x_reg_read(priv, YT921X_EXT_CPU_PORT, &val);
+				if (!res)
+					dev_dbg(ds->dev,
+						"port%d conduit cpu%d->cpu%d ext_cpu=%lu\n",
+						port, old_cpu_port, new_cpu_port,
+						FIELD_GET(YT921X_EXT_CPU_PORT_PORT_M, val));
+			}
 		}
-	}
 out_unlock:
 	mutex_unlock(&priv->reg_lock);
 
@@ -549,6 +549,7 @@ static int yt921x_validate_setup_locked(struct yt921x_priv *priv)
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 static void yt921x_log_mdio_summary_locked(struct yt921x_priv *priv)
 {
 	struct device *dev = yt921x_dev(priv);
@@ -601,6 +602,7 @@ static void yt921x_log_mdio_summary_locked(struct yt921x_priv *priv)
 				 "mdio-ext responders: none detected on ports 0..31\n");
 	}
 }
+#endif
 
 static int yt921x_qos_remark_index(u8 prio, u8 dp, bool spri, u8 *idxp)
 {
@@ -1256,7 +1258,9 @@ static int yt921x_chip_setup(struct yt921x_priv *priv)
 	if (res)
 		return res;
 
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	yt921x_log_mdio_summary_locked(priv);
+#endif
 
 	return 0;
 }

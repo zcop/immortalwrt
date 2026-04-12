@@ -710,10 +710,10 @@ yt921x_mbus_read(struct yt921x_priv *priv, bool extif, int port, int reg,
 		return res;
 
 	if ((u16)val != val)
-		dev_info(dev,
-			 "%s: port %d, reg 0x%x: Expected u16, got 0x%08x\n",
-			 extif ? "yt921x_extif_read" : "yt921x_intif_read",
-			 port, reg, val);
+		dev_dbg(dev,
+			"%s: port %d, reg 0x%x: Expected u16, got 0x%08x\n",
+			extif ? "yt921x_extif_read" : "yt921x_intif_read",
+			port, reg, val);
 	*valp = (u16)val;
 
 	return 0;
