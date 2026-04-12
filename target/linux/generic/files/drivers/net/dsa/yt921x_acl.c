@@ -400,6 +400,11 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 					   "FLOW_DISSECTOR_KEY_IP requires ip_tos/ip_ttl mask");
 			return 0;
 		}
+		if (want_tos && want_ttl) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "simultaneous ip_tos + ip_ttl match is not supported");
+			return 0;
+		}
 
 		if (want_tos) {
 			u32 udf_ctrl;
