@@ -389,44 +389,73 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP)) {
 		struct flow_match_ip match;
-		u32 udf_ctrl;
+		bool want_tos;
+		bool want_ttl;
 
 		flow_rule_match_ip(rule, &match);
-		if (match.mask->tos) {
+		want_tos = !!match.mask->tos;
+		want_ttl = !!match.mask->ttl;
+		if (!want_tos && !want_ttl) {
 			NL_SET_ERR_MSG_MOD(extack,
-					   "ip_tos key is not supported");
-			return 0;
-		}
-		if (!match.mask->ttl) {
-			NL_SET_ERR_MSG_MOD(extack,
-					   "FLOW_DISSECTOR_KEY_IP requires ip_ttl mask");
-			return 0;
-		}
-		if (!n_proto_is_ipv4 && !n_proto_is_ipv6) {
-			NL_SET_ERR_MSG_MOD(extack,
-					   "ip_ttl match requires exact protocol ip/ipv6");
-			return 0;
-		}
-		if (*udfs_cntp >= YT921X_UDF_NUM) {
-			NL_SET_ERR_MSG_MOD(extack, "UDF selector limit reached");
+					   "FLOW_DISSECTOR_KEY_IP requires ip_tos/ip_ttl mask");
 			return 0;
 		}
 
-		/* UDF selector captures a 32-bit L3 window from configured
-		 * offset. Match TTL/Hop-Limit byte via top byte mask in UDF0.
-		 */
-		udf_ctrl = YT921X_UDF_CTRL_UDF_TYPE_L3 |
-			   YT921X_UDF_CTRL_UDF_OFFSET(n_proto_is_ipv4 ?
-				offsetof(struct iphdr, ttl) :
-				offsetof(struct ipv6hdr, hop_limit));
+		if (want_tos) {
+			u32 udf_ctrl;
 
-		entry_prepare();
-		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_UDF0 +
-						     *udfs_cntp);
-		entry->key[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.key->ttl << 8);
-		entry->mask[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.mask->ttl << 8);
-		udfs_ctrl[*udfs_cntp] = udf_ctrl;
-		(*udfs_cntp)++;
+			if (!n_proto_is_ipv4) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "ip_tos match requires exact protocol ip");
+				return 0;
+			}
+			if (*udfs_cntp >= YT921X_UDF_NUM) {
+				NL_SET_ERR_MSG_MOD(extack, "UDF selector limit reached");
+				return 0;
+			}
+
+			/* UDF selector captures a 32-bit L3 window from configured
+			 * offset. Match IPv4 TOS byte via top byte mask in UDF0.
+			 */
+			udf_ctrl = YT921X_UDF_CTRL_UDF_TYPE_L3 |
+				   YT921X_UDF_CTRL_UDF_OFFSET(offsetof(struct iphdr, tos));
+			entry_prepare();
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_UDF0 +
+							     *udfs_cntp);
+			entry->key[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.key->tos << 8);
+			entry->mask[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.mask->tos << 8);
+			udfs_ctrl[*udfs_cntp] = udf_ctrl;
+			(*udfs_cntp)++;
+		}
+
+		if (want_ttl) {
+			u32 udf_ctrl;
+
+			if (!n_proto_is_ipv4 && !n_proto_is_ipv6) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "ip_ttl match requires exact protocol ip/ipv6");
+				return 0;
+			}
+			if (*udfs_cntp >= YT921X_UDF_NUM) {
+				NL_SET_ERR_MSG_MOD(extack, "UDF selector limit reached");
+				return 0;
+			}
+
+			/* UDF selector captures a 32-bit L3 window from configured
+			 * offset. Match TTL/Hop-Limit byte via top byte mask in UDF0.
+			 */
+			udf_ctrl = YT921X_UDF_CTRL_UDF_TYPE_L3 |
+				   YT921X_UDF_CTRL_UDF_OFFSET(n_proto_is_ipv4 ?
+					offsetof(struct iphdr, ttl) :
+					offsetof(struct ipv6hdr, hop_limit));
+			entry_prepare();
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_UDF0 +
+							     *udfs_cntp);
+			entry->key[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.key->ttl << 8);
+			entry->mask[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.mask->ttl << 8);
+			udfs_ctrl[*udfs_cntp] = udf_ctrl;
+			(*udfs_cntp)++;
+		}
 	}
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
