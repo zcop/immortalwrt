@@ -1029,6 +1029,7 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  mirror\n"
 				 "  tbf [port]\n"
 				 "  vlan dump <vid>\n"
+				 "  vlan 1x_bypass <vid> [0|1]\n"
 				 "  pvid dump [port]\n"
 				 "  stock map <reg>\n"
 				 "  acl_chain show\n"
@@ -1312,11 +1313,12 @@ static int yt921x_proc_reply_vlan_dump(struct yt921x_priv *priv, u32 vid)
 	stp_id = FIELD_GET(YT921X_VLAN_CTRL_STP_ID_M, ctrl64);
 
 	yt921x_proc_reply_append(priv,
-				 "vlan %u reg=0x%06x val=0x%016llx members=0x%03x untag=0x%03x fid=%u stp=%u learn_dis=%u prio_en=%u\n",
+				 "vlan %u reg=0x%06x val=0x%016llx members=0x%03x untag=0x%03x fid=%u stp=%u learn_dis=%u prio_en=%u bypass_1x=%u\n",
 				 vid, YT921X_VLANn_CTRL(vid),
 				 (unsigned long long)ctrl64, members, untag, fid,
 				 stp_id, !!(ctrl64 & YT921X_VLAN_CTRL_LEARN_DIS),
-				 !!(ctrl64 & YT921X_VLAN_CTRL_PRIO_EN));
+				 !!(ctrl64 & YT921X_VLAN_CTRL_PRIO_EN),
+				 !!(ctrl64 & YT921X_VLAN_CTRL_BYPASS_1X_AC));
 
 	return 0;
 }
@@ -2697,6 +2699,45 @@ out_unlock_rma:
 		goto out;
 	}
 
+	if (!strcmp(argv[0], "vlan") && argc >= 3 && !strcmp(argv[1], "1x_bypass")) {
+		u64 ctrl64;
+		u32 vid;
+		u32 enable = 0;
+
+		res = yt921x_proc_parse_u32(argv[2], &vid);
+		if (res)
+			goto out;
+		if (vid > YT921X_VID_UNAWARE) {
+			res = -ERANGE;
+			goto out;
+		}
+
+		if (argc >= 4) {
+			res = yt921x_proc_parse_u32(argv[3], &enable);
+			if (res)
+				goto out;
+			if (enable > 1) {
+				res = -ERANGE;
+				goto out;
+			}
+		}
+
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
+		if (!res && argc >= 4) {
+			if (enable)
+				ctrl64 |= YT921X_VLAN_CTRL_BYPASS_1X_AC;
+			else
+				ctrl64 &= ~YT921X_VLAN_CTRL_BYPASS_1X_AC;
+
+			res = yt921x_reg64_write(priv, YT921X_VLANn_CTRL(vid), ctrl64);
+		}
+		if (!res)
+			res = yt921x_proc_reply_vlan_dump(priv, vid);
+		mutex_unlock(&priv->reg_lock);
+		goto out;
+	}
+
 	if (!strcmp(argv[0], "pvid") && argc >= 2 && !strcmp(argv[1], "dump")) {
 		u32 start = 0;
 		u32 end = YT921X_PORT_NUM - 1;
@@ -2909,4 +2950,3 @@ static void yt921x_proc_exit(struct yt921x_priv *priv)
 {
 }
 #endif
-
