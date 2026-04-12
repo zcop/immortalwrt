@@ -557,6 +557,9 @@ static int
 yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 			    struct dsa_mall_policer_tc_entry *policer)
 {
+#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	return -EOPNOTSUPP;
+#else
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u64 old_rate_bytes_per_sec;
 	u16 old_ports;
@@ -595,10 +598,14 @@ yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 out_unlock:
 	mutex_unlock(&priv->reg_lock);
 	return res;
+#endif
 }
 
 static void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
 {
+#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	return;
+#else
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u64 old_rate_bytes_per_sec;
 	u16 old_ports;
@@ -630,6 +637,7 @@ static void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
 	}
 
 	mutex_unlock(&priv->reg_lock);
+#endif
 }
 
 static int yt921x_port_down(struct yt921x_priv *priv, int port)

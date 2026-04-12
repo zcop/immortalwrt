@@ -825,6 +825,11 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[1] |= YT921X_ACL_ACTb_PRIO(act->priority);
 			break;
 		case FLOW_ACTION_POLICE:
+#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Ingress policing offload is disabled in non-debug builds");
+			return -EOPNOTSUPP;
+#else
 			if (trap_seen ||
 			    ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
 			     (action[2] & YT921X_ACL_ACTc_REDIR_M) ==
@@ -848,6 +853,7 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[0] |= YT921X_ACL_ACTa_METER_EN;
 			police_seen = true;
 			break;
+#endif
 		case FLOW_ACTION_MANGLE: {
 			u8 dscp;
 			bool is_ipv4;

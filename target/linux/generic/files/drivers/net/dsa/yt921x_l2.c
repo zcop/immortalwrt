@@ -1409,7 +1409,13 @@ yt921x_dsa_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 				 struct switchdev_brport_flags flags,
 				 struct netlink_ext_ack *extack)
 {
-	if (flags.mask & ~(BR_HAIRPIN_MODE | BR_LEARNING | BR_FLOOD |
+	if (flags.mask & BR_FLOOD) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Per-port unknown unicast flood control is not supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (flags.mask & ~(BR_HAIRPIN_MODE | BR_LEARNING |
 			   BR_MCAST_FLOOD | BR_BCAST_FLOOD |
 			   BR_MULTICAST_FAST_LEAVE | BR_ISOLATED))
 		return -EINVAL;
@@ -1426,6 +1432,11 @@ yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 
 	if (dsa_is_cpu_port(ds, port))
 		return 0;
+	if (flags.mask & BR_FLOOD) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Per-port unknown unicast flood control is not supported");
+		return -EOPNOTSUPP;
+	}
 
 	mutex_lock(&priv->reg_lock);
 	res = yt921x_bridge_flags(priv, port, flags);
