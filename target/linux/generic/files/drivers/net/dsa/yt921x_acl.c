@@ -247,6 +247,7 @@ yt921x_acl_find_misc(struct yt921x_acl_entry *group, unsigned int size)
 static unsigned int
 yt921x_acl_parse_key(struct yt921x_priv *priv,
 		     struct yt921x_acl_entry *group, u16 ports_mask,
+		     u32 *udfs_ctrl, unsigned int *udfs_cntp,
 		     struct flow_cls_offload *cls, bool ingress)
 {
 	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
@@ -266,6 +267,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	if (dissector->used_keys &
 	    ~(BIT_ULL(FLOW_DISSECTOR_KEY_CONTROL) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_BASIC) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_IP) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_IPV4_ADDRS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_PORTS) |
@@ -383,6 +385,48 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 				YT921X_ACL_KEYb_L4_DPORT_RANGE_EN;
 		entry->mask[0] = (ntohs(match.mask->tp_max.dst) << 16) |
 				 ntohs(match.mask->tp_max.src);
+	}
+
+	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP)) {
+		struct flow_match_ip match;
+		u32 udf_ctrl;
+
+		flow_rule_match_ip(rule, &match);
+		if (match.mask->tos) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ip_tos key is not supported");
+			return 0;
+		}
+		if (!match.mask->ttl) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "FLOW_DISSECTOR_KEY_IP requires ip_ttl mask");
+			return 0;
+		}
+		if (!n_proto_is_ipv4 && !n_proto_is_ipv6) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ip_ttl match requires exact protocol ip/ipv6");
+			return 0;
+		}
+		if (*udfs_cntp >= YT921X_UDF_NUM) {
+			NL_SET_ERR_MSG_MOD(extack, "UDF selector limit reached");
+			return 0;
+		}
+
+		/* UDF selector captures a 32-bit L3 window from configured
+		 * offset. Match TTL/Hop-Limit byte via top byte mask in UDF0.
+		 */
+		udf_ctrl = YT921X_UDF_CTRL_UDF_TYPE_L3 |
+			   YT921X_UDF_CTRL_UDF_OFFSET(n_proto_is_ipv4 ?
+				offsetof(struct iphdr, ttl) :
+				offsetof(struct ipv6hdr, hop_limit));
+
+		entry_prepare();
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_UDF0 +
+						     *udfs_cntp);
+		entry->key[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.key->ttl << 8);
+		entry->mask[0] = YT921X_ACL_BINa_UDF_UDF0((u16)match.mask->ttl << 8);
+		udfs_ctrl[*udfs_cntp] = udf_ctrl;
+		(*udfs_cntp)++;
 	}
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
@@ -838,13 +882,15 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 
 static unsigned int
 yt921x_acl_parse(struct yt921x_acl_entry *group, u16 ports_mask,
+		 u32 *udfs_ctrl, unsigned int *udfs_cntp,
 		 struct yt921x_priv *priv, struct dsa_switch *ds,
 		 struct flow_cls_offload *cls, bool ingress)
 {
 	unsigned int size;
 	int res;
 
-	size = yt921x_acl_parse_key(priv, group, ports_mask, cls, ingress);
+	size = yt921x_acl_parse_key(priv, group, ports_mask, udfs_ctrl,
+				    udfs_cntp, cls, ingress);
 	if (!size)
 		return 0;
 
@@ -1192,7 +1238,8 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		return -EOPNOTSUPP;
 	}
 
-	size = yt921x_acl_parse(group, BIT(port), priv, ds, cls, ingress);
+	size = yt921x_acl_parse(group, BIT(port), udfs_ctrl, &udfs_cnt,
+				priv, ds, cls, ingress);
 	if (!size)
 		return -EOPNOTSUPP;
 
