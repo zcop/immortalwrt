@@ -1552,8 +1552,48 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_2a[] = {
 	YT921X_PROC_FIELD(1, 0, 16, "enable"),
 };
 
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_2e[] = {
+	YT921X_PROC_FIELD(1, 0, 8, "vlan_range_en"),
+	YT921X_PROC_FIELD(4, 0, 4, "range_profile_id"),
+	YT921X_PROC_FIELD(1, 0, 3, "svlan_drop_tagged"),
+	YT921X_PROC_FIELD(1, 0, 2, "svlan_drop_untagged"),
+	YT921X_PROC_FIELD(1, 0, 1, "cvlan_drop_tagged"),
+	YT921X_PROC_FIELD(1, 0, 0, "cvlan_drop_untagged"),
+};
+
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e5[] = {
 	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_de[] = {
+	YT921X_PROC_FIELD(1, 0, 28, "f0"),
+	YT921X_PROC_FIELD(1, 0, 27, "f1"),
+	YT921X_PROC_FIELD(12, 0, 15, "f2"),
+	YT921X_PROC_FIELD(11, 0, 4, "f3"),
+	YT921X_PROC_FIELD(1, 0, 3, "f4"),
+	YT921X_PROC_FIELD(1, 0, 2, "f5"),
+	YT921X_PROC_FIELD(1, 0, 1, "f6"),
+	YT921X_PROC_FIELD(1, 0, 0, "f7"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_df[] = {
+	YT921X_PROC_FIELD(12, 0, 13, "f0"),
+	YT921X_PROC_FIELD(12, 0, 1, "f1"),
+	YT921X_PROC_FIELD(1, 0, 0, "f2"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e0[] = {
+	YT921X_PROC_FIELD(12, 0, 14, "f0"),
+	YT921X_PROC_FIELD(12, 0, 2, "f1"),
+	YT921X_PROC_FIELD(1, 0, 1, "f2"),
+	YT921X_PROC_FIELD(1, 0, 0, "f3"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e1[] = {
+	YT921X_PROC_FIELD(11, 0, 13, "f0"),
+	YT921X_PROC_FIELD(11, 0, 2, "f1"),
+	YT921X_PROC_FIELD(1, 0, 1, "f2"),
+	YT921X_PROC_FIELD(1, 0, 0, "f3"),
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e9[] = {
@@ -1601,10 +1641,42 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e8[] = {
 
 static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 	{
+		.id = 0x20, .name = "vlan-igr-trans-ctrl",
+		.base = YT921X_VLAN_IGR_TRANS_CTRL,
+		.entry_words = 1, .rw_words = 1, .entries = 4,
+	},
+	{
 		.id = 0x2a, .name = "wol-ctrl", .base = YT921X_WOL_CTRL,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 		.fields = yt921x_tbl_fields_2a,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_2a),
+	},
+	{
+		.id = 0x2e, .name = "vlan-trans-port-ctrl",
+		.base = YT921X_PORTn_VLAN_CTRL1(0),
+		.entry_words = 1, .rw_words = 1, .entries = YT921X_PORT_NUM,
+		.fields = yt921x_tbl_fields_2e,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_2e),
+	},
+	{
+		.id = 0x2f, .name = "vlan-trans-untag-pvid-ignore",
+		.base = YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+	},
+	{
+		.id = 0x30, .name = "vlan-trans-range-profile",
+		.base = YT921X_VLAN_TRANS_RANGE_PROFILE,
+		.entry_words = 4, .rw_words = 3, .entries = 10,
+	},
+	{
+		.id = 0x32, .name = "vlan-igr-trans-table0",
+		.base = YT921X_VLAN_IGR_TRANS_TABLE0,
+		.entry_words = 2, .rw_words = 2, .entries = 64,
+	},
+	{
+		.id = 0x33, .name = "vlan-igr-trans-table1",
+		.base = YT921X_VLAN_IGR_TRANS_TABLE1,
+		.entry_words = 2, .rw_words = 2, .entries = 64,
 	},
 	{
 		.id = 0x34, .name = "acl-rule-ctrl", .base = YT921X_ACL_RULE_CTRL,
@@ -1797,6 +1869,34 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 		.entry_words = 1, .rw_words = 1, .entries = YT921X_PORT_NUM,
 		.fields = yt921x_tbl_fields_d7,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_d7),
+	},
+	{
+		.id = 0xde, .name = "vlan-egr-trans-table0",
+		.base = YT921X_VLAN_EGR_TRANS_TABLE0,
+		.entry_words = 1, .rw_words = 1, .entries = 32,
+		.fields = yt921x_tbl_fields_de,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_de),
+	},
+	{
+		.id = 0xdf, .name = "vlan-egr-trans-table1",
+		.base = YT921X_VLAN_EGR_TRANS_TABLE1,
+		.entry_words = 1, .rw_words = 1, .entries = 32,
+		.fields = yt921x_tbl_fields_df,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_df),
+	},
+	{
+		.id = 0xe0, .name = "vlan-egr-trans-table2",
+		.base = YT921X_VLAN_EGR_TRANS_TABLE2,
+		.entry_words = 1, .rw_words = 1, .entries = 32,
+		.fields = yt921x_tbl_fields_e0,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e0),
+	},
+	{
+		.id = 0xe1, .name = "vlan-egr-transparent",
+		.base = YT921X_VLAN_EGR_TRANSPARENT,
+		.entry_words = 1, .rw_words = 1, .entries = 11,
+		.fields = yt921x_tbl_fields_e1,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e1),
 	},
 	{
 		.id = 0xe4, .name = "qsch-slot-time", .base = 0x340008,
