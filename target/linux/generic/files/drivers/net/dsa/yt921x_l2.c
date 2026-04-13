@@ -492,6 +492,17 @@ yt921x_fdb_flush_port(struct yt921x_priv *priv, int port, bool flush_static)
 }
 
 static int
+yt921x_l2_fdb_aging_port_en_set(struct yt921x_priv *priv, int port, bool enable)
+{
+	if (port < 0 || port >= YT921X_PORT_NUM)
+		return -EINVAL;
+
+	return yt921x_reg_toggle_bits(priv, YT921X_L2_FDB_AGING_PORT_EN,
+				      YT921X_L2_FDB_AGING_PORT_EN_PORTn(port),
+				      enable);
+}
+
+static int
 yt921x_fdb_add_index_in12(struct yt921x_priv *priv, u16 index, u16 ctrl1,
 			  u16 ctrl2)
 {
@@ -1334,6 +1345,16 @@ yt921x_bridge_flags(struct yt921x_priv *priv, int port,
 					     mask, !learning);
 		if (res)
 			return res;
+
+		res = yt921x_l2_fdb_aging_port_en_set(priv, port, learning);
+		if (res)
+			return res;
+
+		if (!learning) {
+			res = yt921x_fdb_flush_port(priv, port, false);
+			if (res)
+				return res;
+		}
 	}
 
 	/* BR_FLOOD (unknown UC) remains global via ACT_UNK_* policy. */

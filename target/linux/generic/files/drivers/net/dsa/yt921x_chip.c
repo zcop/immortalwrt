@@ -1026,6 +1026,14 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "unk-action");
 #endif
 
+	/* Enable dynamic FDB aging on all modeled ports by default.
+	 * Per-port aging can be toggled later through bridge learning flags.
+	 */
+	res = yt921x_reg_write(priv, YT921X_L2_FDB_AGING_PORT_EN,
+			       YT921X_L2_FDB_AGING_PORT_EN_M);
+	if (res)
+		return res;
+
 	/* Reset mirror engine to known state; firmware can leave stale bits. */
 	res = yt921x_reg_write(priv, YT921X_MIRROR, 0);
 	if (res)
