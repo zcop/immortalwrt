@@ -451,6 +451,11 @@ struct yt921x_priv;
  * They are intentionally not wired into active DSA code paths yet.
  */
 #define YT921X_VLAN_IGR_TRANS_CTRL	0x2100e0	/* tbl 0x20 */
+#define YT921X_WOL_CTRL			0x21011c	/* tbl 0x2a */
+#define  YT921X_WOL_CTRL_ETHERTYPE_M		GENMASK(15, 0)
+#define   YT921X_WOL_CTRL_ETHERTYPE(x) \
+		FIELD_PREP(YT921X_WOL_CTRL_ETHERTYPE_M, (x))
+#define  YT921X_WOL_CTRL_EN		BIT(16)
 #define YT921X_CTRLPKT_ARP_ACT		0x180284	/* tbl 0x74 */
 #define YT921X_CTRLPKT_ND_ACT		0x180288	/* tbl 0x75 */
 #define YT921X_CTRLPKT_LLDP_EEE_ACT	0x18028c	/* tbl 0x76 */

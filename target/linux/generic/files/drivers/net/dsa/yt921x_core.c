@@ -934,6 +934,8 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  dot1x set <port> <port_based_val> <bypass_val>\n"
 				 "  loop_detect show\n"
 				 "  loop_detect set <0|1> [tpid] [gen_way]\n"
+				 "  wol show\n"
+				 "  wol set <0|1> [ethertype]\n"
 				 "  unk show\n"
 				 "  unk set filter <ucast|mcast|both> <mask>\n"
 				 "  unk set action <ucast|mcast> <port> <flood|trap|drop|copy>\n"
@@ -1365,6 +1367,24 @@ static int yt921x_proc_reply_loop_detect(struct yt921x_priv *priv)
 	return 0;
 }
 
+static int yt921x_proc_reply_wol(struct yt921x_priv *priv)
+{
+	u32 ctrl;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_WOL_CTRL, &ctrl);
+	if (res)
+		return res;
+
+	yt921x_proc_reply_append(priv,
+				 "wol reg=0x%06x val=0x%08x en=%u ethertype=0x%04x\n",
+				 YT921X_WOL_CTRL, ctrl,
+				 !!(ctrl & YT921X_WOL_CTRL_EN),
+				 (u16)FIELD_GET(YT921X_WOL_CTRL_ETHERTYPE_M, ctrl));
+
+	return 0;
+}
+
 void yt921x_storm_guard_workfn(struct work_struct *work)
 {
 	struct yt921x_priv *priv = container_of(to_delayed_work(work),
@@ -1501,6 +1521,11 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e4[] = {
 	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
 };
 
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_2a[] = {
+	YT921X_PROC_FIELD(16, 0, 0, "ethertype"),
+	YT921X_PROC_FIELD(1, 0, 16, "enable"),
+};
+
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e5[] = {
 	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
 };
@@ -1534,6 +1559,12 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ec[] = {
 };
 
 static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
+	{
+		.id = 0x2a, .name = "wol-ctrl", .base = YT921X_WOL_CTRL,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+		.fields = yt921x_tbl_fields_2a,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_2a),
+	},
 	{
 		.id = 0x34, .name = "acl-rule-ctrl", .base = YT921X_ACL_RULE_CTRL,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
@@ -2235,6 +2266,57 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 			}
 			if (!res)
 				res = yt921x_proc_reply_loop_detect(priv);
+			mutex_unlock(&priv->reg_lock);
+			goto out;
+		}
+
+		res = -EINVAL;
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "wol")) {
+		if (argc == 1 || !strcmp(argv[1], "show")) {
+			mutex_lock(&priv->reg_lock);
+			res = yt921x_proc_reply_wol(priv);
+			mutex_unlock(&priv->reg_lock);
+			goto out;
+		}
+
+		if (!strcmp(argv[1], "set") && argc >= 3) {
+			u32 enable;
+			u32 ethertype = 0;
+			u32 ctrl;
+
+			res = yt921x_proc_parse_u32(argv[2], &enable);
+			if (res)
+				goto out;
+			if (enable > 1) {
+				res = -ERANGE;
+				goto out;
+			}
+			if (argc >= 4) {
+				res = yt921x_proc_parse_u32(argv[3], &ethertype);
+				if (res)
+					goto out;
+				if (ethertype > 0xffff) {
+					res = -ERANGE;
+					goto out;
+				}
+			}
+
+			mutex_lock(&priv->reg_lock);
+			res = yt921x_reg_read(priv, YT921X_WOL_CTRL, &ctrl);
+			if (!res) {
+				ctrl = enable ? (ctrl | YT921X_WOL_CTRL_EN) :
+						(ctrl & ~YT921X_WOL_CTRL_EN);
+				if (argc >= 4) {
+					ctrl &= ~YT921X_WOL_CTRL_ETHERTYPE_M;
+					ctrl |= YT921X_WOL_CTRL_ETHERTYPE(ethertype);
+				}
+				res = yt921x_reg_write(priv, YT921X_WOL_CTRL, ctrl);
+			}
+			if (!res)
+				res = yt921x_proc_reply_wol(priv);
 			mutex_unlock(&priv->reg_lock);
 			goto out;
 		}
