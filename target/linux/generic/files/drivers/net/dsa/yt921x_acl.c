@@ -14,7 +14,7 @@ static int yt921x_acl_meter_alloc(struct yt921x_priv *priv, u32 *meter_idp)
 	unsigned long meter_id;
 
 	meter_id = find_first_zero_bit(priv->acl_meter_map, YT921X_METER_NUM);
-	if (meter_id >= YT921X_METER_NUM)
+	if (meter_id >= (unsigned long)YT921X_METER_NUM)
 		return -ENOSPC;
 
 	__set_bit(meter_id, priv->acl_meter_map);
@@ -68,7 +68,7 @@ yt921x_acl_remap_udf(struct yt921x_priv *priv, const u32 *udfs,
 
 		if (j >= YT921X_UDF_NUM) {
 			j = find_first_zero_bit(&used, YT921X_UDF_NUM);
-			if (j >= YT921X_UDF_NUM) {
+			if (j >= (unsigned int)YT921X_UDF_NUM) {
 				NL_SET_ERR_MSG_MOD(extack, "UDF entry limit reached");
 				return -EOPNOTSUPP;
 			}

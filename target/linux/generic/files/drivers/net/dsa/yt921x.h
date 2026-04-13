@@ -20,7 +20,6 @@ struct yt921x_priv;
 #define YT921X_STATS_INTERVAL_JIFFIES	(3 * HZ)
 
 #define YT921X_PORT_MASK_INTn(port)	BIT(port)
-#define YT921X_PORT_MASK_INT0_n(n)	GENMASK((n) - 1, 0)
 #define YT921X_PORT_MASK_EXT0		BIT(8)
 #define YT921X_PORT_MASK_EXT1		BIT(9)
 
