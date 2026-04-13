@@ -1,0 +1,203 @@
+--- a/factoryreset.c
++++ b/factoryreset.c
+@@ -26,15 +26,148 @@
+ #include <unistd.h>
+ #include <getopt.h>
+ #include <libgen.h>
++#include <stdbool.h>
++#include <limits.h>
+ 
+ #include <mtd/ubi-user.h>
+ 
+ #include "libfstools/libfstools.h"
+ #include "libfstools/volume.h"
+ 
++#define DT_COMPATIBLE_PATH      "/proc/device-tree/compatible"
++#define PROC_MTD_PATH           "/proc/mtd"
++#define SYS_UBI_PATH            "/sys/class/ubi"
++#define UBIATTACH_BIN           "/usr/sbin/ubiattach"
++#define UBIMKVOL_BIN            "/usr/sbin/ubimkvol"
++
+ static int jffs2_mark(struct volume *v);
+ 
+ static int
++read_line(const char *path, char *buf, size_t len)
++{
++	FILE *f;
++
++	if (!buf || !len)
++		return -1;
++
++	f = fopen(path, "r");
++	if (!f)
++		return -1;
++
++	if (!fgets(buf, len, f)) {
++		fclose(f);
++		return -1;
++	}
++	fclose(f);
++
++	buf[strcspn(buf, "\r\n")] = '\0';
++	return 0;
++}
++
++static bool is_cr881x(void)
++{
++	FILE *f;
++	char buf[256];
++	size_t n, i;
++
++	f = fopen(DT_COMPATIBLE_PATH, "rb");
++	if (!f)
++		return false;
++
++	n = fread(buf, 1, sizeof(buf), f);
++	fclose(f);
++	if (!n)
++		return false;
++
++	for (i = 0; i + sizeof("xiaomi,cr881x") - 1 <= n; i++) {
++		if (!memcmp(buf + i, "xiaomi,cr881x", sizeof("xiaomi,cr881x") - 1))
++			return true;
++	}
++
++	return false;
++}
++
++static int find_mtd_index_by_name(const char *name)
++{
++	FILE *f;
++	char line[256], label[128];
++	int idx;
++
++	f = fopen(PROC_MTD_PATH, "r");
++	if (!f)
++		return -1;
++
++	while (fgets(line, sizeof(line), f)) {
++		if (sscanf(line, "mtd%d: %*x %*x \"%127[^\"]\"", &idx, label) != 2)
++			continue;
++		if (!strcmp(label, name)) {
++			fclose(f);
++			return idx;
++		}
++	}
++
++	fclose(f);
++	return -1;
++}
++
++static int find_ubi_num_by_mtd(int mtdnum)
++{
++	DIR *d;
++	struct dirent *de;
++	char path[PATH_MAX], line[32];
++	int ubi;
++
++	d = opendir(SYS_UBI_PATH);
++	if (!d)
++		return -1;
++
++	while ((de = readdir(d)) != NULL) {
++		if (sscanf(de->d_name, "ubi%d", &ubi) != 1)
++			continue;
++
++		snprintf(path, sizeof(path), SYS_UBI_PATH "/%s/mtd_num", de->d_name);
++		if (read_line(path, line, sizeof(line)))
++			continue;
++
++		if (atoi(line) == mtdnum) {
++			closedir(d);
++			return ubi;
++		}
++	}
++
++	closedir(d);
++	return -1;
++}
++
++static int ensure_cr881x_userdata(void)
++{
++	char cmd[128];
++	int mtdnum, ubi;
++
++	if (!is_cr881x())
++		return -1;
++
++	mtdnum = find_mtd_index_by_name("overlay");
++	if (mtdnum < 0)
++		return -1;
++
++	ubi = find_ubi_num_by_mtd(mtdnum);
++	if (ubi < 0) {
++		snprintf(cmd, sizeof(cmd), UBIATTACH_BIN " -m %d >/dev/null 2>&1", mtdnum);
++		if (!system(cmd))
++			ubi = find_ubi_num_by_mtd(mtdnum);
++	}
++	if (ubi < 0)
++		return -1;
++
++	/* Best effort: create userdata if missing; ignore failure if it already exists. */
++	snprintf(cmd, sizeof(cmd), UBIMKVOL_BIN " /dev/ubi%d -N userdata -m >/dev/null 2>&1", ubi);
++	(void) system(cmd);
++
++	return 0;
++}
++
++static int
+ ask_user(void)
+ {
+ 	ULOG_WARN("This will erase all settings and remove any installed packages. Are you sure? [N/y]\n");
+@@ -43,11 +176,32 @@
+ 	return 0;
+ }
+ 
++static char *find_ubi_mount_point(struct volume *v)
++{
++	char path[PATH_MAX], name[128], blk[160];
++	int ubi, vol;
++
++	if (!v || !v->blk)
++		return NULL;
++
++	if (sscanf(v->blk, "/dev/ubi%d_%d", &ubi, &vol) != 2)
++		return NULL;
++
++	snprintf(path, sizeof(path), SYS_UBI_PATH "/ubi%d_%d/name", ubi, vol);
++	if (read_line(path, name, sizeof(name)))
++		return NULL;
++
++	snprintf(blk, sizeof(blk), "ubi%d:%s", ubi, name);
++	return find_mount_point(blk, 1);
++}
++
+ static int jffs2_reset(struct volume *v, int reset, int keep)
+ {
+ 	char *mp;
+ 
+ 	mp = find_mount_point(v->blk, 1);
++	if (!mp && v->type == UBIVOLUME)
++		mp = find_ubi_mount_point(v);
+ 	if (mp) {
+ 		ULOG_INFO("%s is mounted as %s, only erasing files\n", v->blk, mp);
+ 		fs_state_set("/overlay", FS_STATE_PENDING);
+@@ -136,9 +290,16 @@
+ 		return -1;
+ 	}
+ 
+-	v = volume_find("rootfs_data");
++	if (is_cr881x()) {
++		(void) ensure_cr881x_userdata();
++		v = volume_find("userdata");
++		if (!v)
++			v = volume_find("rootfs_data");
++	} else {
++		v = volume_find("rootfs_data");
++	}
+ 	if (!v) {
+-		ULOG_ERR("MTD partition 'rootfs_data' not found\n");
++		ULOG_ERR("overlay volume not found (userdata/rootfs_data)\n");
+ 		return -1;
+ 	}
+ 
