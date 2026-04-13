@@ -1344,9 +1344,21 @@ static int yt921x_proc_reply_pvid_port(struct yt921x_priv *priv, u32 port)
 static int yt921x_proc_reply_loop_detect(struct yt921x_priv *priv)
 {
 	u32 ctrl;
+	u32 act_ctrl;
+	u32 flag;
+	u32 timer;
 	int res;
 
 	res = yt921x_reg_read(priv, YT921X_LOOP_DETECT_TOP_CTRL, &ctrl);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_LOOP_DETECT_ACT_CTRL, &act_ctrl);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_LOOP_DETECT_FLAG, &flag);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_LOOP_DETECT_TIMER, &timer);
 	if (res)
 		return res;
 
@@ -1363,6 +1375,12 @@ static int yt921x_proc_reply_loop_detect(struct yt921x_priv *priv)
 		(u32)FIELD_GET(YT921X_LOOP_DETECT_UNIT_ID1_M, ctrl),
 		(u32)FIELD_GET(YT921X_LOOP_DETECT_UNIT_ID2_M, ctrl),
 		!!(ctrl & YT921X_LOOP_DETECT_F7));
+	yt921x_proc_reply_append(
+		priv,
+		"loop_detect aux act_ctrl[0x%06x]=0x%08x flag[0x%06x]=0x%08x timer[0x%06x]=0x%08x\n",
+		YT921X_LOOP_DETECT_ACT_CTRL, act_ctrl,
+		YT921X_LOOP_DETECT_FLAG, flag,
+		YT921X_LOOP_DETECT_TIMER, timer);
 
 	return 0;
 }
@@ -1547,6 +1565,18 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e4[] = {
 	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
 };
 
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_0e[] = {
+	YT921X_PROC_FIELD(32, 0, 0, "raw"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_0f[] = {
+	YT921X_PROC_FIELD(32, 0, 0, "raw"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_10[] = {
+	YT921X_PROC_FIELD(32, 0, 0, "raw"),
+};
+
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_2a[] = {
 	YT921X_PROC_FIELD(16, 0, 0, "ethertype"),
 	YT921X_PROC_FIELD(1, 0, 16, "enable"),
@@ -1640,6 +1670,27 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e8[] = {
 };
 
 static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
+	{
+		.id = 0x0e, .name = "loop-detect-act-ctrl",
+		.base = YT921X_LOOP_DETECT_ACT_CTRL,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+		.fields = yt921x_tbl_fields_0e,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_0e),
+	},
+	{
+		.id = 0x0f, .name = "loop-detect-flag",
+		.base = YT921X_LOOP_DETECT_FLAG,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+		.fields = yt921x_tbl_fields_0f,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_0f),
+	},
+	{
+		.id = 0x10, .name = "loop-detect-timer",
+		.base = YT921X_LOOP_DETECT_TIMER,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
+		.fields = yt921x_tbl_fields_10,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_10),
+	},
 	{
 		.id = 0x20, .name = "vlan-igr-trans-ctrl",
 		.base = YT921X_VLAN_IGR_TRANS_CTRL,
