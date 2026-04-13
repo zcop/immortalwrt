@@ -6,8 +6,9 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
-#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-static u32 yt921x_tbf_eir_to_rate_kbps(u32 eir)
+#include "yt921x_internal.h"
+
+u32 yt921x_tbf_eir_to_rate_kbps(u32 eir)
 {
 	if (eir <= YT921X_PSCH_EIR_RATE_OFFSET)
 		return 0;
@@ -16,10 +17,9 @@ static u32 yt921x_tbf_eir_to_rate_kbps(u32 eir)
 				     YT921X_PSCH_EIR_RATE_SCALE_DEN,
 				     YT921X_PSCH_EIR_RATE_SCALE_NUM);
 }
-#endif
 
 /* Read and handle overflow of 32bit MIBs. MIB buffer must be zeroed before. */
-static int yt921x_read_mib(struct yt921x_priv *priv, int port)
+int yt921x_read_mib(struct yt921x_priv *priv, int port)
 {
 	struct yt921x_port *pp = &priv->ports[port];
 	struct device *dev = yt921x_dev(priv);
@@ -34,7 +34,7 @@ static int yt921x_read_mib(struct yt921x_priv *priv, int port)
 	 * reg_lock.
 	 */
 
-	for (size_t i = 0; i < ARRAY_SIZE(yt921x_mib_descs); i++) {
+	for (size_t i = 0; i < yt921x_mib_descs_count; i++) {
 		const struct yt921x_mib_desc *desc = &yt921x_mib_descs[i];
 		u32 reg = YT921X_MIBn_DATA0(port) + desc->offset;
 		u64 *valp = &((u64 *)mib)[i];
@@ -78,7 +78,7 @@ static int yt921x_read_mib(struct yt921x_priv *priv, int port)
 	return res;
 }
 
-static void yt921x_poll_mib(struct work_struct *work)
+void yt921x_poll_mib(struct work_struct *work)
 {
 	struct yt921x_port *pp = container_of_const(work, struct yt921x_port,
 						    mib_read.work);
@@ -230,14 +230,14 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 	data[j++] = priv->storm_policer_burst;
 }
 
-static void
+void
 yt921x_dsa_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 		       uint8_t *data)
 {
 	if (stringset != ETH_SS_STATS)
 		return;
 
-	for (size_t i = 0; i < ARRAY_SIZE(yt921x_mib_descs); i++) {
+	for (size_t i = 0; i < yt921x_mib_descs_count; i++) {
 		const struct yt921x_mib_desc *desc = &yt921x_mib_descs[i];
 
 		if (desc->name)
@@ -248,7 +248,7 @@ yt921x_dsa_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 		ethtool_puts(&data, yt921x_qos_stat_names[i]);
 }
 
-static void
+void
 yt921x_dsa_get_ethtool_stats(struct dsa_switch *ds, int port, uint64_t *data)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -260,7 +260,7 @@ yt921x_dsa_get_ethtool_stats(struct dsa_switch *ds, int port, uint64_t *data)
 	yt921x_read_mib(priv, port);
 
 	j = 0;
-	for (size_t i = 0; i < ARRAY_SIZE(yt921x_mib_descs); i++) {
+	for (size_t i = 0; i < yt921x_mib_descs_count; i++) {
 		const struct yt921x_mib_desc *desc = &yt921x_mib_descs[i];
 
 		if (!desc->name)
@@ -275,14 +275,14 @@ yt921x_dsa_get_ethtool_stats(struct dsa_switch *ds, int port, uint64_t *data)
 	mutex_unlock(&priv->reg_lock);
 }
 
-static int yt921x_dsa_get_sset_count(struct dsa_switch *ds, int port, int sset)
+int yt921x_dsa_get_sset_count(struct dsa_switch *ds, int port, int sset)
 {
 	int cnt = 0;
 
 	if (sset != ETH_SS_STATS)
 		return 0;
 
-	for (size_t i = 0; i < ARRAY_SIZE(yt921x_mib_descs); i++) {
+	for (size_t i = 0; i < yt921x_mib_descs_count; i++) {
 		const struct yt921x_mib_desc *desc = &yt921x_mib_descs[i];
 
 		if (desc->name)
@@ -294,7 +294,7 @@ static int yt921x_dsa_get_sset_count(struct dsa_switch *ds, int port, int sset)
 	return cnt;
 }
 
-static void
+void
 yt921x_dsa_get_eth_mac_stats(struct dsa_switch *ds, int port,
 			     struct ethtool_eth_mac_stats *mac_stats)
 {
@@ -330,7 +330,7 @@ yt921x_dsa_get_eth_mac_stats(struct dsa_switch *ds, int port,
 	mutex_unlock(&priv->reg_lock);
 }
 
-static void
+void
 yt921x_dsa_get_eth_ctrl_stats(struct dsa_switch *ds, int port,
 			      struct ethtool_eth_ctrl_stats *ctrl_stats)
 {
@@ -358,7 +358,7 @@ static const struct ethtool_rmon_hist_range yt921x_rmon_ranges[] = {
 	{}
 };
 
-static void
+void
 yt921x_dsa_get_rmon_stats(struct dsa_switch *ds, int port,
 			  struct ethtool_rmon_stats *rmon_stats,
 			  const struct ethtool_rmon_hist_range **ranges)
@@ -395,7 +395,7 @@ yt921x_dsa_get_rmon_stats(struct dsa_switch *ds, int port,
 	mutex_unlock(&priv->reg_lock);
 }
 
-static void
+void
 yt921x_dsa_get_stats64(struct dsa_switch *ds, int port,
 		       struct rtnl_link_stats64 *stats)
 {
@@ -449,7 +449,7 @@ yt921x_dsa_get_stats64(struct dsa_switch *ds, int port,
 	mutex_unlock(&priv->reg_lock);
 }
 
-static void
+void
 yt921x_dsa_get_pause_stats(struct dsa_switch *ds, int port,
 			   struct ethtool_pause_stats *pause_stats)
 {
@@ -505,7 +505,7 @@ yt921x_set_eee(struct yt921x_priv *priv, int port, struct ethtool_keee *e)
 	return 0;
 }
 
-static int
+int
 yt921x_dsa_set_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -518,7 +518,7 @@ yt921x_dsa_set_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e)
 	return res;
 }
 
-static int
+int
 yt921x_dsa_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 {
 	/* Only serves as packet filter, since the frame size is always set to
@@ -543,7 +543,7 @@ yt921x_dsa_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 	return res;
 }
 
-static int yt921x_dsa_port_max_mtu(struct dsa_switch *ds, int port)
+int yt921x_dsa_port_max_mtu(struct dsa_switch *ds, int port)
 {
 	/* Only called for user ports, exclude tag len here */
 	return YT921X_FRAME_SIZE_MAX - ETH_HLEN - ETH_FCS_LEN - YT921X_TAG_LEN;
@@ -588,17 +588,7 @@ static u64 token2burst(u32 token, int unit, int C)
 	return ldexpu64(token, 2 * unit + C);
 }
 
-struct yt921x_meter {
-	u32 cir;
-	u32 cbs;
-	u32 ebs;
-	int unit;
-};
-
-#define YT921X_METER_PKT_MODE		BIT(0)
-#define YT921X_METER_SINGLE_BUCKET	BIT(1)
-
-static int
+int
 yt921x_meter_tfm(struct yt921x_priv *priv, int port, unsigned int slot_ns,
 		 u64 rate, u64 burst, unsigned int flags,
 		 u32 cir_max, u32 cbs_max, int unit_max,
@@ -913,7 +903,7 @@ yt921x_qsch_tbf_add(struct yt921x_priv *priv, int port, u8 qid,
 					 params->max_size);
 }
 
-static int yt921x_trap_copp_default_apply(struct yt921x_priv *priv)
+int yt921x_trap_copp_default_apply(struct yt921x_priv *priv)
 {
 	unsigned long cpu_ports_mask = priv->cpu_ports_mask;
 	u8 prio = YT921X_TRAP_COPP_DEFAULT_PRIO;
@@ -1291,7 +1281,7 @@ yt921x_ets_destroy(struct yt921x_priv *priv, int port)
 }
 
 
-static int
+int
 yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 			 enum tc_setup_type type, void *type_data)
 {

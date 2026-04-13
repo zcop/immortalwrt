@@ -6,6 +6,9 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
+#include "yt921x_internal.h"
+
+static int
 yt921x_mdio_polling_set(struct yt921x_priv *priv, int port, bool link,
 			int speed, int duplex)
 {
@@ -48,7 +51,7 @@ yt921x_mdio_polling_set(struct yt921x_priv *priv, int port, bool link,
  * - motorcomm,port-ctrl-mask: bits to update
  * - motorcomm,port-ctrl-value: replacement value for masked bits
  */
-static int
+int
 yt921x_port_ctrl_apply_dt(struct yt921x_priv *priv, int port, bool allow_managed)
 {
 	struct device *dev = yt921x_dev(priv);
@@ -81,7 +84,7 @@ yt921x_port_ctrl_apply_dt(struct yt921x_priv *priv, int port, bool allow_managed
 	return 0;
 }
 
-static int
+int
 yt921x_stp_encode_state(int port, u8 state, u32 *ctrl)
 {
 	switch (state) {
@@ -105,7 +108,7 @@ yt921x_stp_encode_state(int port, u8 state, u32 *ctrl)
 	return 0;
 }
 
-static int
+int
 yt921x_dsa_port_mst_state_set(struct dsa_switch *ds, int port,
 			      const struct switchdev_mst_state *st)
 {
@@ -129,7 +132,7 @@ yt921x_dsa_port_mst_state_set(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static int
+int
 yt921x_dsa_vlan_msti_set(struct dsa_switch *ds, struct dsa_bridge bridge,
 			 const struct switchdev_vlan_msti *msti)
 {
@@ -154,7 +157,7 @@ yt921x_dsa_vlan_msti_set(struct dsa_switch *ds, struct dsa_bridge bridge,
 	return res;
 }
 
-static void
+void
 yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -194,7 +197,7 @@ yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
 			port, res);
 }
 
-static int __maybe_unused
+int __maybe_unused
 yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -211,7 +214,7 @@ yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port)
 	return FIELD_GET(YT921X_PORT_QOS_PRIO_M, val);
 }
 
-static int __maybe_unused
+int __maybe_unused
 yt921x_dsa_port_set_default_prio(struct dsa_switch *ds, int port, u8 prio)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -236,7 +239,7 @@ static int __maybe_unused appprios_cmp(const void *a, const void *b)
 	return ((const u8 *)b)[1] - ((const u8 *)a)[1];
 }
 
-static int __maybe_unused
+int __maybe_unused
 yt921x_dsa_port_get_apptrust(struct dsa_switch *ds, int port, u8 *sel,
 			     int *nselp)
 {
@@ -270,7 +273,7 @@ yt921x_dsa_port_get_apptrust(struct dsa_switch *ds, int port, u8 *sel,
 	return 0;
 }
 
-static int __maybe_unused
+int __maybe_unused
 yt921x_dsa_port_set_apptrust(struct dsa_switch *ds, int port, const u8 *sel,
 			     int nsel)
 {
@@ -553,7 +556,7 @@ static int yt921x_dsa_policer_apply(struct yt921x_priv *priv)
 	return yt921x_storm_policer_apply(priv);
 }
 
-static int
+int
 yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 			    struct dsa_mall_policer_tc_entry *policer)
 {
@@ -601,7 +604,7 @@ out_unlock:
 #endif
 }
 
-static void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
+void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
 {
 #if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	return;
@@ -640,7 +643,7 @@ static void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
 #endif
 }
 
-static int yt921x_port_down(struct yt921x_priv *priv, int port)
+int yt921x_port_down(struct yt921x_priv *priv, int port)
 {
 	u32 mask;
 	int res;
@@ -971,7 +974,7 @@ yt921x_port_config(struct yt921x_priv *priv, int port, unsigned int mode,
 	return 0;
 }
 
-static void
+void
 yt921x_phylink_mac_link_down(struct phylink_config *config, unsigned int mode,
 			     phy_interface_t interface)
 {
@@ -992,7 +995,7 @@ yt921x_phylink_mac_link_down(struct phylink_config *config, unsigned int mode,
 			port, res);
 }
 
-static void
+void
 yt921x_phylink_mac_link_up(struct phylink_config *config,
 			   struct phy_device *phydev, unsigned int mode,
 			   phy_interface_t interface, int speed, int duplex,
@@ -1018,7 +1021,7 @@ yt921x_phylink_mac_link_up(struct phylink_config *config,
 	}
 }
 
-static void
+void
 yt921x_phylink_mac_config(struct phylink_config *config, unsigned int mode,
 			  const struct phylink_link_state *state)
 {
@@ -1070,7 +1073,7 @@ yt921x_phylink_set_external_caps(struct phylink_config *config,
 	}
 }
 
-static void
+void
 yt921x_dsa_phylink_get_caps(struct dsa_switch *ds, int port,
 			    struct phylink_config *config)
 {

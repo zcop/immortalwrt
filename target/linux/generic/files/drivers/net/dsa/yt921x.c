@@ -9,12 +9,7 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
-#include "yt921x_core.c"
-#include "yt921x_qos_tc.c"
-#include "yt921x_acl.c"
-#include "yt921x_l2.c"
-#include "yt921x_port.c"
-#include "yt921x_chip.c"
+#include "yt921x_internal.h"
 
 static int yt921x_dsa_setup(struct dsa_switch *ds)
 {

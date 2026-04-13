@@ -6,7 +6,9 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
-static void
+#include "yt921x_internal.h"
+
+void
 yt921x_dsa_port_mirror_del(struct dsa_switch *ds, int port,
 			   struct dsa_mall_mirror_tc_entry *mirror)
 {
@@ -23,7 +25,7 @@ yt921x_dsa_port_mirror_del(struct dsa_switch *ds, int port,
 			port, res);
 }
 
-static int
+int
 yt921x_dsa_port_mirror_add(struct dsa_switch *ds, int port,
 			   struct dsa_mall_mirror_tc_entry *mirror,
 			   bool ingress, struct netlink_ext_ack *extack)
@@ -108,7 +110,7 @@ static int yt921x_lag_set(struct yt921x_priv *priv, u8 index, u16 ports_mask)
 	return yt921x_reg_write(priv, YT921X_LAG_GROUPn(index), ctrl);
 }
 
-static int
+int
 yt921x_dsa_port_lag_leave(struct dsa_switch *ds, int port, struct dsa_lag lag)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -181,7 +183,7 @@ yt921x_dsa_port_lag_check(struct dsa_switch *ds, int port, struct dsa_lag lag,
 	return 0;
 }
 
-static int
+int
 yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag,
 			 struct netdev_lag_upper_info *info,
 			 struct netlink_ext_ack *extack)
@@ -617,7 +619,7 @@ yt921x_fdb_join(struct yt921x_priv *priv, const unsigned char *addr, u16 vid,
 	return yt921x_fdb_add_index_in12(priv, index, ctrl1, ctrl2);
 }
 
-static int
+int
 yt921x_dsa_port_fdb_dump(struct dsa_switch *ds, int port,
 			 dsa_fdb_dump_cb_t *cb, void *data)
 {
@@ -634,7 +636,7 @@ yt921x_dsa_port_fdb_dump(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static void yt921x_dsa_port_fast_age(struct dsa_switch *ds, int port)
+void yt921x_dsa_port_fast_age(struct dsa_switch *ds, int port)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct device *dev = yt921x_dev(priv);
@@ -649,7 +651,7 @@ static void yt921x_dsa_port_fast_age(struct dsa_switch *ds, int port)
 			port, res);
 }
 
-static int
+int
 yt921x_dsa_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -666,7 +668,7 @@ yt921x_dsa_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 	return res;
 }
 
-static int
+int
 yt921x_dsa_port_fdb_del(struct dsa_switch *ds, int port,
 			const unsigned char *addr, u16 vid, struct dsa_db db)
 {
@@ -680,7 +682,7 @@ yt921x_dsa_port_fdb_del(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static int
+int
 yt921x_dsa_port_fdb_add(struct dsa_switch *ds, int port,
 			const unsigned char *addr, u16 vid, struct dsa_db db)
 {
@@ -714,7 +716,7 @@ static u16 yt921x_mdb_resolve_vid(struct yt921x_priv *priv, int port, u16 vid)
 	return 0;
 }
 
-static int
+int
 yt921x_dsa_port_mdb_del(struct dsa_switch *ds, int port,
 			const struct switchdev_obj_port_mdb *mdb,
 			struct dsa_db db)
@@ -735,7 +737,7 @@ yt921x_dsa_port_mdb_del(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static int
+int
 yt921x_dsa_port_mdb_add(struct dsa_switch *ds, int port,
 			const struct switchdev_obj_port_mdb *mdb,
 			struct dsa_db db)
@@ -927,7 +929,7 @@ yt921x_pvid_set(struct yt921x_priv *priv, int port, u16 vid)
 	return 0;
 }
 
-static int
+int
 yt921x_dsa_port_vlan_filtering(struct dsa_switch *ds, int port,
 			       bool vlan_filtering,
 			       struct netlink_ext_ack *extack)
@@ -954,7 +956,7 @@ yt921x_dsa_port_vlan_filtering(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static int
+int
 yt921x_dsa_port_vlan_del(struct dsa_switch *ds, int port,
 			 const struct switchdev_obj_port_vlan *vlan)
 {
@@ -986,7 +988,7 @@ yt921x_dsa_port_vlan_del(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static int
+int
 yt921x_dsa_port_vlan_add(struct dsa_switch *ds, int port,
 			 const struct switchdev_obj_port_vlan *vlan,
 			 struct netlink_ext_ack *extack)
@@ -1025,12 +1027,12 @@ yt921x_dsa_port_vlan_add(struct dsa_switch *ds, int port,
 }
 
 
-static u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv)
+u32 yt921x_non_cpu_port_mask(const struct yt921x_priv *priv)
 {
 	return GENMASK(YT921X_PORT_NUM - 1, 0) & ~priv->cpu_ports_mask;
 }
 
-static int
+int
 yt921x_port_isolation_set(struct yt921x_priv *priv, int port, u32 blocked_mask)
 {
 	u32 mask;
@@ -1041,7 +1043,7 @@ yt921x_port_isolation_set(struct yt921x_priv *priv, int port, u32 blocked_mask)
 				      mask, blocked_mask & mask);
 }
 
-static int
+int
 yt921x_userport_cpu_isolation_set(struct yt921x_priv *priv, int port, int cpu_port)
 {
 	u32 mask = priv->cpu_ports_mask;
@@ -1053,7 +1055,7 @@ yt921x_userport_cpu_isolation_set(struct yt921x_priv *priv, int port, int cpu_po
 				      mask, blocked_mask);
 }
 
-static int
+int
 yt921x_userport_current_cpu_port_get(struct yt921x_priv *priv, int port, int *cpu_port)
 {
 	u32 allowed_mask;
@@ -1073,7 +1075,7 @@ yt921x_userport_current_cpu_port_get(struct yt921x_priv *priv, int port, int *cp
 	return 0;
 }
 
-static int yt921x_secondary_cpu_isolation_sync(struct yt921x_priv *priv,
+int yt921x_secondary_cpu_isolation_sync(struct yt921x_priv *priv,
 					       int cpu_port)
 {
 	struct dsa_switch *ds = &priv->ds;
@@ -1101,7 +1103,7 @@ static int yt921x_secondary_cpu_isolation_sync(struct yt921x_priv *priv,
 	return yt921x_port_isolation_set(priv, cpu_port, blocked_mask);
 }
 
-static int
+int
 yt921x_dsa_conduit_to_cpu_port(struct dsa_switch *ds, struct net_device *conduit,
 			       struct netlink_ext_ack *extack)
 {
@@ -1127,7 +1129,7 @@ yt921x_dsa_conduit_to_cpu_port(struct dsa_switch *ds, struct net_device *conduit
 	return cpu_dp->index;
 }
 
-static int
+int
 yt921x_conduit_fdb_retarget(struct yt921x_priv *priv, int user_port,
 			    int old_cpu_port, int new_cpu_port)
 {
@@ -1173,7 +1175,7 @@ yt921x_bridge_block_mask(struct yt921x_priv *priv, int port, u16 ports_mask,
 	return blocked_mask;
 }
 
-static int yt921x_userport_standalone(struct yt921x_priv *priv, int port)
+int yt921x_userport_standalone(struct yt921x_priv *priv, int port)
 {
 	u32 mask;
 	u32 blocked_mask;
@@ -1404,7 +1406,7 @@ yt921x_bridge_flags(struct yt921x_priv *priv, int port,
 	return 0;
 }
 
-static int
+int
 yt921x_dsa_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 				 struct switchdev_brport_flags flags,
 				 struct netlink_ext_ack *extack)
@@ -1422,7 +1424,7 @@ yt921x_dsa_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 	return 0;
 }
 
-static int
+int
 yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 			     struct switchdev_brport_flags flags,
 			     struct netlink_ext_ack *extack)
@@ -1445,7 +1447,7 @@ yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static void
+void
 yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 			     struct dsa_bridge bridge)
 {
@@ -1467,7 +1469,7 @@ yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 			port, res);
 }
 
-static int
+int
 yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 			    struct dsa_bridge bridge, bool *tx_fwd_offload,
 			    struct netlink_ext_ack *extack)
@@ -1490,5 +1492,3 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 
 	return res;
 }
-
-static int

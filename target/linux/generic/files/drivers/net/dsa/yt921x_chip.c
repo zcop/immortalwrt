@@ -6,6 +6,8 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
+#include "yt921x_internal.h"
+
 static int yt921x_port_setup(struct yt921x_priv *priv, int port)
 {
 	struct dsa_switch *ds = &priv->ds;
@@ -85,7 +87,7 @@ static int yt921x_port_setup(struct yt921x_priv *priv, int port)
 	return 0;
 }
 
-static enum dsa_tag_protocol
+enum dsa_tag_protocol
 yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 			    enum dsa_tag_protocol m)
 {
@@ -98,7 +100,7 @@ yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 	return DSA_TAG_PROTO_YT921X;
 }
 
-static int yt921x_dsa_port_setup(struct dsa_switch *ds, int port)
+int yt921x_dsa_port_setup(struct dsa_switch *ds, int port)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
@@ -110,7 +112,7 @@ static int yt921x_dsa_port_setup(struct dsa_switch *ds, int port)
 	return res;
 }
 
-static int
+int
 yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 			       struct net_device *conduit,
 			       struct netlink_ext_ack *extack)
@@ -210,7 +212,7 @@ out_unlock:
 	return res;
 }
 
-static int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
+int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
 				  struct phy_device *phydev)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -235,7 +237,7 @@ static int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static void yt921x_dsa_port_disable(struct dsa_switch *ds, int port)
+void yt921x_dsa_port_disable(struct dsa_switch *ds, int port)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 stp_ctrl;
@@ -274,7 +276,7 @@ static void yt921x_dsa_port_disable(struct dsa_switch *ds, int port)
 }
 
 /* Not "port" - DSCP mapping is global */
-static int __maybe_unused
+int __maybe_unused
 yt921x_dsa_port_get_dscp_prio(struct dsa_switch *ds, int port, u8 dscp)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -291,7 +293,7 @@ yt921x_dsa_port_get_dscp_prio(struct dsa_switch *ds, int port, u8 dscp)
 	return FIELD_GET(YT921X_IPM_PRIO_M, val);
 }
 
-static int __maybe_unused
+int __maybe_unused
 yt921x_dsa_port_del_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -316,7 +318,7 @@ yt921x_dsa_port_del_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
 	return res;
 }
 
-static int __maybe_unused
+int __maybe_unused
 yt921x_dsa_port_add_dscp_prio(struct dsa_switch *ds, int port, u8 dscp, u8 prio)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -450,7 +452,7 @@ static int yt921x_chip_detect(struct yt921x_priv *priv)
 	return 0;
 }
 
-static int yt921x_chip_reset(struct yt921x_priv *priv)
+int yt921x_chip_reset(struct yt921x_priv *priv)
 {
 	struct device *dev = yt921x_dev(priv);
 	u16 eth_p_tag;
@@ -619,7 +621,7 @@ static int yt921x_qos_remark_index(u8 prio, u8 dp, bool spri, u8 *idxp)
 	return 0;
 }
 
-static int yt921x_qos_remark_dscp_set(struct yt921x_priv *priv, u8 prio, u8 dp,
+int yt921x_qos_remark_dscp_set(struct yt921x_priv *priv, u8 prio, u8 dp,
 				      u8 dscp)
 {
 	u8 idx;
@@ -1208,7 +1210,7 @@ static int __maybe_unused yt921x_chip_setup_qos(struct yt921x_priv *priv)
 	return 0;
 }
 
-static int yt921x_chip_setup(struct yt921x_priv *priv)
+int yt921x_chip_setup(struct yt921x_priv *priv)
 {
 	u32 ctrl;
 	int res;

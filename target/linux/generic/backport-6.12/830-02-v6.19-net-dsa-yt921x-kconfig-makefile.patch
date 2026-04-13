@@ -36,11 +36,19 @@ Signed-off-by: David Yang <mmyangfl@gmail.com>
  endmenu
 --- a/drivers/net/dsa/Makefile
 +++ b/drivers/net/dsa/Makefile
-@@ -18,6 +18,7 @@ obj-$(CONFIG_NET_DSA_SMSC_LAN9303_MDIO) += lan9303_mdio.o
+@@ -18,7 +18,16 @@ obj-$(CONFIG_NET_DSA_SMSC_LAN9303_MDIO) += lan9303_mdio.o
  obj-$(CONFIG_NET_DSA_VITESSE_VSC73XX) += vitesse-vsc73xx-core.o
  obj-$(CONFIG_NET_DSA_VITESSE_VSC73XX_PLATFORM) += vitesse-vsc73xx-platform.o
  obj-$(CONFIG_NET_DSA_VITESSE_VSC73XX_SPI) += vitesse-vsc73xx-spi.o
-+obj-$(CONFIG_NET_DSA_YT921X) += yt921x.o
++obj-$(CONFIG_NET_DSA_YT921X) += yt921x_driver.o
++yt921x_driver-y := \
++	yt921x.o \
++	yt921x_core.o \
++	yt921x_qos_tc.o \
++	yt921x_acl.o \
++	yt921x_l2.o \
++	yt921x_port.o \
++	yt921x_chip.o
  obj-y				+= b53/
  obj-y				+= hirschmann/
  obj-y				+= microchip/

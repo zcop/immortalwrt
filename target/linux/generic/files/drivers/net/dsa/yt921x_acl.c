@@ -6,8 +6,9 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
+#include "yt921x_internal.h"
+
 #define YT921X_ACL_METER_ID_INVALID	U8_MAX
-#define YT921X_ACL_METER_ID_BLACKHOLE	(YT921X_METER_NUM - 1)
 
 static int yt921x_acl_meter_alloc(struct yt921x_priv *priv, u32 *meter_idp)
 {
@@ -1219,7 +1220,7 @@ static int yt921x_acl_mirror_get(struct yt921x_priv *priv, int to_local_port,
 				 struct netlink_ext_ack *extack);
 static void yt921x_acl_mirror_put(struct yt921x_priv *priv, int to_local_port);
 
-static int
+int
 yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
 			    struct flow_cls_offload *cls, bool ingress)
 {
@@ -1229,7 +1230,7 @@ yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
 	return -EOPNOTSUPP;
 }
 
-static int
+int
 yt921x_dsa_cls_flower_del(struct dsa_switch *ds, int port,
 			  struct flow_cls_offload *cls, bool ingress)
 {
@@ -1252,7 +1253,7 @@ yt921x_dsa_cls_flower_del(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static int
+int
 yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 			  struct flow_cls_offload *cls, bool ingress)
 {
@@ -1372,7 +1373,7 @@ yt921x_mirror_prio_map_apply(struct yt921x_priv *priv, bool enable)
 	return yt921x_reg_write(priv, YT921X_MIRROR_PRIO_MAP, ctrl);
 }
 
-static int
+int
 yt921x_mirror_del(struct yt921x_priv *priv, int port, bool ingress)
 {
 	u32 src_mask;
@@ -1407,7 +1408,7 @@ yt921x_mirror_del(struct yt921x_priv *priv, int port, bool ingress)
 	return 0;
 }
 
-static int
+int
 yt921x_mirror_add(struct yt921x_priv *priv, int port, bool ingress,
 		  int to_local_port, struct netlink_ext_ack *extack)
 {
