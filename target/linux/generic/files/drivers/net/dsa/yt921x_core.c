@@ -1517,6 +1517,32 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ce[] = {
 	YT921X_PROC_FIELD(18, 0, 0, "eir"),
 };
 
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_d3[] = {
+	YT921X_PROC_FIELD(3, 0, 28, "prio0_qid"),
+	YT921X_PROC_FIELD(3, 0, 24, "prio1_qid"),
+	YT921X_PROC_FIELD(3, 0, 20, "prio2_qid"),
+	YT921X_PROC_FIELD(3, 0, 16, "prio3_qid"),
+	YT921X_PROC_FIELD(3, 0, 12, "prio4_qid"),
+	YT921X_PROC_FIELD(3, 0, 8, "prio5_qid"),
+	YT921X_PROC_FIELD(3, 0, 4, "prio6_qid"),
+	YT921X_PROC_FIELD(3, 0, 0, "prio7_qid"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_d4[] = {
+	YT921X_PROC_FIELD(2, 0, 14, "prio0_qid"),
+	YT921X_PROC_FIELD(2, 0, 12, "prio1_qid"),
+	YT921X_PROC_FIELD(2, 0, 10, "prio2_qid"),
+	YT921X_PROC_FIELD(2, 0, 8, "prio3_qid"),
+	YT921X_PROC_FIELD(2, 0, 6, "prio4_qid"),
+	YT921X_PROC_FIELD(2, 0, 4, "prio5_qid"),
+	YT921X_PROC_FIELD(2, 0, 2, "prio6_qid"),
+	YT921X_PROC_FIELD(2, 0, 0, "prio7_qid"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_d7[] = {
+	YT921X_PROC_FIELD(8, 0, 0, "sp_mask"),
+};
+
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e4[] = {
 	YT921X_PROC_FIELD(5, 0, 0, "slot_time"),
 };
@@ -1556,6 +1582,21 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_eb[] = {
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ec[] = {
 	YT921X_PROC_FIELD(2, 0, 0, "token_unit_inv"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e6[] = {
+	YT921X_PROC_FIELD(10, 0, 18, "flow_f0"),
+	YT921X_PROC_FIELD(10, 0, 8, "flow_f1"),
+	YT921X_PROC_FIELD(4, 0, 4, "flow_f2"),
+	YT921X_PROC_FIELD(4, 0, 0, "flow_f3"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e7[] = {
+	YT921X_PROC_FIELD(1, 0, 0, "dwrr_en"),
+};
+
+static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e8[] = {
+	YT921X_PROC_FIELD(1, 0, 0, "dwrr_en"),
 };
 
 static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
@@ -1740,6 +1781,24 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_ce),
 	},
 	{
+		.id = 0xd3, .name = "qos-queue-map-ucast", .base = YT921X_QOS_QUEUE_MAP_UCAST,
+		.entry_words = 1, .rw_words = 1, .entries = YT921X_PORT_NUM,
+		.fields = yt921x_tbl_fields_d3,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_d3),
+	},
+	{
+		.id = 0xd4, .name = "qos-queue-map-mcast", .base = YT921X_QOS_QUEUE_MAP_MCAST,
+		.entry_words = 1, .rw_words = 1, .entries = YT921X_PORT_NUM,
+		.fields = yt921x_tbl_fields_d4,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_d4),
+	},
+	{
+		.id = 0xd7, .name = "qos-sched-sp", .base = YT921X_QOS_SCHED_SP,
+		.entry_words = 1, .rw_words = 1, .entries = YT921X_PORT_NUM,
+		.fields = yt921x_tbl_fields_d7,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_d7),
+	},
+	{
 		.id = 0xe4, .name = "qsch-slot-time", .base = 0x340008,
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 		.fields = yt921x_tbl_fields_e4,
@@ -1750,6 +1809,27 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 		.entry_words = 1, .rw_words = 1, .entries = 1,
 		.fields = yt921x_tbl_fields_e5,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e5),
+	},
+	{
+		.id = 0xe6, .name = "qsch-flow-map", .base = YT921X_QOS_SCHED_DWRR,
+		.entry_words = 1, .rw_words = 1,
+		.entries = YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_FLOWS_PER_PORT,
+		.fields = yt921x_tbl_fields_e6,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e6),
+	},
+	{
+		.id = 0xe7, .name = "qsch-dwrr-mode0", .base = YT921X_QOS_SCHED_DWRR_MODE0,
+		.entry_words = 1, .rw_words = 1,
+		.entries = YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_FLOWS_PER_PORT,
+		.fields = yt921x_tbl_fields_e7,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e7),
+	},
+	{
+		.id = 0xe8, .name = "qsch-dwrr-mode1", .base = YT921X_QOS_SCHED_DWRR_MODE1,
+		.entry_words = 1, .rw_words = 1,
+		.entries = YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_FLOWS_PER_PORT,
+		.fields = yt921x_tbl_fields_e8,
+		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e8),
 	},
 	{
 		.id = 0xe9, .name = "qsch-shp-cfg", .base = 0x34c000,
