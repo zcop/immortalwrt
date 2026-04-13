@@ -256,6 +256,12 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	const struct flow_dissector *dissector;
 	bool n_proto_is_ipv4 = false;
 	bool n_proto_is_ipv6 = false;
+	bool want_n_proto = false;
+	bool want_ip_proto = false;
+	__be16 n_proto = 0;
+	__be16 n_proto_mask = 0;
+	u8 ip_proto = 0;
+	u8 ip_proto_mask = 0;
 	struct yt921x_acl_entry *entry;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	u32 chain_mask = READ_ONCE(priv->acl_chain_key_mask);
@@ -283,9 +289,28 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		struct flow_match_basic match;
 
 		flow_rule_match_basic(rule, &match);
-		if (match.mask->n_proto == htons(0xffff)) {
-			n_proto_is_ipv4 = match.key->n_proto == htons(ETH_P_IP);
-			n_proto_is_ipv6 = match.key->n_proto == htons(ETH_P_IPV6);
+		n_proto_mask = match.mask->n_proto;
+		if (n_proto_mask) {
+			if (n_proto_mask != htons(0xffff)) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Only exact n_proto mask is supported");
+				return 0;
+			}
+			want_n_proto = true;
+			n_proto = match.key->n_proto;
+			n_proto_is_ipv4 = n_proto == htons(ETH_P_IP);
+			n_proto_is_ipv6 = n_proto == htons(ETH_P_IPV6);
+		}
+
+		ip_proto_mask = match.mask->ip_proto;
+		if (ip_proto_mask) {
+			if (ip_proto_mask != 0xff) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Only exact ip_proto mask is supported");
+				return 0;
+			}
+			want_ip_proto = true;
+			ip_proto = match.key->ip_proto;
 		}
 	}
 
@@ -296,6 +321,32 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	*entry = (typeof(*entry)){}; \
 	entry->meter_id = YT921X_ACL_METER_ID_INVALID; \
 	size++;
+
+	if (want_n_proto) {
+		entry_prepare();
+		entry->key[0] = FIELD_PREP(YT921X_ACL_BINa_ETH_TYPE_ETH_TYPE_M,
+					   ntohs(n_proto));
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_ETH_TYPE);
+		entry->mask[0] = FIELD_PREP(YT921X_ACL_BINa_ETH_TYPE_ETH_TYPE_M,
+					    ntohs(n_proto_mask));
+	}
+
+	if (want_ip_proto) {
+		if (!n_proto_is_ipv4 && !n_proto_is_ipv6) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ip_proto match requires exact protocol ip/ipv6");
+			return 0;
+		}
+
+		entry = yt921x_acl_find_misc(group, size);
+		if (!entry) {
+			entry_prepare();
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MISC);
+		}
+
+		entry->key[0] |= YT921X_ACL_BINa_MISC_IP_PROTO(ip_proto);
+		entry->mask[0] |= YT921X_ACL_BINa_MISC_IP_PROTO(ip_proto_mask);
+	}
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV4_ADDRS) &&
 	    !n_proto_is_ipv6) {
