@@ -8,85 +8,180 @@ Scope:
 - Validation baseline: Xiaomi CR881x runtime in this workspace
 
 Important:
-- The `13` entries in `agents.md` are milestone targets, not the total driver feature count.
-- The driver exposes more functionality than those 13 tracking buckets.
+- The first major section below is organized in the same feature-family style as the YT9215S datasheet.
+- The rest of this README maps those families to implemented driver surfaces.
 
-## What Is Implemented
+## YT9215S Key Features (Datasheet Form)
 
-### DSA Switch Ops Coverage (High-Level)
-- MIB/ethtool statistics surfaces (`get_strings`, `get_ethtool_stats`, `get_stats64`, pause/RMON/MAC/ctrl stats)
-- EEE support (`set_mac_eee`, `supports_eee`)
+Source: `Collection-Data/motorcom~yt9215s.pdf`
+Status semantics: `DONE`/`TODO` here indicates current driver exposure and validation in this tree.
+
+### High performance nonblocking switch
+- 7-port switch architecture - DONE
+- Integrated 5x 10/100/1000 PHY - DONE
+- IEEE 802.3x flow control/backpressure support - DONE
+
+### Interface
+- Embedded 5-port copper PHY block - DONE
+- Embedded SerDes interface (2.5G/1G class modes) - DONE
+- Embedded extension MAC interface (RGMII/MII/RMII class) - DONE
+
+### Advanced features
+- LED output modes - TODO
+- MDIO/I2C slave and master control interfaces - TODO
+- Interrupt signaling toward external CPU - TODO
+- EEPROM-assisted configuration - TODO
+- Jumbo frame support (up to 9K class) - DONE
+
+### IEEE 802.3ad link aggregation
+- Two LAG groups supported by silicon feature set - DONE
+
+### Security filtering
+- Per-port learning control - DONE
+- Per-port aging control - TODO
+- Unknown DA filtering mask controls - TODO
+- Port isolation - DONE
+- Broadcast/multicast/unknown-DA storm-control feature family - TODO
+
+### Control, management and statistics
+- RFC-family MIB coverage (including bridge/RMON classes) - DONE
+- OAM and EEE LLDP feature family - TODO
+- Loop detection feature family - TODO
+
+### Packet process engine
+- 802.1Q VLAN with 4K table class - DONE
+- Untag/tag decision controls - DONE
+- VLAN forwarding/policy controls - DONE
+- Port/tag/protocol-based VLAN modes - TODO
+- Per-port egress VLAN tag/untag controls - DONE
+- STP family (802.1D/s/w) - DONE
+- MVR feature - DONE
+- IVL/SVL/IVL+SVL modes - TODO
+- 802.1ad stacking VLAN - DONE
+- VLAN translation families (1:1 / 2:1 / 2:2 / N:1 / 1:N) - DONE
+- 802.1X access-control (port-based) - DONE
+- 802.1X access-control (MAC-based) - TODO
+- 802.1X access-control (guest VLAN) - DONE
+- ACL rule engine with multi-slice extension model - DONE
+- ACL advanced datasheet parity beyond current mapped shapes - TODO
+- IGMP/MLD snooping core - DONE
+- IGMP/MLD fast-leave - DONE
+- IGMP/MLD router-port policy parity - TODO
+- Mirror feature families (port-based and flow-based) - DONE
+- Reserved multicast control family - DONE
+- WoL feature family - TODO
+
+### Quality of service (QoS)
+- Queue scheduling families (SP/DWRR classes) - DONE
+- Queue/port shaping families - TODO
+- trTCM class policing families - TODO
+- Multi-source traffic classification - DONE
+- 8 unicast queues + 4 multicast queues per port class - DONE
+- Tail-drop and WRED feature families - TODO
+
+### Microprocessor
+- Integrated RISC-V microprocessor in silicon feature set - DONE
+
+## Hardware Offload Highlights
+
+- VLAN offload:
+  - bridge VLAN filtering
+  - per-port VLAN add/del (PVID/untagged semantics via DSA VLAN path)
+  - hardware FDB/MDB forwarding domains tied to VLAN context
+- L2 forwarding offload:
+  - hardware FDB learning/aging path and fast-age operations
+  - MDB hardware multicast replication path
+- ACL offload:
+  - ingress/egress `tc flower` offload with hardware actions
+  - UDF-backed TTL/hop-limit matching path
+- QoS bandwidth offload:
+  - queue bandwidth shaping via `tc tbf` offload path
+  - ingress bandwidth policing via DSA policer path
+  - hardware queue scheduling policies via `mqprio`/`ets`
+- Bridge dataplane controls offload:
+  - STP/MST state programming
+  - bridge flag programming where hardware semantics are supported
+
+## Capability Inventory (Broader Than 13 Targets)
+
+### Switch Bring-Up and Buses
+- MDIO-managed switch probing and reset/setup pipeline
+- Optional internal MDIO child bus init (`mdio`)
+- Optional external MDIO child bus init (`mdio-external`)
+
+### Port and Link Management
+- Port setup/enable/disable
+- Conduit retarget (`port_change_conduit`)
 - MTU control (`port_change_mtu`, `port_max_mtu`)
-- STP/MST integration (`port_stp_state_set`, `port_mst_state_set`, `vlan_msti_set`)
-- Phylink MAC ops and capability advertisement (`phylink_get_caps`, `mac_config`, `mac_link_up/down`)
-- Conduit migration support (`port_change_conduit`)
+- Phylink MAC ops (`mac_config`, `mac_link_up`, `mac_link_down`)
+- Interface capability advertisement (`phylink_get_caps`)
 
-### Core DSA/L2
-- Port bridge join/leave and bridge flags
-- VLAN add/del/filtering
-- FDB add/del/dump
+### L2 Bridge and Forwarding
+- Bridge join/leave
+- Bridge flags (`learning`, mcast/bcast flood, fast-leave, hairpin, isolation) with strict pre-checks
+- STP/MST (`port_stp_state_set`, `port_mst_state_set`, `vlan_msti_set`)
+- VLAN filtering/add/del
+- FDB add/del/dump, fast age, ageing time
 - MDB add/del (hardware multicast group programming)
-- LAG join/leave (bounded hardware mode)
+- LAG join/leave (bounded hardware support)
 - Port mirror add/del
 
-### Control/Trust/QoS Mapping Surfaces
+### Statistics and Telemetry
+- ethtool stats strings/count/data
+- MAC/CTRL/RMON/pause statistics surfaces
+- 64-bit per-port stats path
+
+### QoS, Trust, and DCB Surfaces
 - DCB default priority get/set
 - Application trust profile get/set
-- DSCP-to-priority mapping add/del/get
-- Queue scheduling/shaping control paths used by `mqprio`/`ets`/`tbf` offload
+- DSCP priority mapping add/del/get
+- TC offload families:
+  - `flower` (ACL)
+  - `mqprio`
+  - `ets`
+  - `tbf`
+  - ingress policer add/del path
 
-### ACL Offload (`tc flower`)
-- Ingress ACL offload
-- Egress ACL offload (supported subset, with fast-fail for unsupported key shapes)
-- Actions:
+### ACL Engine Offload (`tc flower`)
+- Ingress and egress ACL offload (egress uses supported subset)
+- Actions implemented:
   - drop
   - redirect
   - mirror
   - trap
   - skbedit priority
-  - pedit DSCP rewrite (IPv4 + IPv6 traffic class)
-  - csum action acceptance for IPv4-header recalc chain shape used with DSCP rewrite
+  - pedit DSCP rewrite (`ip dsfield`, `ip6 traffic_class`)
+  - constrained csum-chain acceptance for IPv4 header update form
+- Parser behavior is intentionally strict:
+  - unsupported shapes are rejected (`-EOPNOTSUPP`/`-EINVAL`)
+  - resource exhaustion returns clean `-ENOSPC` (no silent wrap/corruption)
 
-### ACL UDF
-- Userspace-offloaded UDF matching is wired for deterministic TTL/Hop-Limit match shape via `FLOW_DISSECTOR_KEY_IP` (`ip_ttl`)
-- IPv4 and IPv6 parity validated for TTL/Hop-Limit style matching
-- Resource/path limits are fast-failed with `-EOPNOTSUPP`/`-ENOSPC` (no silent partial behavior)
+### ACL UDF Surfaces
+- UDF-backed `ip_ttl` / IPv6 hop-limit match path
+- UDF selector remap/refcount lifecycle handling
+- Strict guardrails for unsupported combined shapes
 
-### QoS/TC
-- `mqprio` offload path
-- `ets` offload path (current mapped subset)
-- Queue `tbf` offload path
-- Ingress policer path with guarded fallback behavior in driver
+### Tagger and CPU Conduit Behavior
+- Custom DSA tag protocol (`DSA_TAG_PROTO_YT921X`)
+- Tagged primary CPU conduit path
+- Secondary conduit raw-frame fallback handling
+- RX source-port decode and forwarded-mark integration
 
-### Reserved Multicast
-- Reserved multicast policy surface is implemented and validated (trap/copy/drop path control via driver debug command surface)
-
-### Advanced VLAN Control Surface
-- Advanced VLAN table/control register surfaces are mapped into the driver debug command interface (translation-related table IDs and field decoding coverage)
-- Live control-path and safe write/restore validation completed
-
-### Additional Debug/Bring-Up Surfaces
-- Register/table/field read-write command interface (debug build)
-- RMA policy controls, loop-detect/WoL register-path controls, and unknown flood policy inspection helpers (debug-gated)
-
-## Current Feature Status (From `agents.md`)
-
-DONE:
-- 1) ACL Egress Offload
-- 2) ACL Redirect Offload
-- 3) ACL Mirror Offload
-- 4) ACL Trap Offload
-- 5) Advanced VLAN: Translation / QinQ / MVR (current driver-phase milestone)
-- 6) 802.1X + Guest VLAN Controls
-- 7) IGMP/MLD Advanced Snooping Controls
-- 12) Reserved Multicast Control
-- 13) ACL UDF Userspace Offload
-
-TODO:
-- 8) QoS Queue Drop Policy Controls (tail-drop/WRED style behavior proof)
-- 9) Loop Detection / WOL / OAM-EEE LLDP Controls (remaining deterministic dataplane proof gaps)
-- 10) Port Security/Policy Knobs (policy programming path behavior gap)
-- 11) ACL Advanced Parity (remaining datasheet surface not yet mapped to tc parser/actions)
+### Advanced/Engineering Surfaces (Debug Build)
+- Full low-level register and table command surface:
+  - `reg/int/ext` read-write
+  - `tbl info/read/write`
+  - `field get/set`
+  - raw range dump
+- Additional engineering controls exposed via debug commands:
+  - unknown flood/action controls
+  - ctrlpkt controls (ARP/ND/LLDP/EEE-LLDP)
+  - 802.1X VLAN bypass controls
+  - RMA policy controls
+  - loop-detect register controls
+  - WoL register controls
+  - storm guard controls
+  - ACL chain helper controls
 
 ## User-Facing APIs
 
@@ -114,7 +209,6 @@ Design intent:
 
 ## Useful References
 
-- Feature tracker and evidence log: `agents.md`
 - Register map: `docs/yt921x/yt9215-register-map.md`
 - Register-map changelog: `docs/yt921x/yt9215-register-map-changelog.md`
 - Live reverse-engineering notes: `docs/yt921x/live/`
