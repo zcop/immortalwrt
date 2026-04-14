@@ -188,6 +188,7 @@ void yt921x_dsa_get_stats64(struct dsa_switch *ds, int port,
 void yt921x_dsa_get_pause_stats(struct dsa_switch *ds, int port,
 				struct ethtool_pause_stats *pause_stats);
 int yt921x_dsa_set_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e);
+int yt921x_dsa_get_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e);
 void yt921x_dsa_get_wol(struct dsa_switch *ds, int port,
 			struct ethtool_wolinfo *w);
 int yt921x_dsa_set_wol(struct dsa_switch *ds, int port,

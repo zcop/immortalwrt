@@ -518,6 +518,32 @@ yt921x_dsa_set_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e)
 	return res;
 }
 
+int
+yt921x_dsa_get_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 eee_ctrl;
+	u32 eee_val;
+	int res;
+
+	if (!dsa_is_user_port(ds, port))
+		return -EOPNOTSUPP;
+
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_reg_read(priv, YT921X_EEE_CTRL, &eee_ctrl);
+	if (!res)
+		res = yt921x_reg_read(priv, YT921X_EEEn_VAL(port), &eee_val);
+	mutex_unlock(&priv->reg_lock);
+	if (res)
+		return res;
+
+	e->eee_enabled = !!(eee_ctrl & YT921X_EEE_CTRL_ENn(port)) &&
+			 !!(eee_val & YT921X_EEE_VAL_DATA);
+	e->tx_lpi_enabled = e->eee_enabled;
+
+	return 0;
+}
+
 void
 yt921x_dsa_get_wol(struct dsa_switch *ds, int port, struct ethtool_wolinfo *w)
 {
