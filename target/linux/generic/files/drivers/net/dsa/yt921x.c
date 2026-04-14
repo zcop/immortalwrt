@@ -213,6 +213,34 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 	priv->reg_ctx = mdio;
 	priv->primary_cpu_port = -1;
 	priv->secondary_cpu_port = -1;
+	priv->dt_rma_slow_action = -1;
+	priv->dt_ctrlpkt_lldp_act = -1;
+	priv->dt_ctrlpkt_lldp_eee_act = -1;
+
+	if (dev->of_node) {
+		u32 val;
+
+		if (!of_property_read_u32(dev->of_node,
+					  "motorcomm,rma-slow-action", &val))
+			priv->dt_rma_slow_action = val;
+		else if (!of_property_read_u32(dev->of_node,
+					       "rma-slow-action", &val))
+			priv->dt_rma_slow_action = val;
+
+		if (!of_property_read_u32(dev->of_node,
+					  "motorcomm,ctrlpkt-lldp-act", &val))
+			priv->dt_ctrlpkt_lldp_act = val;
+		else if (!of_property_read_u32(dev->of_node,
+					       "ctrlpkt-lldp-act", &val))
+			priv->dt_ctrlpkt_lldp_act = val;
+
+		if (!of_property_read_u32(dev->of_node,
+					  "motorcomm,ctrlpkt-lldp-eee-act", &val))
+			priv->dt_ctrlpkt_lldp_eee_act = val;
+		else if (!of_property_read_u32(dev->of_node,
+					       "ctrlpkt-lldp-eee-act", &val))
+			priv->dt_ctrlpkt_lldp_eee_act = val;
+	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(priv->ports); i++) {
 		struct yt921x_port *pp = &priv->ports[i];

@@ -1295,6 +1295,9 @@ struct yt921x_priv {
 	u32 storm_policer_burst;
 	u8 vlan_fid_mode;
 	u16 vlan_svl_fid;
+	int dt_rma_slow_action;
+	int dt_ctrlpkt_lldp_act;
+	int dt_ctrlpkt_lldp_eee_act;
 };
 
 #endif

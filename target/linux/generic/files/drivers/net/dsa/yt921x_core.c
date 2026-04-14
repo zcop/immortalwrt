@@ -347,16 +347,20 @@ int yt921x_rma_setup_locked(struct yt921x_priv *priv)
 	 */
 	static const u8 trap_to_cpu[] = { 0x00, 0x02, 0x03, 0x0e };
 	enum yt921x_rma_action slow_action = YT921X_RMA_ACT_TRAP_TO_CPU;
+	int slow_action_opt = yt921x_rma_slow_action;
 	int i;
 	int res;
 
-	if (yt921x_rma_slow_action >= YT921X_RMA_ACT_FORWARD &&
-	    yt921x_rma_slow_action <= YT921X_RMA_ACT_DROP)
-		slow_action = yt921x_rma_slow_action;
-	else if (yt921x_rma_slow_action != -1)
+	if (priv->dt_rma_slow_action != -1)
+		slow_action_opt = priv->dt_rma_slow_action;
+
+	if (slow_action_opt >= YT921X_RMA_ACT_FORWARD &&
+	    slow_action_opt <= YT921X_RMA_ACT_DROP)
+		slow_action = slow_action_opt;
+	else if (slow_action_opt != -1)
 		dev_warn(yt921x_dev(priv),
 			 "Invalid rma_slow_action=%d, using default trap\n",
-			 yt921x_rma_slow_action);
+			 slow_action_opt);
 
 	for (i = 0; i < ARRAY_SIZE(trap_to_cpu); i++) {
 		enum yt921x_rma_action action = YT921X_RMA_ACT_TRAP_TO_CPU;
@@ -377,30 +381,38 @@ int yt921x_rma_setup_locked(struct yt921x_priv *priv)
 int yt921x_ctrlpkt_setup_locked(struct yt921x_priv *priv)
 {
 	struct device *dev = yt921x_dev(priv);
+	int lldp_eee_act = yt921x_ctrlpkt_lldp_eee_act;
+	int lldp_act = yt921x_ctrlpkt_lldp_act;
 	int res;
 
-	if (yt921x_ctrlpkt_lldp_eee_act != -1) {
-		if (yt921x_ctrlpkt_lldp_eee_act & ~YT921X_FILTER_PORTS_M) {
+	if (priv->dt_ctrlpkt_lldp_eee_act != -1)
+		lldp_eee_act = priv->dt_ctrlpkt_lldp_eee_act;
+
+	if (priv->dt_ctrlpkt_lldp_act != -1)
+		lldp_act = priv->dt_ctrlpkt_lldp_act;
+
+	if (lldp_eee_act != -1) {
+		if (lldp_eee_act & ~YT921X_FILTER_PORTS_M) {
 			dev_err(dev, "Invalid ctrlpkt_lldp_eee_act=0x%x\n",
-				yt921x_ctrlpkt_lldp_eee_act);
+				lldp_eee_act);
 			return -EINVAL;
 		}
 
 		res = yt921x_reg_write(priv, YT921X_CTRLPKT_LLDP_EEE_ACT,
-				       yt921x_ctrlpkt_lldp_eee_act);
+				       lldp_eee_act);
 		if (res)
 			return res;
 	}
 
-	if (yt921x_ctrlpkt_lldp_act != -1) {
-		if (yt921x_ctrlpkt_lldp_act & ~YT921X_FILTER_PORTS_M) {
+	if (lldp_act != -1) {
+		if (lldp_act & ~YT921X_FILTER_PORTS_M) {
 			dev_err(dev, "Invalid ctrlpkt_lldp_act=0x%x\n",
-				yt921x_ctrlpkt_lldp_act);
+				lldp_act);
 			return -EINVAL;
 		}
 
 		res = yt921x_reg_write(priv, YT921X_CTRLPKT_LLDP_ACT,
-				       yt921x_ctrlpkt_lldp_act);
+				       lldp_act);
 		if (res)
 			return res;
 	}
