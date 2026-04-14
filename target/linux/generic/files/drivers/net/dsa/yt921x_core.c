@@ -205,6 +205,25 @@ enum yt921x_rma_action {
 	YT921X_RMA_ACT_DROP = 3,
 };
 
+/* Release-facing optional policy overrides.
+ * -1 keeps the stock default behavior.
+ */
+static int yt921x_rma_slow_action = -1;
+module_param_named(rma_slow_action, yt921x_rma_slow_action, int, 0644);
+MODULE_PARM_DESC(rma_slow_action,
+		 "RMA action for 01:80:c2:00:00:02 (slow protocols): "
+		 "-1=default trap, 0=forward, 1=trap, 2=copy, 3=drop");
+
+static int yt921x_ctrlpkt_lldp_eee_act = -1;
+module_param_named(ctrlpkt_lldp_eee_act, yt921x_ctrlpkt_lldp_eee_act, int, 0644);
+MODULE_PARM_DESC(ctrlpkt_lldp_eee_act,
+		 "Port mask for LLDP EEE control packets (tbl 0x76), -1 keeps stock");
+
+static int yt921x_ctrlpkt_lldp_act = -1;
+module_param_named(ctrlpkt_lldp_act, yt921x_ctrlpkt_lldp_act, int, 0644);
+MODULE_PARM_DESC(ctrlpkt_lldp_act,
+		 "Port mask for LLDP control packets (tbl 0x77), -1 keeps stock");
+
 int yt921x_loop_detect_setup_locked(struct yt921x_priv *priv)
 {
 	u32 ctrl;
@@ -327,13 +346,61 @@ int yt921x_rma_setup_locked(struct yt921x_priv *priv)
 	 * Trap to CPU for software control-plane handling.
 	 */
 	static const u8 trap_to_cpu[] = { 0x00, 0x02, 0x03, 0x0e };
+	enum yt921x_rma_action slow_action = YT921X_RMA_ACT_TRAP_TO_CPU;
 	int i;
 	int res;
 
+	if (yt921x_rma_slow_action >= YT921X_RMA_ACT_FORWARD &&
+	    yt921x_rma_slow_action <= YT921X_RMA_ACT_DROP)
+		slow_action = yt921x_rma_slow_action;
+	else if (yt921x_rma_slow_action != -1)
+		dev_warn(yt921x_dev(priv),
+			 "Invalid rma_slow_action=%d, using default trap\n",
+			 yt921x_rma_slow_action);
+
 	for (i = 0; i < ARRAY_SIZE(trap_to_cpu); i++) {
+		enum yt921x_rma_action action = YT921X_RMA_ACT_TRAP_TO_CPU;
+
+		if (trap_to_cpu[i] == 0x02)
+			action = slow_action;
+
 		res = yt921x_stock_rma_ctrl_set(
-			priv, trap_to_cpu[i], YT921X_RMA_ACT_TRAP_TO_CPU,
+			priv, trap_to_cpu[i], action,
 			true, true);
+		if (res)
+			return res;
+	}
+
+	return 0;
+}
+
+int yt921x_ctrlpkt_setup_locked(struct yt921x_priv *priv)
+{
+	struct device *dev = yt921x_dev(priv);
+	int res;
+
+	if (yt921x_ctrlpkt_lldp_eee_act != -1) {
+		if (yt921x_ctrlpkt_lldp_eee_act & ~YT921X_FILTER_PORTS_M) {
+			dev_err(dev, "Invalid ctrlpkt_lldp_eee_act=0x%x\n",
+				yt921x_ctrlpkt_lldp_eee_act);
+			return -EINVAL;
+		}
+
+		res = yt921x_reg_write(priv, YT921X_CTRLPKT_LLDP_EEE_ACT,
+				       yt921x_ctrlpkt_lldp_eee_act);
+		if (res)
+			return res;
+	}
+
+	if (yt921x_ctrlpkt_lldp_act != -1) {
+		if (yt921x_ctrlpkt_lldp_act & ~YT921X_FILTER_PORTS_M) {
+			dev_err(dev, "Invalid ctrlpkt_lldp_act=0x%x\n",
+				yt921x_ctrlpkt_lldp_act);
+			return -EINVAL;
+		}
+
+		res = yt921x_reg_write(priv, YT921X_CTRLPKT_LLDP_ACT,
+				       yt921x_ctrlpkt_lldp_act);
 		if (res)
 			return res;
 	}

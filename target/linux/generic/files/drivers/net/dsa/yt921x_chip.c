@@ -926,6 +926,11 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "rma");
 #endif
 
+	/* Apply optional release-facing control-packet policy overrides. */
+	res = yt921x_ctrlpkt_setup_locked(priv);
+	if (res)
+		return res;
+
 	/* Multicast control plane defaults from stock path:
 	 * - router ports pinned to CPU conduits
 	 * - report/query/leave processing allowed

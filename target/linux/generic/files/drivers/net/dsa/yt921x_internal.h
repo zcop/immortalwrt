@@ -128,6 +128,7 @@ int yt921x_mbus_ext_init(struct yt921x_priv *priv, struct device_node *mnp);
 
 int yt921x_loop_detect_setup_locked(struct yt921x_priv *priv);
 int yt921x_rma_setup_locked(struct yt921x_priv *priv);
+int yt921x_ctrlpkt_setup_locked(struct yt921x_priv *priv);
 int yt921x_apply_flood_filters_locked(struct yt921x_priv *priv);
 int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv);
 int yt921x_proc_init(struct yt921x_priv *priv);
