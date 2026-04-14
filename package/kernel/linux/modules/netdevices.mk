@@ -909,6 +909,25 @@ endef
 
 $(eval $(call KernelPackage,dsa-qca8k))
 
+define KernelPackage/dsa-yt921x
+  SUBMENU:=$(NETWORK_DEVICES_MENU)
+  TITLE:=Motorcomm YT921x switch DSA support
+  DEPENDS:=+kmod-dsa
+  KCONFIG:= \
+	CONFIG_NET_DSA_YT921X \
+	CONFIG_NET_DSA_TAG_YT921X
+  FILES:= \
+	$(LINUX_DIR)/drivers/net/dsa/yt921x_driver.ko \
+	$(LINUX_DIR)/net/dsa/tag_yt921x.ko
+  AUTOLOAD:=$(call AutoLoad,42,yt921x_driver,1)
+endef
+
+define KernelPackage/dsa-yt921x/description
+  DSA based kernel modules for Motorcomm YT921x switch family
+endef
+
+$(eval $(call KernelPackage,dsa-yt921x))
+
 
 define KernelPackage/dsa-realtek
   SUBMENU:=$(NETWORK_DEVICES_MENU)

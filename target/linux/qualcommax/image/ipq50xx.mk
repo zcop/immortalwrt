@@ -214,9 +214,8 @@ define Device/xiaomi_cr881x
 		-ath11k-firmware-ipq5018 \
 		ethtool ip-full tcpdump phytool mii-tool luci-app-portstatus \
 		autocore \
-		luci-app-cr881x-yt921x-qos wan-conduit-manager luci-app-cr881x-wan-mode \
-		luci-app-wan-conduit-manager \
-		kmod-net-dsa
+		luci-app-cr881x-yt921x-qos luci-app-cr881x-wan-mode \
+		kmod-net-dsa kmod-dsa-yt921x
 endef
 TARGET_DEVICES += xiaomi_cr881x
 
