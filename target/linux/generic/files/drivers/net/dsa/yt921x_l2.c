@@ -1335,6 +1335,45 @@ yt921x_dsa_bridge_ports(struct dsa_switch *ds, const struct net_device *bdev)
 	return mask;
 }
 
+static int yt921x_sync_mrouter_masks_locked(struct yt921x_priv *priv)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	u32 router_mask;
+	u32 user_mask;
+	int res;
+
+	router_mask = priv->cpu_ports_mask & YT921X_MCAST_STATIC_ROUTER_PORT_M;
+	user_mask = 0;
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		user_mask |= BIT(dp->index);
+		if (priv->ports[dp->index].mrouter &&
+		    dsa_port_bridge_dev_get(dp))
+			router_mask |= BIT(dp->index);
+	}
+
+	res = yt921x_reg_update_bits(priv, YT921X_MCAST_STATIC_ROUTER_PORT,
+				     YT921X_MCAST_STATIC_ROUTER_PORT_M,
+				     router_mask);
+	if (res)
+		return res;
+
+	res = yt921x_reg_update_bits(priv, YT921X_MCAST_DYNAMIC_ROUTER_PORT,
+				     YT921X_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M,
+				     YT921X_MCAST_DYNAMIC_ROUTER_PORT_ALLOW(router_mask));
+	if (res)
+		return res;
+
+	/* Keep unknown multicast punt anchored on p10 by default.
+	 * Hardware polarity for user ports is drop-mask style: set bit => block.
+	 * So router ports must have their user bit cleared.
+	 */
+	return yt921x_reg_update_bits(priv, YT921X_FILTER_UNK_MCAST,
+				      user_mask | BIT(10),
+				      ((~router_mask) & user_mask) | BIT(10));
+}
+
 static int
 yt921x_bridge_flags(struct yt921x_priv *priv, int port,
 		    struct switchdev_brport_flags flags)
@@ -1473,6 +1512,22 @@ yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 	return res;
 }
 
+int yt921x_dsa_port_mrouter(struct dsa_switch *ds, int port, bool mrouter)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	int res;
+
+	if (dsa_is_cpu_port(ds, port))
+		return 0;
+
+	mutex_lock(&priv->reg_lock);
+	priv->ports[port].mrouter = mrouter;
+	res = yt921x_sync_mrouter_masks_locked(priv);
+	mutex_unlock(&priv->reg_lock);
+
+	return res;
+}
+
 void
 yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 			     struct dsa_bridge bridge)
@@ -1488,6 +1543,10 @@ yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 	res = yt921x_bridge_leave(priv, port);
 	if (!res)
 		res = yt921x_refresh_flood_masks_locked(priv);
+	if (!res) {
+		priv->ports[port].mrouter = false;
+		res = yt921x_sync_mrouter_masks_locked(priv);
+	}
 	mutex_unlock(&priv->reg_lock);
 
 	if (res)

@@ -263,6 +263,7 @@ int yt921x_dsa_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 int yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 				 struct switchdev_brport_flags flags,
 				 struct netlink_ext_ack *extack);
+int yt921x_dsa_port_mrouter(struct dsa_switch *ds, int port, bool mrouter);
 void yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 				  struct dsa_bridge bridge);
 int yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,

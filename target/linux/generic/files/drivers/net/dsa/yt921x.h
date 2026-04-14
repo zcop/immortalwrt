@@ -1231,6 +1231,7 @@ struct yt921x_port {
 	bool mcast_flood;
 	bool bcast_flood;
 	bool mcast_fast_leave;
+	bool mrouter;
 	bool port_up;
 
 	struct delayed_work mib_read;

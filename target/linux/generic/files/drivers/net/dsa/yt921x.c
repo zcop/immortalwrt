@@ -119,6 +119,7 @@ static const struct dsa_switch_ops yt921x_dsa_switch_ops = {
 	/* bridge */
 	.port_pre_bridge_flags	= yt921x_dsa_port_pre_bridge_flags,
 	.port_bridge_flags	= yt921x_dsa_port_bridge_flags,
+	.port_mrouter		= yt921x_dsa_port_mrouter,
 	.port_bridge_leave	= yt921x_dsa_port_bridge_leave,
 	.port_bridge_join	= yt921x_dsa_port_bridge_join,
 	/* mst */
