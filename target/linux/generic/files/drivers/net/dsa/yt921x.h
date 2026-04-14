@@ -1216,6 +1216,7 @@ struct yt921x_port {
 
 	bool hairpin;
 	bool isolated;
+	bool ucast_flood;
 	bool mcast_flood;
 	bool bcast_flood;
 	bool mcast_fast_leave;
@@ -1280,6 +1281,7 @@ struct yt921x_priv {
 #endif
 
 	u16 eee_ports_mask;
+	u16 flood_unk_ucast_base_mask;
 	u16 flood_mcast_base_mask;
 	u16 flood_bcast_base_mask;
 	u16 flood_storm_mask;

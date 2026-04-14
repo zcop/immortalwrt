@@ -995,6 +995,7 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	/* Keep stock-safe defaults for flood filters until semantics are fully
 	 * mapped on YT9215.
 	 */
+	priv->flood_unk_ucast_base_mask = BIT(10);
 	priv->flood_mcast_base_mask = BIT(10);
 	priv->flood_bcast_base_mask = BIT(10);
 	priv->flood_storm_mask = 0;

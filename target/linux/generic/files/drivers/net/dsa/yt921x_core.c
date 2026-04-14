@@ -343,12 +343,18 @@ int yt921x_rma_setup_locked(struct yt921x_priv *priv)
 
 int yt921x_apply_flood_filters_locked(struct yt921x_priv *priv)
 {
+	u32 unk_ucast_mask = priv->flood_unk_ucast_base_mask;
 	u32 mcast_mask = priv->flood_mcast_base_mask | priv->flood_storm_mask;
 	u32 bcast_mask = priv->flood_bcast_base_mask | priv->flood_storm_mask;
 	int res;
 
+	unk_ucast_mask &= YT921X_FILTER_PORTS_M;
 	mcast_mask &= YT921X_FILTER_PORTS_M;
 	bcast_mask &= YT921X_FILTER_PORTS_M;
+
+	res = yt921x_reg_write(priv, YT921X_FILTER_UNK_UCAST, unk_ucast_mask);
+	if (res)
+		return res;
 
 	res = yt921x_reg_write(priv, YT921X_FILTER_MCAST, mcast_mask);
 	if (res)
@@ -361,6 +367,7 @@ int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv)
 {
 	struct dsa_switch *ds = &priv->ds;
 	struct dsa_port *dp;
+	u16 unk_ucast_mask = BIT(10);
 	u16 mcast_mask = BIT(10);
 	u16 bcast_mask = BIT(10);
 
@@ -371,12 +378,15 @@ int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv)
 		if (!dsa_port_bridge_dev_get(dp))
 			continue;
 
+		if (!pp->ucast_flood)
+			unk_ucast_mask |= BIT(dp->index);
 		if (!pp->mcast_flood)
 			mcast_mask |= BIT(dp->index);
 		if (!pp->bcast_flood)
 			bcast_mask |= BIT(dp->index);
 	}
 
+	priv->flood_unk_ucast_base_mask = unk_ucast_mask;
 	priv->flood_mcast_base_mask = mcast_mask;
 	priv->flood_bcast_base_mask = bcast_mask;
 

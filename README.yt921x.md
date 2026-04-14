@@ -44,7 +44,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 ### Security filtering
 - Per-port learning control - DONE
 - Per-port aging control - DONE
-- Unknown DA filtering mask controls - TODO
+- Unknown DA filtering mask controls - DONE
 - Port isolation - DONE
 - Broadcast/multicast/unknown-DA storm-control feature family - TODO
 

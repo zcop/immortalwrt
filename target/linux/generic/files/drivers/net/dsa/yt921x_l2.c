@@ -1366,9 +1366,12 @@ yt921x_bridge_flags(struct yt921x_priv *priv, int port,
 		}
 	}
 
-	/* BR_FLOOD (unknown UC) remains global via ACT_UNK_* policy. */
 	refresh_flood = false;
 	refresh_mcast_policy = false;
+	if (flags.mask & BR_FLOOD) {
+		pp->ucast_flood = flags.val & BR_FLOOD;
+		refresh_flood = true;
+	}
 	if (flags.mask & BR_MCAST_FLOOD) {
 		pp->mcast_flood = flags.val & BR_MCAST_FLOOD;
 		refresh_flood = true;
@@ -1441,14 +1444,10 @@ yt921x_dsa_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 				 struct switchdev_brport_flags flags,
 				 struct netlink_ext_ack *extack)
 {
-	if (flags.mask & BR_FLOOD) {
-		NL_SET_ERR_MSG_MOD(extack,
-				   "Per-port unknown unicast flood control is not supported");
-		return -EOPNOTSUPP;
-	}
+	(void)extack;
 
 	if (flags.mask & ~(BR_HAIRPIN_MODE | BR_LEARNING |
-			   BR_MCAST_FLOOD | BR_BCAST_FLOOD |
+			   BR_FLOOD | BR_MCAST_FLOOD | BR_BCAST_FLOOD |
 			   BR_MULTICAST_FAST_LEAVE | BR_ISOLATED))
 		return -EINVAL;
 	return 0;
@@ -1462,13 +1461,10 @@ yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
+	(void)extack;
+
 	if (dsa_is_cpu_port(ds, port))
 		return 0;
-	if (flags.mask & BR_FLOOD) {
-		NL_SET_ERR_MSG_MOD(extack,
-				   "Per-port unknown unicast flood control is not supported");
-		return -EOPNOTSUPP;
-	}
 
 	mutex_lock(&priv->reg_lock);
 	res = yt921x_bridge_flags(priv, port, flags);
