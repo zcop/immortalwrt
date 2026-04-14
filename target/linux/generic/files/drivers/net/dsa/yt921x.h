@@ -454,6 +454,10 @@ struct yt921x_priv;
  * They are intentionally not wired into active DSA code paths yet.
  */
 #define YT921X_VLAN_IGR_TRANS_CTRL	0x2100e0	/* tbl 0x20 */
+#define  YT921X_VLAN_IGR_TRANS_CTRL_PORT_MODE	BIT(0)
+#define  YT921X_VLAN_IGR_TRANS_CTRL_CTAG_MODE	BIT(1)
+#define  YT921X_VLAN_IGR_TRANS_CTRL_STAG_MODE	BIT(2)
+#define  YT921X_VLAN_IGR_TRANS_CTRL_PROTO_MODE	BIT(3)
 #define YT921X_WOL_CTRL			0x21011c	/* tbl 0x2a */
 #define  YT921X_WOL_CTRL_ETHERTYPE_M		GENMASK(15, 0)
 #define   YT921X_WOL_CTRL_ETHERTYPE(x) \
@@ -1228,6 +1232,11 @@ struct yt921x_reg_ops {
 	int (*write)(void *context, u32 reg, u32 val);
 };
 
+enum yt921x_vlan_fid_mode {
+	YT921X_VLAN_FID_MODE_IVL = 0,
+	YT921X_VLAN_FID_MODE_SVL = 1,
+};
+
 struct yt921x_priv {
 	struct dsa_switch ds;
 
@@ -1282,6 +1291,8 @@ struct yt921x_priv {
 	u16 storm_policer_ports;
 	u64 storm_policer_rate_bytes_per_sec;
 	u32 storm_policer_burst;
+	u8 vlan_fid_mode;
+	u16 vlan_svl_fid;
 };
 
 #endif

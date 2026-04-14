@@ -8,6 +8,14 @@
 
 #include "yt921x_internal.h"
 
+static u16 yt921x_vlan_fid_for_vid(const struct yt921x_priv *priv, u16 vid)
+{
+	if (priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL)
+		return priv->vlan_svl_fid ? : 1;
+
+	return vid;
+}
+
 void
 yt921x_dsa_port_mirror_del(struct dsa_switch *ds, int port,
 			   struct dsa_mall_mirror_tc_entry *mirror)
@@ -883,7 +891,8 @@ yt921x_vlan_add(struct yt921x_priv *priv, int port, u16 vid, bool untagged)
 	 */
 	if (vid) {
 		mask64 |= YT921X_VLAN_CTRL_FID_M;
-		ctrl64 |= YT921X_VLAN_CTRL_FID(vid);
+		ctrl64 |= YT921X_VLAN_CTRL_FID(yt921x_vlan_fid_for_vid(priv,
+									vid));
 	}
 
 	return yt921x_reg64_update_bits(priv, YT921X_VLANn_CTRL(vid),

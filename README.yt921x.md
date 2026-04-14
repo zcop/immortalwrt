@@ -7,6 +7,11 @@ Scope:
 - Tagger: `target/linux/generic/files/net/dsa/tag_yt921x.c`
 - Validation baseline: Xiaomi CR881x runtime in this workspace
 
+Key register-map references:
+- Canonical map: `docs/yt921x/yt9215-register-map.md`
+- Register-map changelog: `docs/yt921x/yt9215-register-map-changelog.md`
+- Discovered inventory (includes unresolved addresses): `docs/yt921x/yt9215-discovered-register-inventory-2026-03-16.md`
+
 Important:
 - The first major section below is organized in the same feature-family style as the YT9215S datasheet.
 - The rest of this README maps those families to implemented driver surfaces.
@@ -38,7 +43,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 
 ### Security filtering
 - Per-port learning control - DONE
-- Per-port aging control - TODO
+- Per-port aging control - DONE
 - Unknown DA filtering mask controls - TODO
 - Port isolation - DONE
 - Broadcast/multicast/unknown-DA storm-control feature family - TODO
@@ -46,7 +51,8 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 ### Control, management and statistics
 - RFC-family MIB coverage (including bridge/RMON classes) - DONE
 - OAM and EEE LLDP feature family - TODO
-- Loop detection feature family - TODO
+- Loop detection feature family - DONE
+- Loop prevention/enforcement feature family - TODO
 
 ### Packet process engine
 - 802.1Q VLAN with 4K table class - DONE
@@ -56,7 +62,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 - Per-port egress VLAN tag/untag controls - DONE
 - STP family (802.1D/s/w) - DONE
 - MVR feature - DONE
-- IVL/SVL/IVL+SVL modes - TODO
+- IVL/SVL/IVL+SVL modes - DONE
 - 802.1ad stacking VLAN - DONE
 - VLAN translation families (1:1 / 2:1 / 2:2 / N:1 / 1:N) - DONE
 - 802.1X access-control (port-based) - DONE
@@ -209,6 +215,4 @@ Design intent:
 
 ## Useful References
 
-- Register map: `docs/yt921x/yt9215-register-map.md`
-- Register-map changelog: `docs/yt921x/yt9215-register-map-changelog.md`
 - Live reverse-engineering notes: `docs/yt921x/live/`

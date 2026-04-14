@@ -883,6 +883,11 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 			 priv->cpu_ports_mask, priv->primary_cpu_port,
 			 priv->secondary_cpu_port);
 
+	/* Default to IVL (VID=FID). Debug commands may switch runtime mode. */
+	priv->vlan_fid_mode = YT921X_VLAN_FID_MODE_IVL;
+	if (!priv->vlan_svl_fid)
+		priv->vlan_svl_fid = 1;
+
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	yt921x_debug_init_snapshot_take_locked(priv, &dbg_stage);
 #endif

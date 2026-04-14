@@ -947,6 +947,12 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  mirror\n"
 				 "  tbf [port]\n"
 				 "  vlan dump <vid>\n"
+				 "  vlan mode show\n"
+				 "  vlan mode set <port|ctag|stag|tag|proto> <0|1>\n"
+				 "  vlan fid_mode show\n"
+				 "  vlan fid_mode set <ivl|svl> [svl_fid]\n"
+				 "  vlan fid show <vid>\n"
+				 "  vlan fid set <vid> <fid>\n"
 				 "  vlan 1x_bypass <vid> [0|1]\n"
 				 "  pvid dump [port]\n"
 				 "  stock map <reg>\n"
@@ -1024,6 +1030,59 @@ static int yt921x_proc_parse_unk_action(const char *s, u32 *act)
 	}
 
 	return -EINVAL;
+}
+
+static int yt921x_proc_parse_vlan_mode(const char *s, u32 *mask)
+{
+	if (!strcmp(s, "port")) {
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_PORT_MODE;
+		return 0;
+	}
+	if (!strcmp(s, "ctag")) {
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_CTAG_MODE;
+		return 0;
+	}
+	if (!strcmp(s, "stag")) {
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_STAG_MODE;
+		return 0;
+	}
+	if (!strcmp(s, "tag")) {
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_CTAG_MODE |
+			YT921X_VLAN_IGR_TRANS_CTRL_STAG_MODE;
+		return 0;
+	}
+	if (!strcmp(s, "proto")) {
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_PROTO_MODE;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static int yt921x_proc_parse_vlan_fid_mode(const char *s, u8 *mode)
+{
+	if (!strcmp(s, "ivl")) {
+		*mode = YT921X_VLAN_FID_MODE_IVL;
+		return 0;
+	}
+	if (!strcmp(s, "svl")) {
+		*mode = YT921X_VLAN_FID_MODE_SVL;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static const char *yt921x_proc_vlan_fid_mode_name(u8 mode)
+{
+	switch (mode) {
+	case YT921X_VLAN_FID_MODE_IVL:
+		return "ivl";
+	case YT921X_VLAN_FID_MODE_SVL:
+		return "svl";
+	default:
+		return "unknown";
+	}
 }
 
 static int yt921x_proc_reply_rma_index(struct yt921x_priv *priv, u32 index)
@@ -1310,6 +1369,68 @@ static int yt921x_proc_reply_vlan_dump(struct yt921x_priv *priv, u32 vid)
 				 stp_id, !!(ctrl64 & YT921X_VLAN_CTRL_LEARN_DIS),
 				 !!(ctrl64 & YT921X_VLAN_CTRL_PRIO_EN),
 				 !!(ctrl64 & YT921X_VLAN_CTRL_BYPASS_1X_AC));
+
+	return 0;
+}
+
+static int yt921x_proc_reply_vlan_mode(struct yt921x_priv *priv)
+{
+	u32 ctrl;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_VLAN_IGR_TRANS_CTRL, &ctrl);
+	if (res)
+		return res;
+
+	yt921x_proc_reply_append(
+		priv,
+		"vlan_mode reg=0x%06x val=0x%08x port=%u ctag=%u stag=%u tag=%u proto=%u\n",
+		YT921X_VLAN_IGR_TRANS_CTRL, ctrl,
+		!!(ctrl & YT921X_VLAN_IGR_TRANS_CTRL_PORT_MODE),
+		!!(ctrl & YT921X_VLAN_IGR_TRANS_CTRL_CTAG_MODE),
+		!!(ctrl & YT921X_VLAN_IGR_TRANS_CTRL_STAG_MODE),
+		!!(ctrl & (YT921X_VLAN_IGR_TRANS_CTRL_CTAG_MODE |
+			   YT921X_VLAN_IGR_TRANS_CTRL_STAG_MODE)),
+		!!(ctrl & YT921X_VLAN_IGR_TRANS_CTRL_PROTO_MODE));
+
+	return 0;
+}
+
+static int yt921x_proc_apply_vlan_fid_mode(struct yt921x_priv *priv)
+{
+	u16 svl_fid = priv->vlan_svl_fid ? : 1;
+	u16 vid;
+
+	for (vid = 1; vid < YT921X_VID_UNAWARE; vid++) {
+		u64 ctrl64;
+		u16 fid;
+		int res;
+
+		res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
+		if (res)
+			return res;
+
+		if (!(ctrl64 & YT921X_VLAN_CTRL_PORTS_M))
+			continue;
+
+		fid = (priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL) ?
+			svl_fid : vid;
+		ctrl64 &= ~YT921X_VLAN_CTRL_FID_M;
+		ctrl64 |= YT921X_VLAN_CTRL_FID(fid);
+
+		res = yt921x_reg64_write(priv, YT921X_VLANn_CTRL(vid), ctrl64);
+		if (res)
+			return res;
+	}
+
+	return 0;
+}
+
+static int yt921x_proc_reply_vlan_fid_mode(struct yt921x_priv *priv)
+{
+	yt921x_proc_reply_append(priv, "vlan_fid_mode=%s svl_fid=%u\n",
+				 yt921x_proc_vlan_fid_mode_name(priv->vlan_fid_mode),
+				 priv->vlan_svl_fid ? : 1);
 
 	return 0;
 }
@@ -3160,6 +3281,130 @@ out_unlock_rma:
 
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_proc_reply_vlan_dump(priv, vid);
+		mutex_unlock(&priv->reg_lock);
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "vlan") && argc >= 3 && !strcmp(argv[1], "mode")) {
+		mutex_lock(&priv->reg_lock);
+		if (!strcmp(argv[2], "show") && argc == 3) {
+			res = yt921x_proc_reply_vlan_mode(priv);
+		} else if (!strcmp(argv[2], "set") && argc >= 5) {
+			u32 mask;
+			u32 enable;
+
+			res = yt921x_proc_parse_vlan_mode(argv[3], &mask);
+			if (res)
+				goto vlan_mode_out;
+
+			res = yt921x_proc_parse_u32(argv[4], &enable);
+			if (res)
+				goto vlan_mode_out;
+			if (enable > 1) {
+				res = -ERANGE;
+				goto vlan_mode_out;
+			}
+
+			res = yt921x_reg_toggle_bits(priv,
+						     YT921X_VLAN_IGR_TRANS_CTRL,
+						     mask, !!enable);
+			if (res)
+				goto vlan_mode_out;
+
+			res = yt921x_proc_reply_vlan_mode(priv);
+		} else {
+			res = -EINVAL;
+		}
+vlan_mode_out:
+		mutex_unlock(&priv->reg_lock);
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "vlan") && argc >= 3 && !strcmp(argv[1], "fid_mode")) {
+		mutex_lock(&priv->reg_lock);
+		if (!strcmp(argv[2], "show") && argc == 3) {
+			res = yt921x_proc_reply_vlan_fid_mode(priv);
+		} else if (!strcmp(argv[2], "set") && argc >= 4) {
+			u32 svl_fid = 1;
+			u8 mode;
+
+			res = yt921x_proc_parse_vlan_fid_mode(argv[3], &mode);
+			if (res)
+				goto vlan_fid_mode_out;
+
+			if (mode == YT921X_VLAN_FID_MODE_SVL && argc >= 5) {
+				res = yt921x_proc_parse_u32(argv[4], &svl_fid);
+				if (res)
+					goto vlan_fid_mode_out;
+				if (!svl_fid || svl_fid >= YT921X_VID_UNAWARE) {
+					res = -ERANGE;
+					goto vlan_fid_mode_out;
+				}
+			}
+
+			priv->vlan_fid_mode = mode;
+			if (mode == YT921X_VLAN_FID_MODE_SVL)
+				priv->vlan_svl_fid = svl_fid;
+
+			res = yt921x_proc_apply_vlan_fid_mode(priv);
+			if (res)
+				goto vlan_fid_mode_out;
+
+			res = yt921x_proc_reply_vlan_fid_mode(priv);
+		} else {
+			res = -EINVAL;
+		}
+vlan_fid_mode_out:
+		mutex_unlock(&priv->reg_lock);
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "vlan") && argc >= 4 && !strcmp(argv[1], "fid")) {
+		u32 vid;
+
+		res = yt921x_proc_parse_u32(argv[3], &vid);
+		if (res)
+			goto out;
+		if (vid > YT921X_VID_UNAWARE) {
+			res = -ERANGE;
+			goto out;
+		}
+
+		mutex_lock(&priv->reg_lock);
+		if (!strcmp(argv[2], "show") && argc == 4) {
+			res = yt921x_proc_reply_vlan_dump(priv, vid);
+		} else if (!strcmp(argv[2], "set") && argc >= 5) {
+			u64 ctrl64;
+			u32 fid;
+
+			if (!vid || vid == YT921X_VID_UNAWARE) {
+				res = -EINVAL;
+				goto vlan_fid_out;
+			}
+
+			res = yt921x_proc_parse_u32(argv[4], &fid);
+			if (res)
+				goto vlan_fid_out;
+			if (!fid || fid >= YT921X_VID_UNAWARE) {
+				res = -ERANGE;
+				goto vlan_fid_out;
+			}
+
+			res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
+			if (res)
+				goto vlan_fid_out;
+
+			ctrl64 &= ~YT921X_VLAN_CTRL_FID_M;
+			ctrl64 |= YT921X_VLAN_CTRL_FID(fid);
+			res = yt921x_reg64_write(priv, YT921X_VLANn_CTRL(vid), ctrl64);
+			if (res)
+				goto vlan_fid_out;
+
+			res = yt921x_proc_reply_vlan_dump(priv, vid);
+		} else {
+			res = -EINVAL;
+		}
+vlan_fid_out:
 		mutex_unlock(&priv->reg_lock);
 		goto out;
 	}
