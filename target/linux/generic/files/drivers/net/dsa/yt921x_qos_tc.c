@@ -518,6 +518,65 @@ yt921x_dsa_set_mac_eee(struct dsa_switch *ds, int port, struct ethtool_keee *e)
 	return res;
 }
 
+void
+yt921x_dsa_get_wol(struct dsa_switch *ds, int port, struct ethtool_wolinfo *w)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 ctrl;
+	int res;
+
+	w->supported = WAKE_MAGIC;
+	w->wolopts = 0;
+
+	if (!dsa_is_user_port(ds, port))
+		return;
+
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_reg_read(priv, YT921X_WOL_CTRL, &ctrl);
+	mutex_unlock(&priv->reg_lock);
+	if (res)
+		return;
+
+	if (ctrl & YT921X_WOL_CTRL_EN)
+		w->wolopts |= WAKE_MAGIC;
+}
+
+int
+yt921x_dsa_set_wol(struct dsa_switch *ds, int port, struct ethtool_wolinfo *w)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 ctrl;
+	int res;
+
+	if (!dsa_is_user_port(ds, port))
+		return -EOPNOTSUPP;
+
+	if (w->wolopts & ~WAKE_MAGIC)
+		return -EOPNOTSUPP;
+
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_reg_read(priv, YT921X_WOL_CTRL, &ctrl);
+	if (!res) {
+		if (w->wolopts & WAKE_MAGIC) {
+			ctrl |= YT921X_WOL_CTRL_EN;
+			if (!FIELD_GET(YT921X_WOL_CTRL_ETHERTYPE_M, ctrl)) {
+				/* Magic Packet EtherType */
+				const u16 wol_ethertype = 0x0842;
+
+				ctrl &= ~YT921X_WOL_CTRL_ETHERTYPE_M;
+				ctrl |= YT921X_WOL_CTRL_ETHERTYPE(wol_ethertype);
+			}
+		} else {
+			ctrl &= ~YT921X_WOL_CTRL_EN;
+		}
+
+		res = yt921x_reg_write(priv, YT921X_WOL_CTRL, ctrl);
+	}
+	mutex_unlock(&priv->reg_lock);
+
+	return res;
+}
+
 int
 yt921x_dsa_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 {

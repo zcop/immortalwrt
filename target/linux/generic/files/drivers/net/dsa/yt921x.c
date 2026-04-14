@@ -76,6 +76,8 @@ static const struct dsa_switch_ops yt921x_dsa_switch_ops = {
 	/* eee */
 	.support_eee		= dsa_supports_eee,
 	.set_mac_eee		= yt921x_dsa_set_mac_eee,
+	.get_wol		= yt921x_dsa_get_wol,
+	.set_wol		= yt921x_dsa_set_wol,
 	/* tc */
 	.cls_flower_add		= yt921x_dsa_cls_flower_add,
 	.cls_flower_del		= yt921x_dsa_cls_flower_del,
