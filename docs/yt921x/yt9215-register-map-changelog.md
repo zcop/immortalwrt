@@ -1,5 +1,22 @@
 # YT9215 Register Map Changelog
 
+## 2026-04-15: multicast policy bitfields synchronized with driver header
+
+What changed:
+- Updated `YT921X_MCAST_FWD_POLICY` (`0x18047c`, tbl `0x8e`) entry to include
+  all currently-used bitfields from driver header:
+  - router/report forwarding controls (`bit11`, `bit10`, `bit9`)
+  - IGMP/MLD opmode fields (`[6:5]`, `[8:7]`)
+  - fast-leave and bypass class bits (`bit4`, `[3:0]`)
+- Updated `YT921X_MCAST_PORT_POLICY` / `YT921X_MCAST_PORT_POLICYn(port)`
+  (`0x180480 + 4*port`, tbl `0x8f`) entry to include full per-port policy
+  bits:
+  - meter/storm bypass (`bits 7..5`)
+  - report/query/leave allow (`bits 4..2`)
+  - VLAN leaky / isolation bypass (`bits 1..0`)
+- Added matching RMW snippets in `yt9215-register-map.md` for `0x18047c` and
+  `0x180480 + 4*port` so bit updates are documented field-by-field.
+
 ## 2026-04-11: adding new register map rows from current driver and stock paths
 
 What changed:

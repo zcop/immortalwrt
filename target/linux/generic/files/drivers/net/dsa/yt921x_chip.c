@@ -934,7 +934,7 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	/* Multicast control plane defaults from stock path:
 	 * - router ports pinned to CPU conduits
 	 * - report/query/leave processing allowed
-	 * - IGMP bypasses port isolation
+	 * - IGMP control traffic bypasses storm/meter/isolation gates
 	 * - fast leave disabled until requested by bridge flags
 	 */
 	ctrl = priv->cpu_ports_mask & YT921X_MCAST_STATIC_ROUTER_PORT_M;
@@ -950,9 +950,13 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	if (res)
 		return res;
 
-	ctrl = YT921X_MCAST_PORT_POLICY_LEAVE_ALLOW |
+	ctrl = YT921X_MCAST_PORT_POLICY_BYPASS_FLOW_METER |
+	       YT921X_MCAST_PORT_POLICY_BYPASS_PORT_METER |
+	       YT921X_MCAST_PORT_POLICY_BYPASS_STORM |
 	       YT921X_MCAST_PORT_POLICY_REPORT_ALLOW |
 	       YT921X_MCAST_PORT_POLICY_QUERY_ALLOW |
+	       YT921X_MCAST_PORT_POLICY_VLAN_LEAKY |
+	       YT921X_MCAST_PORT_POLICY_LEAVE_ALLOW |
 	       YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
 	for (port = 0; port < YT921X_PORT_NUM; port++) {
 		res = yt921x_reg_update_bits(priv, YT921X_MCAST_PORT_POLICYn(port),
@@ -961,13 +965,19 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 			return res;
 	}
 
-	/* Stock path programs IGMP/MLD opmodes explicitly (tbl 0x8e fields 4/3).
-	 * Keep mode=1 for both protocols and fast-leave disabled by default.
+	/* Stock path programs IGMP/MLD global forwarding policy (tbl 0x8e):
+	 * - mode=1 for IGMP/MLD parser
+	 * - report/leave forwarding to router ports enabled
+	 * - fast-leave remains runtime-controlled via bridge flags
 	 */
 	res = yt921x_reg_update_bits(priv, YT921X_MCAST_FWD_POLICY,
+				     YT921X_MCAST_FWD_POLICY_REPORT_LEAVE_ROUTER_FWD_CTRL |
+				     YT921X_MCAST_FWD_POLICY_REPORT_LEAVE_FWD |
 				     YT921X_MCAST_FWD_POLICY_IGMP_OPMODE_M |
 				     YT921X_MCAST_FWD_POLICY_MLD_OPMODE_M |
 				     YT921X_MCAST_FWD_POLICY_FAST_LEAVE,
+				     YT921X_MCAST_FWD_POLICY_REPORT_LEAVE_ROUTER_FWD_CTRL |
+				     YT921X_MCAST_FWD_POLICY_REPORT_LEAVE_FWD |
 				     YT921X_MCAST_FWD_POLICY_IGMP_OPMODE(1) |
 				     YT921X_MCAST_FWD_POLICY_MLD_OPMODE(1));
 	if (res)
