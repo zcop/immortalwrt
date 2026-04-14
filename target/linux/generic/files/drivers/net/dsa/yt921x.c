@@ -218,7 +218,20 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 	priv->dt_ctrlpkt_lldp_eee_act = -1;
 
 	if (dev->of_node) {
+		bool has_rma_slow_action;
+		bool has_ctrlpkt_lldp_act;
+		bool has_ctrlpkt_lldp_eee_act;
 		u32 val;
+
+		has_rma_slow_action =
+			of_property_present(dev->of_node, "motorcomm,rma-slow-action") ||
+			of_property_present(dev->of_node, "rma-slow-action");
+		has_ctrlpkt_lldp_act =
+			of_property_present(dev->of_node, "motorcomm,ctrlpkt-lldp-act") ||
+			of_property_present(dev->of_node, "ctrlpkt-lldp-act");
+		has_ctrlpkt_lldp_eee_act =
+			of_property_present(dev->of_node, "motorcomm,ctrlpkt-lldp-eee-act") ||
+			of_property_present(dev->of_node, "ctrlpkt-lldp-eee-act");
 
 		if (!of_property_read_u32(dev->of_node,
 					  "motorcomm,rma-slow-action", &val))
@@ -240,6 +253,14 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 		else if (!of_property_read_u32(dev->of_node,
 					       "ctrlpkt-lldp-eee-act", &val))
 			priv->dt_ctrlpkt_lldp_eee_act = val;
+
+		if (has_rma_slow_action || has_ctrlpkt_lldp_act ||
+		    has_ctrlpkt_lldp_eee_act)
+			dev_info(dev,
+				 "DT policy overrides parsed: rma-slow-action=%d ctrlpkt-lldp-act=0x%x ctrlpkt-lldp-eee-act=0x%x\n",
+				 priv->dt_rma_slow_action,
+				 priv->dt_ctrlpkt_lldp_act,
+				 priv->dt_ctrlpkt_lldp_eee_act);
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(priv->ports); i++) {

@@ -354,6 +354,10 @@ int yt921x_rma_setup_locked(struct yt921x_priv *priv)
 	if (priv->dt_rma_slow_action != -1)
 		slow_action_opt = priv->dt_rma_slow_action;
 
+	if (priv->dt_rma_slow_action != -1)
+		dev_info(yt921x_dev(priv), "DT override: rma-slow-action=%d\n",
+			 priv->dt_rma_slow_action);
+
 	if (slow_action_opt >= YT921X_RMA_ACT_FORWARD &&
 	    slow_action_opt <= YT921X_RMA_ACT_DROP)
 		slow_action = slow_action_opt;
@@ -390,6 +394,14 @@ int yt921x_ctrlpkt_setup_locked(struct yt921x_priv *priv)
 
 	if (priv->dt_ctrlpkt_lldp_act != -1)
 		lldp_act = priv->dt_ctrlpkt_lldp_act;
+
+	if (priv->dt_ctrlpkt_lldp_eee_act != -1)
+		dev_info(dev, "DT override: ctrlpkt-lldp-eee-act=0x%x\n",
+			 priv->dt_ctrlpkt_lldp_eee_act);
+
+	if (priv->dt_ctrlpkt_lldp_act != -1)
+		dev_info(dev, "DT override: ctrlpkt-lldp-act=0x%x\n",
+			 priv->dt_ctrlpkt_lldp_act);
 
 	if (lldp_eee_act != -1) {
 		if (lldp_eee_act & ~YT921X_FILTER_PORTS_M) {

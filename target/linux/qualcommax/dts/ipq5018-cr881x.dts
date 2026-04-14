@@ -465,12 +465,16 @@
 	status = "okay";
 
 	// Motorcomm YT9215
-	ethernet-switch@1d {
-		compatible = "motorcomm,yt9215";
-		reg = <0x1d>;
+		ethernet-switch@1d {
+			compatible = "motorcomm,yt9215";
+			reg = <0x1d>;
+			/* YT921x OAM/LLDP control-policy overrides */
+			motorcomm,rma-slow-action = <2>;
+			motorcomm,ctrlpkt-lldp-act = <0x400>;
+			motorcomm,ctrlpkt-lldp-eee-act = <0x400>;
 
-		reset-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
-		reset-assert-us = <10000>; /* 10ms */
+			reset-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
+			reset-assert-us = <10000>; /* 10ms */
 		reset-deassert-us = <50000>; /* 50ms */
 
 		mdio {
