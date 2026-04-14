@@ -166,7 +166,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_MCAST_ROUTER_PORT_AGE_A` | `0x00180474` | stock-path only | Dynamic router-port aging profile A (`tbl id 0x8c`). | Medium |
 | `YT921X_MCAST_ROUTER_PORT_AGE_B` | `0x00180478` | stock-path only | Dynamic router-port aging profile B (`tbl id 0x8d`). | Medium |
 | `YT921X_MCAST_FWD_POLICY` | `0x0018047c` | stock-path only | Global multicast/IGMP/MLD policy (`tbl id 0x8e`): `YT921X_MCAST_FWD_POLICY_FAST_LEAVE`, `YT921X_MCAST_FWD_POLICY_IGMP_OPMODE_M`, `YT921X_MCAST_FWD_POLICY_MLD_OPMODE_M` and routerport/bypass controls. | Medium |
-| `YT921X_MCAST_PORT_POLICY` | `0x00180480` | stock-path only | Per-port multicast policy (`tbl id 0x8f`): `YT921X_MCAST_PORT_POLICY_LEAVE_ALLOW`, `YT921X_MCAST_PORT_POLICY_REPORT_ALLOW`, `YT921X_MCAST_PORT_POLICY_QUERY_ALLOW`, `YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO`. | Medium |
+| `YT921X_MCAST_PORT_POLICY` / `YT921X_MCAST_PORT_POLICYn(port)` | `0x00180480` | stock-path only | Per-port multicast policy (`tbl id 0x8f`): `YT921X_MCAST_PORT_POLICY_LEAVE_ALLOW`, `YT921X_MCAST_PORT_POLICY_REPORT_ALLOW`, `YT921X_MCAST_PORT_POLICY_QUERY_ALLOW`, `YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO`. | Medium |
 | `YT921X_MCAST_DYNAMIC_ROUTER_PORT_STAT` | `0x001804bc` | stock-path only | Dynamic multicast router-port state (`tbl id 0x93`). | Medium |
 | `YT921X_FDB_OUT0` | `0x1804b0` | dynamic / see probes | Header-defined register/formula; behavior not yet fully profiled. | Medium |
 | `YT921X_FDB_OUT1` | `0x1804b4` | dynamic / see probes | FDB payload word1: status + FID/VID + MAC low bits. | Medium |
@@ -207,11 +207,11 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_LOOP_DETECT_ACT_CTRL` | `0x00080320` | stock-path/debugfs path | Loop-detect action/control table (`tbl id 0x0e`) exposed in debug table map. Semantics are not fully decoded. | Medium |
 | `YT921X_LOOP_DETECT_FLAG` | `0x00080324` | stock-path/debugfs path | Loop-detect status/flag table (`tbl id 0x0f`) exposed in debug table map. Semantics are not fully decoded. | Medium |
 | `YT921X_LOOP_DETECT_TIMER` | `0x00080328` | stock-path/debugfs path | Loop-detect timer table (`tbl id 0x10`) exposed in debug table map. Semantics are not fully decoded. | Medium |
-| `YT921X_STOCK_WOL_CTRL` | `0x0021011c` | stock-path only | Stock WoL control table (`tbl id 0x2a`, confirmed by `fal_tiger_wol_*` disassembly). Driver alias macro: `YT921X_WOL_CTRL`. Field usage: `f1` = WoL enable (`wol_ctrl_set/get`), `f0` = WoL EtherType (`wol_ethertype_set/get`). | High |
+| `YT921X_WOL_CTRL` | `0x0021011c` | stock-path only | WoL control table (`tbl id 0x2a`, confirmed by `fal_tiger_wol_*` disassembly). Field usage: `f1` = WoL enable (`wol_ctrl_set/get`), `f0` = WoL EtherType (`wol_ethertype_set/get`). | High |
 | `YT921X_ACL_RULE_CTRL` | `0x00201000` | stock-path only | ACL rule control block (`tbl id 0x34`) used by stock ACL create/update path. | Medium |
 | `YT921X_ACL_PORT_CTRL` | `0x00202000` | stock-path only | ACL per-port enable block (`tbl id 0x35`) used by `fal_tiger_acl_port_en_{set,get}`. | Medium |
 | `YT921X_ACL_BLOCK_CTRL` | `0x00202004` | stock-path only | ACL block command/control block (`tbl id 0x36`) used in stock ACL rule programming flow. | Medium |
-| `YT921X_ACL_RULE_DATA` | `0x00203000` | stock-path only | ACL rule key/mask/action data block (`tbl id 0x37`) used by stock ACL create/delete paths. | Medium |
+| `YT921X_ACL_RULE_DATA` / `YT921X_ACLn_ENTRY(blk)` | `0x00203000` | stock-path only | ACL rule key/mask/action data block (`tbl id 0x37`) used by stock ACL create/delete paths. | Medium |
 | `YT921X_ACLn_ACT(n)` | `(0x1c0000 + 0x10 * (n))` | driver-wired | ACL action SRAM base used by current tc flower action programming path. | High |
 | `YT921X_ACLn_KEYm(blk, off)` | `(0x204000 + 0x200 * (off) + 8 * (blk))` | driver-wired | ACL key SRAM matrix (`off=0..7`) used by current ACL key programming flow. | High |
 | `YT921X_ACLn_MASKm(blk, off)` | `(0x205000 + 0x200 * (off) + 8 * (blk))` | driver-wired | ACL mask SRAM matrix (`off=0..7`) used by current ACL mask programming flow. | High |
@@ -234,7 +234,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_QSCH_SHP_SLOT_TIME` | `0x00340008` | dynamic / queue-tbf-mapped | Queue scheduler slot-time word (`tbl id 0xe4`), driver alias macro: `YT921X_QUEUE_SHAPE_SLOT`; currently ensured/set by queue `tc tbf` path. | Medium |
 | `YT921X_PORT_SHAPE_SLOT` | `0x0034000c` | dynamic / port-tbf-mapped | Port scheduler slot-time word (`tbl id 0xe5`) used by stock port shaping path. | Medium |
 | `YT921X_QSCH_SHP_CFG` | `0x0034c000` | dynamic / queue-tbf-mapped | Queue shaper config base (`tbl id 0xe9`), per-flow shaper words used by queue `tc tbf`. | High |
-| `YT921X_QSCH_METER_CFG` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
+| `YT921X_QSCH_METER_CFG` / `YT921X_QSCH_METER_WORD0(idx)` | `0x0034f000` | dynamic / queue-tbf-mapped (token subset) | Queue meter config base (`tbl id 0xea`), token-path subset used by current queue `tc tbf` implementation. | Medium |
 | `YT921X_QOS_REMARK_PORT_CTRL` | `0x00100000` | dynamic / remark-default-mapped | Per-port remark control (`tbl id 0xd9`): stock `fal_tiger_qos_remark_port_{set,get}` use field IDs `4/1/3/0/2`; CPRI/SPRI toggles use `f7/f8`; egr TPID index API uses `f5/f6`. | Medium |
 | `YT921X_QOS_REMARK_PORT` | `0x00100080` | stock-path decoded / not actively programmed | Egress port VLAN policy (`tbl id 0xda`): decoded `egr_port_vlan_ctrlnm_field` with mode fields `[29:27]`/`[14:12]` and default-VID fields `[26:15]`/`[11:0]`; stock `egrTagMode` uses field IDs `2/4`, `egrDefaultVid` uses `3/5`. | Medium |
 | `YT921X_QOS_REMARK_DSCP` | `0x00100100` | dynamic / remark-default-mapped | Egress DSCP remark table (`tbl id 0xdb`); stock DSCP set/get path uses field ID `0` with dynamic table index. | Medium |
@@ -311,7 +311,7 @@ Use these to avoid clobbering unrelated bits.
 | `YT921X_STORM_CONFIG` (`0x220200`) | `f4:bit0`, `f3:bit1`, `f2:bit2`, `f1:[12:3]`, `f0:[31:13]` | `v=(v&~BIT(0))|en`; `v=(v&~BIT(1))|(mode<<1)`; `v=(v&~BIT(2))|(ig<<2)`; `v=(v&~GENMASK(12,3))|((f1&0x3ff)<<3)`; `v=(v&~GENMASK(31,13))|((f0&0x7ffff)<<13)` | stock uses table-api field IDs `4/3/2/1/0` |
 | `YT921X_STORM_MC_TYPE_CTRL` (`0x220140`) | mask `[10:0]` | `v = (v & ~0x000007ff) | (mask & 0x7ff)` | driven by stock table `0xc9` field `0` |
 | `YT921X_LOOP_DETECT_TOP_CTRL` (`0x00080230`) | `f5:bit18`, `f6:[17:2]`, `f8:bit0`, `f4:[20:19]`, `f3:[22:21]`, `f2:[24:23]` | `enable: v=(v&~BIT(18))|(en<<18)`; `tpid: v=(v&~GENMASK(17,2))|((tpid&0xffff)<<2)`; `gen: v=(v&~BIT(0))|(g<<0)`; unit-id: set `f4/f3/f2` | stock table id `0x0d` |
-| `YT921X_STOCK_WOL_CTRL` (`0x21011c`) | `f1:bit0` (enable), `f0:[15:0]` (ethertype) | enable: set `f1=1`; disable: `f1=0`; EtherType path writes/reads `f0` (`u16`) | stock table id `0x2a` (`fal_tiger_wol_ctrl_*`, `fal_tiger_wol_ethertype_*`) |
+| `YT921X_WOL_CTRL` (`0x21011c`) | `f1:bit0` (enable), `f0:[15:0]` (ethertype) | enable: set `f1=1`; disable: `f1=0`; EtherType path writes/reads `f0` (`u16`) | stock table id `0x2a` (`fal_tiger_wol_ctrl_*`, `fal_tiger_wol_ethertype_*`) |
 | `YT921X_RATE_IGR_BW_ENABLE` (`0x220108`) | `enable:bit4`, `meter_id:[3:0]` | `v=(v&~BIT(4))|(en<<4); v=(v&~GENMASK(3,0))|(meter_id&0xf)` | current `port_policer` path uses this table (`tbl 0xc8`) |
 | `YT921X_RATE_IGR_BW_CTRL` (`0x220104`) | `meter_timeslot:[11:0]` | `v=(v&~GENMASK(11,0))|(timeslot&0xfff)` | current `port_policer` path uses this table (`tbl 0xc7`) |
 | `YT921X_RATE_METER_CONFIGn(n)` (`0x220800+0x10*n`) | decoded fields across words 0/1/2 | set with field RMW per decoded map (`meter_config_tblm_field` entries 0..13) | current `port_policer` path uses this table (`tbl 0xce`) |
