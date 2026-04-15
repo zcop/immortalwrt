@@ -311,6 +311,7 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_CTAG,
 	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_STAG,
 	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PROTO,
+	YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
 };
 
 static int yt921x_devlink_param_to_vlan_mask(u32 id, u32 *mask)
@@ -333,13 +334,127 @@ static int yt921x_devlink_param_to_vlan_mask(u32 id, u32 *mask)
 	}
 }
 
+static u32 yt921x_user_ports_mask(struct dsa_switch *ds)
+{
+	struct dsa_port *dp;
+	u32 mask = 0;
+
+	dsa_switch_for_each_user_port(dp, ds)
+		mask |= BIT(dp->index);
+
+	return mask;
+}
+
+static int yt921x_dot1x_mac_based_get_locked(struct yt921x_priv *priv, u32 *mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	u32 dot1x_en;
+	u32 dot1x_ctrl2;
+	u32 rx_permit;
+	int res;
+
+	*mask = 0;
+
+	res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASED, &dot1x_en);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRL, &dot1x_ctrl2);
+	if (res)
+		return res;
+
+	rx_permit = FIELD_GET(YT921X_DOT1X_CTRL2_RX_PERMIT_MASK_M, dot1x_ctrl2);
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		if (!(dot1x_en & BIT(dp->index)))
+			continue;
+
+		/* In unauthorized state we use "RX blocked, TX permitted". */
+		if (rx_permit & BIT(dp->index))
+			continue;
+
+		*mask |= BIT(dp->index);
+	}
+
+	return 0;
+}
+
+static int yt921x_dot1x_mac_based_set_locked(struct yt921x_priv *priv, u32 req_mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	u32 allowed_mask;
+	u32 dot1x_en;
+	u32 dot1x_ctrl2;
+	u32 rx_permit;
+	u32 tx_permit;
+	int res;
+
+	allowed_mask = yt921x_user_ports_mask(ds);
+	if (req_mask & ~allowed_mask)
+		return -EINVAL;
+
+	res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASED, &dot1x_en);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRL, &dot1x_ctrl2);
+	if (res)
+		return res;
+
+	rx_permit = FIELD_GET(YT921X_DOT1X_CTRL2_RX_PERMIT_MASK_M, dot1x_ctrl2);
+	tx_permit = FIELD_GET(YT921X_DOT1X_CTRL2_TX_PERMIT_MASK_M, dot1x_ctrl2);
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		if (req_mask & BIT(dp->index)) {
+			/* Unauthorized: enable 802.1X gate on this port and
+			 * block ingress from the edge while keeping egress
+			 * towards the edge open.
+			 */
+			dot1x_en |= BIT(dp->index);
+			rx_permit &= ~BIT(dp->index);
+			tx_permit |= BIT(dp->index);
+			continue;
+		}
+
+		/* Authorized/disabled: pass both directions. */
+		dot1x_en &= ~BIT(dp->index);
+		rx_permit |= BIT(dp->index);
+		tx_permit |= BIT(dp->index);
+	}
+
+	res = yt921x_reg_write(priv, YT921X_DOT1X_PORT_BASED, dot1x_en);
+	if (res)
+		return res;
+
+	dot1x_ctrl2 &= ~(YT921X_DOT1X_CTRL2_RX_PERMIT_MASK_M |
+			 YT921X_DOT1X_CTRL2_TX_PERMIT_MASK_M);
+	dot1x_ctrl2 |= YT921X_DOT1X_CTRL2_RX_PERMIT_MASK(rx_permit) |
+		       YT921X_DOT1X_CTRL2_TX_PERMIT_MASK(tx_permit);
+
+	return yt921x_reg_write(priv, YT921X_DOT1X_BYPASS_CTRL, dot1x_ctrl2);
+}
+
 int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			     struct devlink_param_gset_ctx *ctx)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 mask;
 	u32 ctrl;
+	u32 dot1x_mask;
 	int res;
+
+	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_dot1x_mac_based_get_locked(priv, &dot1x_mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = dot1x_mask;
+		return 0;
+	}
 
 	res = yt921x_devlink_param_to_vlan_mask(id, &mask);
 	if (res)
@@ -362,6 +477,13 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u32 mask;
 	int res;
+
+	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_dot1x_mac_based_set_locked(priv, ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
 
 	res = yt921x_devlink_param_to_vlan_mask(id, &mask);
 	if (res)
@@ -387,6 +509,9 @@ static const struct devlink_param yt921x_devlink_params[] = {
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PROTO,
 				 "vlan_mode_proto", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
+				 "dot1x_mac_based_mask", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 };
 
