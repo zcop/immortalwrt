@@ -472,6 +472,10 @@
 			motorcomm,rma-slow-action = <2>;
 			motorcomm,ctrlpkt-lldp-act = <0x400>;
 			motorcomm,ctrlpkt-lldp-eee-act = <0x400>;
+			/* Constrain secondary conduit (eth0/raw) to WAN only
+			 * at init: permit only user port@3 on CPU port@4.
+			 */
+			motorcomm,secondary-conduit-user-mask = <0x8>;
 
 			reset-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
 			reset-assert-us = <10000>; /* 10ms */

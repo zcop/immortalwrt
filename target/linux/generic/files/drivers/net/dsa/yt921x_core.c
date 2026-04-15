@@ -224,6 +224,184 @@ module_param_named(ctrlpkt_lldp_act, yt921x_ctrlpkt_lldp_act, int, 0644);
 MODULE_PARM_DESC(ctrlpkt_lldp_act,
 		 "Port mask for LLDP control packets (tbl 0x77), -1 keeps stock");
 
+/* Optional ingress VLAN translation mode overrides.
+ * -1 keeps stock behavior for each mode bit.
+ */
+static int yt921x_vlan_mode_port = -1;
+module_param_named(vlan_mode_port, yt921x_vlan_mode_port, int, 0644);
+MODULE_PARM_DESC(vlan_mode_port,
+		 "Override VLAN ingress port-based mode bit: -1=stock, 0=off, 1=on");
+
+static int yt921x_vlan_mode_ctag = -1;
+module_param_named(vlan_mode_ctag, yt921x_vlan_mode_ctag, int, 0644);
+MODULE_PARM_DESC(vlan_mode_ctag,
+		 "Override VLAN ingress C-tag mode bit: -1=stock, 0=off, 1=on");
+
+static int yt921x_vlan_mode_stag = -1;
+module_param_named(vlan_mode_stag, yt921x_vlan_mode_stag, int, 0644);
+MODULE_PARM_DESC(vlan_mode_stag,
+		 "Override VLAN ingress S-tag mode bit: -1=stock, 0=off, 1=on");
+
+static int yt921x_vlan_mode_proto = -1;
+module_param_named(vlan_mode_proto, yt921x_vlan_mode_proto, int, 0644);
+MODULE_PARM_DESC(vlan_mode_proto,
+		 "Override VLAN ingress protocol-based mode bit: -1=stock, 0=off, 1=on");
+
+static int yt921x_vlan_mode_param_get_mask_val(u32 *mask, u32 *val)
+{
+	struct {
+		int param;
+		u32 bit;
+	} params[] = {
+		{ yt921x_vlan_mode_port, YT921X_VLAN_IGR_TRANS_CTRL_PORT_MODE },
+		{ yt921x_vlan_mode_ctag, YT921X_VLAN_IGR_TRANS_CTRL_CTAG_MODE },
+		{ yt921x_vlan_mode_stag, YT921X_VLAN_IGR_TRANS_CTRL_STAG_MODE },
+		{ yt921x_vlan_mode_proto, YT921X_VLAN_IGR_TRANS_CTRL_PROTO_MODE },
+	};
+	unsigned int i;
+	u32 m = 0;
+	u32 v = 0;
+
+	for (i = 0; i < ARRAY_SIZE(params); i++) {
+		if (params[i].param == -1)
+			continue;
+		if (params[i].param != 0 && params[i].param != 1)
+			return -EINVAL;
+
+		m |= params[i].bit;
+		if (params[i].param)
+			v |= params[i].bit;
+	}
+
+	*mask = m;
+	*val = v;
+
+	return 0;
+}
+
+int yt921x_vlan_mode_setup_locked(struct yt921x_priv *priv)
+{
+	struct device *dev = yt921x_dev(priv);
+	u32 mask;
+	u32 val;
+	int res;
+
+	res = yt921x_vlan_mode_param_get_mask_val(&mask, &val);
+	if (res) {
+		dev_err(dev,
+			"Invalid vlan_mode_* parameter value(s): port=%d ctag=%d stag=%d proto=%d\n",
+			yt921x_vlan_mode_port, yt921x_vlan_mode_ctag,
+			yt921x_vlan_mode_stag, yt921x_vlan_mode_proto);
+		return res;
+	}
+	if (!mask)
+		return 0;
+
+	dev_info(dev,
+		 "Applying VLAN ingress mode override: mask=0x%x val=0x%x (port=%d ctag=%d stag=%d proto=%d)\n",
+		 mask, val, yt921x_vlan_mode_port, yt921x_vlan_mode_ctag,
+		 yt921x_vlan_mode_stag, yt921x_vlan_mode_proto);
+
+	return yt921x_reg_update_bits(priv, YT921X_VLAN_IGR_TRANS_CTRL, mask, val);
+}
+
+enum yt921x_devlink_param_id {
+	YT921X_DEVLINK_PARAM_ID_BASE = DEVLINK_PARAM_GENERIC_ID_MAX,
+	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PORT,
+	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_CTAG,
+	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_STAG,
+	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PROTO,
+};
+
+static int yt921x_devlink_param_to_vlan_mask(u32 id, u32 *mask)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PORT:
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_PORT_MODE;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_VLAN_MODE_CTAG:
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_CTAG_MODE;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_VLAN_MODE_STAG:
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_STAG_MODE;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PROTO:
+		*mask = YT921X_VLAN_IGR_TRANS_CTRL_PROTO_MODE;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
+			     struct devlink_param_gset_ctx *ctx)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 mask;
+	u32 ctrl;
+	int res;
+
+	res = yt921x_devlink_param_to_vlan_mask(id, &mask);
+	if (res)
+		return res;
+
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_reg_read(priv, YT921X_VLAN_IGR_TRANS_CTRL, &ctrl);
+	mutex_unlock(&priv->reg_lock);
+	if (res)
+		return res;
+
+	ctx->val.vbool = !!(ctrl & mask);
+
+	return 0;
+}
+
+int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
+			     struct devlink_param_gset_ctx *ctx)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 mask;
+	int res;
+
+	res = yt921x_devlink_param_to_vlan_mask(id, &mask);
+	if (res)
+		return res;
+
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_reg_toggle_bits(priv, YT921X_VLAN_IGR_TRANS_CTRL, mask,
+				     ctx->val.vbool);
+	mutex_unlock(&priv->reg_lock);
+
+	return res;
+}
+
+static const struct devlink_param yt921x_devlink_params[] = {
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PORT,
+				 "vlan_mode_port", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_MODE_CTAG,
+				 "vlan_mode_ctag", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_MODE_STAG,
+				 "vlan_mode_stag", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PROTO,
+				 "vlan_mode_proto", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+};
+
+int yt921x_devlink_params_register(struct dsa_switch *ds)
+{
+	return dsa_devlink_params_register(ds, yt921x_devlink_params,
+					   ARRAY_SIZE(yt921x_devlink_params));
+}
+
+void yt921x_devlink_params_unregister(struct dsa_switch *ds)
+{
+	dsa_devlink_params_unregister(ds, yt921x_devlink_params,
+				      ARRAY_SIZE(yt921x_devlink_params));
+}
+
 int yt921x_loop_detect_setup_locked(struct yt921x_priv *priv)
 {
 	u32 ctrl;

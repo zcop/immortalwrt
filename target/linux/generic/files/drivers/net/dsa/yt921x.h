@@ -1307,9 +1307,12 @@ struct yt921x_priv {
 	u32 storm_policer_burst;
 	u8 vlan_fid_mode;
 	u16 vlan_svl_fid;
+	bool devlink_params_registered;
 	int dt_rma_slow_action;
 	int dt_ctrlpkt_lldp_act;
 	int dt_ctrlpkt_lldp_eee_act;
+	u16 dt_secondary_conduit_user_mask;
+	bool dt_secondary_conduit_user_mask_valid;
 };
 
 #endif
