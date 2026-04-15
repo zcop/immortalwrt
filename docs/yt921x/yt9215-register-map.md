@@ -78,7 +78,7 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_PON_STRAP_VAL` | `0x80324` | dynamic / see probes | Power-on strap function/value/capture registers. | Medium |
 | `YT921X_PON_STRAP_CAP` | `0x80328` | dynamic / see probes | Power-on strap function/value/capture registers. | Medium |
 | `YT921X_MDIO_POLLINGn(port)` | `(0x80364 + 4 * ((port) - 8))` | dynamic (p8=0x1a, p9=0x12 sample) | Serdes polling summary (link/duplex/speed code fields). | Medium |
-| `YT921X_SENSOR` | `0x8036c` | dynamic / see probes | Sensor/temperature path registers. | Medium |
+| `YT921X_SENSOR` | `0x8036c` | dynamic / see probes | Sensor control register (`bit18` temp enable). Driver enables it only when DT property `motorcomm,temp-sensor-supported` (or `temp-sensor-supported`) is present. | Medium |
 | `YT921X_TEMP` | `0x80374` | dynamic / see probes | Sensor/temperature path registers. | Medium |
 | `YT921X_CHIP_MODE` | `0x80388` | 0x00000002 | Chip mode profile selection/readback. | Medium |
 | `YT921X_XMII_CTRL` | `0x80394` | 0x00000000 | XMII global/per-port mode and delay control. | Medium |
@@ -127,6 +127,13 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_MIB_DATA_TX_LATE_COLLISION` | `0xa4` | offset only | MIB counter offset under YT921X_MIBn_DATA0(port). | High |
 | `YT921X_MIB_DATA_RX_OAM` | `0xa8` | offset only | MIB counter offset under YT921X_MIBn_DATA0(port). | High |
 | `YT921X_MIB_DATA_TX_OAM` | `0xac` | offset only | MIB counter offset under YT921X_MIBn_DATA0(port). | High |
+| `YT921X_LED_GLB_CTRL` | `0x000d0000` | stock-path reverse mapped | LED global control from `fal_tiger_led_*`: mode `[1:0]` (parallel/serial), loop-detect blink-rate `[20:19]`, config-done bit `21`. | Medium |
+| `YT921X_LED_CTRL_0_BASE` | `0x000d0004` | stock-path reverse mapped | LED action table base for LED0 (`addr = base + 4 * macid`). | Medium |
+| `YT921X_LED_CTRL_1_BASE` | `0x000d0040` | stock-path reverse mapped | LED action/blink table base for LED1 (`addr = base + 4 * macid`). | Medium |
+| `YT921X_LED_CTRL_2_BASE` | `0x000d0080` | stock-path reverse mapped | LED force-mode/rate table base for LED2 (`addr = base + 4 * macid`). | Medium |
+| `YT921X_LED_SERIAL_CTRL` | `0x000d0100` | stock-path reverse mapped | Serial LED control: active mode + pin count selection. | Medium |
+| `YT921X_LED_PAR_OUTPUT_CTRL` | `0x000d01c4` | stock-path reverse mapped | Parallel LED output-port mask control (stock uses `0x3ff` for full parallel output). | Medium |
+| `YT921X_LED_PAR_POS_INVERT_CTRL` | `0x000d01c8` | stock-path reverse mapped | Parallel LED polarity/invert control. | Medium |
 | `YT921X_EDATA_CTRL` | `0xe0000` | dynamic / see probes | EDATA command/data path for extended data operations. | Medium |
 | `YT921X_EDATA_DATA` | `0xe0004` | 0x00000003 (sample) | EDATA command/data path for extended data operations. | Medium |
 | `YT921X_EXT_MBUS_OP` | `0x6a000` | dynamic / see probes | MBUS op trigger (start bit). | Medium |

@@ -1,5 +1,29 @@
 # YT9215 Register Map Changelog
 
+## 2026-04-15: DT-gated sensor enable path
+
+What changed:
+- Driver behavior now gates writes to `YT921X_SENSOR` (`0x8036c`, bit18) by DT property:
+  - `motorcomm,temp-sensor-supported` (preferred)
+  - `temp-sensor-supported` (fallback)
+- If property is absent, sensor enable write is skipped at init.
+- This keeps CR881x (no validated switch temperature path) on safe default while allowing other YT921x boards to opt-in.
+
+## 2026-04-15: added LED register block used by yt9215rb LED API
+
+What changed:
+- Added reverse-mapped LED rows in unified map:
+  - `YT921X_LED_GLB_CTRL` (`0x000d0000`)
+  - `YT921X_LED_CTRL_0_BASE` (`0x000d0004`)
+  - `YT921X_LED_CTRL_1_BASE` (`0x000d0040`)
+  - `YT921X_LED_CTRL_2_BASE` (`0x000d0080`)
+  - `YT921X_LED_SERIAL_CTRL` (`0x000d0100`)
+  - `YT921X_LED_PAR_OUTPUT_CTRL` (`0x000d01c4`)
+  - `YT921X_LED_PAR_POS_INVERT_CTRL` (`0x000d01c8`)
+- Source reference for mapping:
+  - `yt9215rb_src/fal_tiger_led.h`
+  - `yt9215rb_src/fal_tiger_led.c`
+
 ## 2026-04-15: multicast policy bitfields synchronized with driver header
 
 What changed:

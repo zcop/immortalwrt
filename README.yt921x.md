@@ -50,6 +50,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 
 ### Control, management and statistics
 - RFC-family MIB coverage (including bridge/RMON classes) - DONE
+- Temperature sensor telemetry (DT-gated per board) - TODO
 - OAM and EEE LLDP feature family - TODO
 - Loop detection feature family - DONE
 - Loop prevention/enforcement feature family - TODO
@@ -72,7 +73,8 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 - ACL advanced datasheet parity beyond current mapped shapes - TODO
 - IGMP/MLD snooping core - DONE
 - IGMP/MLD fast-leave - DONE
-- IGMP/MLD router-port policy parity - TODO
+- IGMP/MLD router-port policy parity (unknown multicast data path) - DONE
+- IGMP/MLD router-port policy parity (IGMP/MLD control frames) - TODO
 - Mirror feature families (port-based and flow-based) - DONE
 - Reserved multicast control family - DONE
 - WoL feature family - TODO
@@ -195,9 +197,27 @@ Primary:
 - `bridge` (VLAN/FDB/MDB/bridge flags)
 - `tc` (`flower`, `mqprio`, `ets`, `tbf`, policer-related setup paths)
 - Standard DSA netdevices/ports
+- `devlink` runtime params for VLAN ingress parser mode bits (`vlan_mode_port`, `vlan_mode_ctag`, `vlan_mode_stag`, `vlan_mode_proto`)
+
+Runtime VLAN parser mode (`devlink`) example:
+```bash
+# discover the devlink handle first
+devlink dev show
+
+# show current values
+devlink dev param show <handle> name vlan_mode_port
+devlink dev param show <handle> name vlan_mode_ctag
+devlink dev param show <handle> name vlan_mode_stag
+devlink dev param show <handle> name vlan_mode_proto
+
+# set runtime value (true/false)
+devlink dev param set <handle> name vlan_mode_ctag value true cmode runtime
+devlink dev param set <handle> name vlan_mode_proto value false cmode runtime
+```
 
 Behavioral rule:
 - Unsupported hardware semantics are intentionally rejected with explicit fast-fail (`-EOPNOTSUPP`, `-EINVAL`, `-ENOSPC`) to avoid silent partial offload.
+- Temperature sensor enable is DT-gated (`motorcomm,temp-sensor-supported` / `temp-sensor-supported`); boards without this property keep the sensor path disabled.
 
 ## Debug-Only Surfaces
 
