@@ -463,6 +463,19 @@ struct yt921x_priv;
 #define   YT921X_WOL_CTRL_ETHERTYPE(x) \
 		FIELD_PREP(YT921X_WOL_CTRL_ETHERTYPE_M, (x))
 #define  YT921X_WOL_CTRL_EN		BIT(16)
+#define YT921X_LED_GLB_CTRL		0x0d0000
+#define  YT921X_LED_GLB_MODE_M			GENMASK(1, 0)
+#define   YT921X_LED_GLB_MODE_PARALLEL		0
+#define   YT921X_LED_GLB_MODE_SERIAL		1
+#define  YT921X_LED_GLB_LOOP_RATE_M		GENMASK(20, 19)
+#define  YT921X_LED_GLB_CFG_DONE		BIT(21)
+#define YT921X_LED_CTRL_0_BASE		0x0d0004
+#define YT921X_LED_CTRL_1_BASE		0x0d0040
+#define YT921X_LED_CTRL_2_BASE		0x0d0080
+#define YT921X_LED_SERIAL_CTRL		0x0d0100
+#define YT921X_LED_PAR_OUTPUT_CTRL	0x0d01c4
+#define  YT921X_LED_PAR_OUTPUT_PORTS_M		GENMASK(9, 0)
+#define YT921X_LED_PAR_POS_INVERT_CTRL	0x0d01c8
 #define YT921X_CTRLPKT_ARP_ACT		0x180284	/* tbl 0x74 */
 #define YT921X_CTRLPKT_ND_ACT		0x180288	/* tbl 0x75 */
 #define YT921X_CTRLPKT_LLDP_EEE_ACT	0x18028c	/* tbl 0x76 */
@@ -1311,6 +1324,7 @@ struct yt921x_priv {
 	int dt_rma_slow_action;
 	int dt_ctrlpkt_lldp_act;
 	int dt_ctrlpkt_lldp_eee_act;
+	bool dt_led_ctrl_enabled;
 	u16 dt_secondary_conduit_user_mask;
 	bool dt_secondary_conduit_user_mask_valid;
 };

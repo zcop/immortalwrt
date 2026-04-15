@@ -1215,6 +1215,8 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  loop_detect set <0|1> [tpid] [gen_way]\n"
 				 "  wol show\n"
 				 "  wol set <0|1> [ethertype]\n"
+				 "  led show\n"
+				 "  led mode <serial|parallel>\n"
 				 "  unk show\n"
 				 "  unk set filter <ucast|mcast|both> <mask>\n"
 				 "  unk set action <ucast|mcast> <port> <flood|trap|drop|copy>\n"
@@ -1346,6 +1348,20 @@ static int yt921x_proc_parse_vlan_fid_mode(const char *s, u8 *mode)
 	}
 	if (!strcmp(s, "svl")) {
 		*mode = YT921X_VLAN_FID_MODE_SVL;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static int yt921x_proc_parse_led_mode(const char *s, u32 *mode)
+{
+	if (!strcmp(s, "parallel")) {
+		*mode = YT921X_LED_GLB_MODE_PARALLEL;
+		return 0;
+	}
+	if (!strcmp(s, "serial")) {
+		*mode = YT921X_LED_GLB_MODE_SERIAL;
 		return 0;
 	}
 
@@ -1799,6 +1815,50 @@ static int yt921x_proc_reply_wol(struct yt921x_priv *priv)
 				 YT921X_WOL_CTRL, ctrl,
 				 !!(ctrl & YT921X_WOL_CTRL_EN),
 				 (u16)FIELD_GET(YT921X_WOL_CTRL_ETHERTYPE_M, ctrl));
+
+	return 0;
+}
+
+static int yt921x_proc_reply_led(struct yt921x_priv *priv)
+{
+	u32 glb;
+	u32 serial;
+	u32 par_out;
+	u32 mode;
+	const char *mode_name;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_LED_GLB_CTRL, &glb);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_LED_SERIAL_CTRL, &serial);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_LED_PAR_OUTPUT_CTRL, &par_out);
+	if (res)
+		return res;
+
+	mode = FIELD_GET(YT921X_LED_GLB_MODE_M, glb);
+	switch (mode) {
+	case YT921X_LED_GLB_MODE_PARALLEL:
+		mode_name = "parallel";
+		break;
+	case YT921X_LED_GLB_MODE_SERIAL:
+		mode_name = "serial";
+		break;
+	default:
+		mode_name = "unknown";
+		break;
+	}
+
+	yt921x_proc_reply_append(
+		priv,
+		"led glb[0x%06x]=0x%08x mode=%s(%u) cfg_done=%u loop_rate=%u serial[0x%06x]=0x%08x par_out[0x%06x]=0x%08x\n",
+		YT921X_LED_GLB_CTRL, glb, mode_name, mode,
+		!!(glb & YT921X_LED_GLB_CFG_DONE),
+		(u32)FIELD_GET(YT921X_LED_GLB_LOOP_RATE_M, glb),
+		YT921X_LED_SERIAL_CTRL, serial,
+		YT921X_LED_PAR_OUTPUT_CTRL, par_out);
 
 	return 0;
 }
@@ -2948,6 +3008,58 @@ static int yt921x_proc_run(struct yt921x_priv *priv, char *cmd)
 			}
 			if (!res)
 				res = yt921x_proc_reply_wol(priv);
+			mutex_unlock(&priv->reg_lock);
+			goto out;
+		}
+
+		res = -EINVAL;
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "led")) {
+		if (!priv->dt_led_ctrl_enabled) {
+			res = -EOPNOTSUPP;
+			yt921x_proc_reply_append(
+				priv,
+				"led control disabled on this board (set switch DT property motorcomm,led-controller to enable)\n");
+			goto out;
+		}
+
+		if (argc == 1 || !strcmp(argv[1], "show")) {
+			mutex_lock(&priv->reg_lock);
+			res = yt921x_proc_reply_led(priv);
+			mutex_unlock(&priv->reg_lock);
+			goto out;
+		}
+
+		if (!strcmp(argv[1], "mode") && argc >= 3) {
+			u32 mode;
+			u32 ctrl;
+
+			res = yt921x_proc_parse_led_mode(argv[2], &mode);
+			if (res)
+				goto out;
+
+			mutex_lock(&priv->reg_lock);
+			if (mode == YT921X_LED_GLB_MODE_SERIAL)
+				res = yt921x_reg_write(priv,
+						       YT921X_LED_PAR_OUTPUT_CTRL,
+						       0);
+			else
+				res = yt921x_reg_write(priv,
+						       YT921X_LED_PAR_OUTPUT_CTRL,
+						       YT921X_LED_PAR_OUTPUT_PORTS_M);
+			if (!res)
+				res = yt921x_reg_read(priv, YT921X_LED_GLB_CTRL,
+						      &ctrl);
+			if (!res) {
+				ctrl &= ~YT921X_LED_GLB_MODE_M;
+				ctrl |= FIELD_PREP(YT921X_LED_GLB_MODE_M, mode);
+				res = yt921x_reg_write(priv, YT921X_LED_GLB_CTRL,
+						       ctrl);
+			}
+			if (!res)
+				res = yt921x_proc_reply_led(priv);
 			mutex_unlock(&priv->reg_lock);
 			goto out;
 		}

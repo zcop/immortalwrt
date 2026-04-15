@@ -236,6 +236,7 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 	priv->dt_rma_slow_action = -1;
 	priv->dt_ctrlpkt_lldp_act = -1;
 	priv->dt_ctrlpkt_lldp_eee_act = -1;
+	priv->dt_led_ctrl_enabled = false;
 
 	if (dev->of_node) {
 		bool has_rma_slow_action;
@@ -253,6 +254,9 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 		has_ctrlpkt_lldp_eee_act =
 			of_property_present(dev->of_node, "motorcomm,ctrlpkt-lldp-eee-act") ||
 			of_property_present(dev->of_node, "ctrlpkt-lldp-eee-act");
+		priv->dt_led_ctrl_enabled =
+			of_property_read_bool(dev->of_node, "motorcomm,led-controller") ||
+			of_property_read_bool(dev->of_node, "led-controller");
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_CR881X)
 		has_secondary_conduit_user_mask =
 			of_machine_is_compatible("xiaomi,cr881x") &&
