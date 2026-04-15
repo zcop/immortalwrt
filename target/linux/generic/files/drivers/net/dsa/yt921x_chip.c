@@ -1307,9 +1307,11 @@ int yt921x_chip_setup(struct yt921x_priv *priv)
 		return res;
 
 	/* Miscellaneous */
-	res = yt921x_reg_set_bits(priv, YT921X_SENSOR, YT921X_SENSOR_TEMP);
-	if (res)
-		return res;
+	if (priv->dt_temp_sensor_supported) {
+		res = yt921x_reg_set_bits(priv, YT921X_SENSOR, YT921X_SENSOR_TEMP);
+		if (res)
+			return res;
+	}
 
 	/* Flush dynamic FDB entries on hardware link-down events. */
 	res = yt921x_reg_set_bits(priv, YT921X_FDB_HW_FLUSH,

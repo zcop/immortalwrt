@@ -237,12 +237,14 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 	priv->dt_ctrlpkt_lldp_act = -1;
 	priv->dt_ctrlpkt_lldp_eee_act = -1;
 	priv->dt_led_ctrl_enabled = false;
+	priv->dt_temp_sensor_supported = false;
 
 	if (dev->of_node) {
 		bool has_rma_slow_action;
 		bool has_ctrlpkt_lldp_act;
 		bool has_ctrlpkt_lldp_eee_act;
 		bool has_secondary_conduit_user_mask = false;
+		bool has_temp_sensor_supported;
 		u32 val;
 
 		has_rma_slow_action =
@@ -257,6 +259,12 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 		priv->dt_led_ctrl_enabled =
 			of_property_read_bool(dev->of_node, "motorcomm,led-controller") ||
 			of_property_read_bool(dev->of_node, "led-controller");
+		has_temp_sensor_supported =
+			of_property_present(dev->of_node, "motorcomm,temp-sensor-supported") ||
+			of_property_present(dev->of_node, "temp-sensor-supported");
+		priv->dt_temp_sensor_supported =
+			of_property_read_bool(dev->of_node, "motorcomm,temp-sensor-supported") ||
+			of_property_read_bool(dev->of_node, "temp-sensor-supported");
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_CR881X)
 		has_secondary_conduit_user_mask =
 			of_machine_is_compatible("xiaomi,cr881x") &&
@@ -298,12 +306,14 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 #endif
 
 		if (has_rma_slow_action || has_ctrlpkt_lldp_act ||
-		    has_ctrlpkt_lldp_eee_act || has_secondary_conduit_user_mask)
+		    has_ctrlpkt_lldp_eee_act || has_secondary_conduit_user_mask ||
+		    has_temp_sensor_supported)
 			dev_info(dev,
-				 "DT policy overrides parsed: rma-slow-action=%d ctrlpkt-lldp-act=0x%x ctrlpkt-lldp-eee-act=0x%x secondary-conduit-user-mask=0x%x\n",
+				 "DT policy overrides parsed: rma-slow-action=%d ctrlpkt-lldp-act=0x%x ctrlpkt-lldp-eee-act=0x%x temp-sensor-supported=%u secondary-conduit-user-mask=0x%x\n",
 				 priv->dt_rma_slow_action,
 				 priv->dt_ctrlpkt_lldp_act,
 				 priv->dt_ctrlpkt_lldp_eee_act,
+				 priv->dt_temp_sensor_supported,
 				 priv->dt_secondary_conduit_user_mask_valid ?
 				 priv->dt_secondary_conduit_user_mask : 0U);
 	}

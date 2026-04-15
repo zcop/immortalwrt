@@ -1325,6 +1325,7 @@ struct yt921x_priv {
 	int dt_ctrlpkt_lldp_act;
 	int dt_ctrlpkt_lldp_eee_act;
 	bool dt_led_ctrl_enabled;
+	bool dt_temp_sensor_supported;
 	u16 dt_secondary_conduit_user_mask;
 	bool dt_secondary_conduit_user_mask_valid;
 };
