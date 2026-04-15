@@ -856,6 +856,8 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	unsigned long cpu_ports_mask;
 	u64 ctrl64;
 	u32 ctrl;
+	u32 allowed_mask;
+	u32 blocked_mask;
 	int port;
 	int res;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -897,6 +899,30 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	res = yt921x_reg_write(priv, YT921X_EXT_CPU_PORT, ctrl);
 	if (res)
 		return res;
+
+	/* Apply optional board policy as early as possible: constrain the
+	 * secondary conduit destination set before user-port setup starts.
+	 */
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_CR881X)
+	if (of_machine_is_compatible("xiaomi,cr881x") &&
+	    priv->secondary_cpu_port >= 0 &&
+	    priv->dt_secondary_conduit_user_mask_valid) {
+		allowed_mask = priv->dt_secondary_conduit_user_mask &
+			       yt921x_non_cpu_port_mask(priv);
+		blocked_mask = yt921x_non_cpu_port_mask(priv) & ~allowed_mask;
+
+		res = yt921x_port_isolation_set(priv, priv->secondary_cpu_port,
+						blocked_mask);
+		if (res)
+			return res;
+
+		res = yt921x_reg_set_bits(priv,
+					  YT921X_PORTn_ISOLATION(priv->secondary_cpu_port),
+					  BIT(priv->primary_cpu_port));
+		if (res)
+			return res;
+	}
+#endif
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	yt921x_debug_init_checkpoint_locked(priv, &dbg_stage, "ext-cpu-port");
 #endif
@@ -928,6 +954,11 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 
 	/* Apply optional release-facing control-packet policy overrides. */
 	res = yt921x_ctrlpkt_setup_locked(priv);
+	if (res)
+		return res;
+
+	/* Apply optional release-facing ingress VLAN mode overrides. */
+	res = yt921x_vlan_mode_setup_locked(priv);
 	if (res)
 		return res;
 

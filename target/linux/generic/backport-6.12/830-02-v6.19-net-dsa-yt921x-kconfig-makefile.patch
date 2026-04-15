@@ -8,13 +8,13 @@ Driver sources are synced from a Linux tree into target/linux/generic/files.
 
 Signed-off-by: David Yang <mmyangfl@gmail.com>
 ---
- drivers/net/dsa/Kconfig  | 7 +++++++
+ drivers/net/dsa/Kconfig  | 13 +++++++++++++
  drivers/net/dsa/Makefile | 1 +
- 2 files changed, 8 insertions(+)
+ 2 files changed, 14 insertions(+)
 
 --- a/drivers/net/dsa/Kconfig
 +++ b/drivers/net/dsa/Kconfig
-@@ -159,4 +159,19 @@ config NET_DSA_VITESSE_VSC73XX_PLATFORM
+@@ -159,4 +159,25 @@ config NET_DSA_VITESSE_VSC73XX_PLATFORM
  	  This enables support for the Vitesse VSC7385, VSC7388, VSC7395
  	  and VSC7398 SparX integrated ethernet switches, connected over
  	  a CPU-attached address bus and work in memory-mapped I/O mode.
@@ -33,6 +33,12 @@ Signed-off-by: David Yang <mmyangfl@gmail.com>
 +	  Enable debug command interface under debugfs for yt921x.
 +	  This exposes raw register/table helpers and is intended for
 +	  bring-up and reverse engineering.
++
++config NET_DSA_YT921X_CR881X
++	bool "Motorcomm YT921x CR881x conduit isolation policy"
++	depends on NET_DSA_YT921X
++	help
++	  Enable CR881x-specific secondary conduit user-port isolation policy.
  endmenu
 --- a/drivers/net/dsa/Makefile
 +++ b/drivers/net/dsa/Makefile

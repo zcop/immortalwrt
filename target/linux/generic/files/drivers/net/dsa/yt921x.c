@@ -54,7 +54,23 @@ static int yt921x_dsa_setup(struct dsa_switch *ds)
 	if (res)
 		return res;
 
+	res = yt921x_devlink_params_register(ds);
+	if (res)
+		return res;
+	priv->devlink_params_registered = true;
+
 	return 0;
+}
+
+static void yt921x_dsa_teardown(struct dsa_switch *ds)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+
+	if (!priv->devlink_params_registered)
+		return;
+
+	yt921x_devlink_params_unregister(ds);
+	priv->devlink_params_registered = false;
 }
 
 static const struct phylink_mac_ops yt921x_phylink_mac_ops = {
@@ -135,6 +151,9 @@ static const struct dsa_switch_ops yt921x_dsa_switch_ops = {
 	.port_disable		= yt921x_dsa_port_disable,
 	/* chip */
 	.setup			= yt921x_dsa_setup,
+	.teardown		= yt921x_dsa_teardown,
+	.devlink_param_get	= yt921x_devlink_param_get,
+	.devlink_param_set	= yt921x_devlink_param_set,
 };
 
 static void yt921x_mdio_shutdown(struct mdio_device *mdiodev)
@@ -222,6 +241,7 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 		bool has_rma_slow_action;
 		bool has_ctrlpkt_lldp_act;
 		bool has_ctrlpkt_lldp_eee_act;
+		bool has_secondary_conduit_user_mask = false;
 		u32 val;
 
 		has_rma_slow_action =
@@ -233,6 +253,12 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 		has_ctrlpkt_lldp_eee_act =
 			of_property_present(dev->of_node, "motorcomm,ctrlpkt-lldp-eee-act") ||
 			of_property_present(dev->of_node, "ctrlpkt-lldp-eee-act");
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_CR881X)
+		has_secondary_conduit_user_mask =
+			of_machine_is_compatible("xiaomi,cr881x") &&
+			(of_property_present(dev->of_node, "motorcomm,secondary-conduit-user-mask") ||
+			 of_property_present(dev->of_node, "secondary-conduit-user-mask"));
+#endif
 
 		if (!of_property_read_u32(dev->of_node,
 					  "motorcomm,rma-slow-action", &val))
@@ -255,13 +281,27 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 					       "ctrlpkt-lldp-eee-act", &val))
 			priv->dt_ctrlpkt_lldp_eee_act = val;
 
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_CR881X)
+		if (has_secondary_conduit_user_mask &&
+		    (!of_property_read_u32(dev->of_node,
+					   "motorcomm,secondary-conduit-user-mask", &val) ||
+		     !of_property_read_u32(dev->of_node,
+					   "secondary-conduit-user-mask", &val))) {
+			priv->dt_secondary_conduit_user_mask =
+				val & GENMASK(YT921X_PORT_NUM - 1, 0);
+			priv->dt_secondary_conduit_user_mask_valid = true;
+		}
+#endif
+
 		if (has_rma_slow_action || has_ctrlpkt_lldp_act ||
-		    has_ctrlpkt_lldp_eee_act)
+		    has_ctrlpkt_lldp_eee_act || has_secondary_conduit_user_mask)
 			dev_info(dev,
-				 "DT policy overrides parsed: rma-slow-action=%d ctrlpkt-lldp-act=0x%x ctrlpkt-lldp-eee-act=0x%x\n",
+				 "DT policy overrides parsed: rma-slow-action=%d ctrlpkt-lldp-act=0x%x ctrlpkt-lldp-eee-act=0x%x secondary-conduit-user-mask=0x%x\n",
 				 priv->dt_rma_slow_action,
 				 priv->dt_ctrlpkt_lldp_act,
-				 priv->dt_ctrlpkt_lldp_eee_act);
+				 priv->dt_ctrlpkt_lldp_eee_act,
+				 priv->dt_secondary_conduit_user_mask_valid ?
+				 priv->dt_secondary_conduit_user_mask : 0U);
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(priv->ports); i++) {
