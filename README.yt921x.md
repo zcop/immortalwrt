@@ -67,7 +67,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 - 802.1ad stacking VLAN - DONE
 - VLAN translation families (1:1 / 2:1 / 2:2 / N:1 / 1:N) - DONE
 - 802.1X access-control (port-based) - DONE
-- 802.1X access-control (MAC-based) - TODO
+- 802.1X access-control (MAC-based) - DONE
 - 802.1X access-control (guest VLAN) - DONE
 - ACL rule engine with multi-slice extension model - DONE
 - ACL advanced datasheet parity beyond current mapped shapes - TODO
