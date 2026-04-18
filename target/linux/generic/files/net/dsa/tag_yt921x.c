@@ -33,13 +33,22 @@
 
 #define YT921X_TAG_PORT_EN		BIT(15)
 #define YT921X_TAG_RX_PORT_M		GENMASK(14, 11)
-#define YT921X_TAG_RX_CMD_M		GENMASK(10, 0)
-#define  YT921X_TAG_RX_CMD(x)			FIELD_PREP(YT921X_TAG_RX_CMD_M, (x))
-#define  YT921X_TAG_RX_CMD_FORWARDED		0x80
-#define  YT921X_TAG_RX_CMD_UNK_UCAST		0xb2
-#define  YT921X_TAG_RX_CMD_UNK_MCAST		0xb4
+#define YT921X_TAG_PRIO_M		GENMASK(10, 8)
+#define  YT921X_TAG_PRIO(x)			FIELD_PREP(YT921X_TAG_PRIO_M, (x))
+#define YT921X_TAG_CODE_EN		BIT(7)
+#define YT921X_TAG_CODE_M		GENMASK(6, 1)
+#define  YT921X_TAG_CODE(x)			FIELD_PREP(YT921X_TAG_CODE_M, (x))
 #define YT921X_TAG_TX_PORTS_M		GENMASK(10, 0)
 #define YT921X_TAG_TX_PORTn(port)	BIT(port)
+
+enum yt921x_tag_code {
+	YT921X_TAG_CODE_FORWARD = 0x00,
+	YT921X_TAG_CODE_L2_CTRL = 0x18,
+	YT921X_TAG_CODE_UNK_UCAST = 0x19,
+	YT921X_TAG_CODE_UNK_MCAST = 0x1a,
+	YT921X_TAG_CODE_PORT_COPY = 0x1b,
+	YT921X_TAG_CODE_FDB_COPY = 0x1c,
+};
 
 static struct sk_buff *
 yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
@@ -65,7 +74,9 @@ yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
 	tag[0] = htons(ETH_P_YT921X);
 	/* VLAN tag unrelated when TX */
 	tag[1] = 0;
-	tag[2] = 0;
+	tag[2] = htons(YT921X_TAG_CODE(YT921X_TAG_CODE_FORWARD) |
+		       YT921X_TAG_CODE_EN |
+		       YT921X_TAG_PRIO(skb->priority));
 	tx = YT921X_TAG_PORT_EN | YT921X_TAG_TX_PORTn(port);
 	tag[3] = htons(tx);
 
@@ -78,7 +89,7 @@ yt921x_tag_rcv(struct sk_buff *skb, struct net_device *netdev)
 	struct dsa_port *cpu_dp = netdev->dsa_ptr;
 	unsigned int port;
 	__be16 *tag;
-	u16 cmd;
+	u16 code;
 	u16 rx;
 
 	if (unlikely(!pskb_may_pull(skb, YT921X_TAG_LEN)))
@@ -139,25 +150,34 @@ yt921x_tag_rcv(struct sk_buff *skb, struct net_device *netdev)
 		return NULL;
 	}
 
-	cmd = FIELD_GET(YT921X_TAG_RX_CMD_M, rx);
-	switch (cmd) {
-	case YT921X_TAG_RX_CMD_FORWARDED:
+	skb->priority = FIELD_GET(YT921X_TAG_PRIO_M, rx);
+
+	if (unlikely(!(rx & YT921X_TAG_CODE_EN))) {
+		dev_warn_ratelimited(&netdev->dev,
+				     "Tag code not enabled in rx packet\n");
+		goto out_strip;
+	}
+
+	code = FIELD_GET(YT921X_TAG_CODE_M, rx);
+	switch (code) {
+	case YT921X_TAG_CODE_FORWARD:
+	case YT921X_TAG_CODE_PORT_COPY:
+	case YT921X_TAG_CODE_FDB_COPY:
 		/* Already forwarded by hardware */
 		dsa_default_offload_fwd_mark(skb);
 		break;
-	case YT921X_TAG_RX_CMD_UNK_UCAST:
-	case YT921X_TAG_RX_CMD_UNK_MCAST:
-		/* NOTE: hardware doesn't distinguish between TRAP (copy to CPU
-		 * only) and COPY (forward and copy to CPU). In order to perform
-		 * a soft switch, NEVER use COPY action in the switch driver.
-		 */
+	case YT921X_TAG_CODE_L2_CTRL:
+	case YT921X_TAG_CODE_UNK_UCAST:
+	case YT921X_TAG_CODE_UNK_MCAST:
+		/* CPU-directed trap/copy classes. Do not set offload_fwd_mark. */
 		break;
 	default:
 		dev_warn_ratelimited(&netdev->dev,
-				     "Unexpected rx cmd 0x%02x\n", cmd);
+				     "Unknown tag code 0x%02x\n", code);
 		break;
 	}
 
+out_strip:
 	/* Remove YT921x tag and update checksum */
 	skb_pull_rcsum(skb, YT921X_TAG_LEN);
 	dsa_strip_etype_header(skb, YT921X_TAG_LEN);
