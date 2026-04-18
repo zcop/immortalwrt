@@ -39,9 +39,9 @@ Board-specific validation note:
 
 ### Advanced features
 - LED output modes - CODE READY
-- MDIO/I2C slave and master control interfaces - TODO
-- Interrupt signaling toward external CPU - TODO
-- EEPROM-assisted configuration - TODO
+- MDIO/I2C slave and master control interfaces - TODO (MDIO master path is present; I2C/slave path remains unimplemented)
+- Interrupt signaling toward external CPU - TODO (board wiring/topology dependent; not wired on current CR881x DTS)
+- EEPROM-assisted configuration - TODO (board design dependent; no active EEPROM config path on current CR881x)
 - Jumbo frame support (up to 9K class) - DONE
 
 ### IEEE 802.3ad link aggregation
@@ -56,7 +56,7 @@ Board-specific validation note:
 
 ### Control, management and statistics
 - RFC-family MIB coverage (including bridge/RMON classes) - DONE
-- Temperature sensor telemetry (DT-gated per board) - TODO
+- Temperature sensor telemetry (DT-gated per board) - CODE READY
 - OAM and EEE LLDP feature family - CODE READY
 - Loop detection feature family - DONE
 - Loop prevention/enforcement feature family - TODO
