@@ -9,8 +9,8 @@ Driver sources are synced from a Linux tree into target/linux/generic/files.
 Signed-off-by: David Yang <mmyangfl@gmail.com>
 ---
  drivers/net/dsa/Kconfig  | 13 +++++++++++++
- drivers/net/dsa/Makefile | 1 +
- 2 files changed, 14 insertions(+)
+ drivers/net/dsa/Makefile | 11 +++++++++++
+ 2 files changed, 24 insertions(+)
 
 --- a/drivers/net/dsa/Kconfig
 +++ b/drivers/net/dsa/Kconfig
@@ -42,7 +42,7 @@ Signed-off-by: David Yang <mmyangfl@gmail.com>
  endmenu
 --- a/drivers/net/dsa/Makefile
 +++ b/drivers/net/dsa/Makefile
-@@ -18,7 +18,16 @@ obj-$(CONFIG_NET_DSA_SMSC_LAN9303_MDIO) += lan9303_mdio.o
+@@ -18,7 +18,18 @@ obj-$(CONFIG_NET_DSA_SMSC_LAN9303_MDIO) += lan9303_mdio.o
  obj-$(CONFIG_NET_DSA_VITESSE_VSC73XX) += vitesse-vsc73xx-core.o
  obj-$(CONFIG_NET_DSA_VITESSE_VSC73XX_PLATFORM) += vitesse-vsc73xx-platform.o
  obj-$(CONFIG_NET_DSA_VITESSE_VSC73XX_SPI) += vitesse-vsc73xx-spi.o
@@ -50,11 +50,13 @@ Signed-off-by: David Yang <mmyangfl@gmail.com>
 +yt921x_driver-y := \
 +	yt921x.o \
 +	yt921x_core.o \
++	yt921x_mbus.o \
 +	yt921x_qos_tc.o \
 +	yt921x_acl.o \
 +	yt921x_l2.o \
 +	yt921x_port.o \
-+	yt921x_chip.o
++	yt921x_chip.o \
++	yt921x_debugfs.o
  obj-y				+= b53/
  obj-y				+= hirschmann/
  obj-y				+= microchip/
