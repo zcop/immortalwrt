@@ -1,0 +1,28 @@
+#!/bin/sh
+
+[ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
+
+# Ensure a wireless config exists on first boot.
+[ -s /etc/config/wireless ] || wifi config >/dev/null 2>&1 || true
+
+first_5g=""
+for dev in $(uci -q show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
+	band="$(uci -q get wireless.${dev}.band || true)"
+
+	# Ship with a deterministic country default.
+	uci -q set "wireless.${dev}.country=US"
+
+	[ -n "$first_5g" ] && continue
+	[ "$band" = "5g" ] || continue
+	first_5g="$dev"
+done
+
+# For CR881x shipping defaults, prefer non-DFS 160 MHz on upper 5 GHz block.
+if [ -n "$first_5g" ]; then
+	uci -q set "wireless.${first_5g}.channel=149"
+	uci -q set "wireless.${first_5g}.htmode=HE160"
+fi
+
+uci -q commit wireless
+
+exit 0
