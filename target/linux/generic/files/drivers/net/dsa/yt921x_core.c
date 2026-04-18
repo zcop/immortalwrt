@@ -1879,6 +1879,7 @@ static int yt921x_proc_reply_tbf_port(struct yt921x_priv *priv, u32 port)
 	u64 burst_bytes;
 	u32 rate_kbps;
 	u32 ebs_eir;
+	u8 token_level;
 	u32 ctrl;
 	u32 eir;
 	u32 ebs;
@@ -1894,14 +1895,16 @@ static int yt921x_proc_reply_tbf_port(struct yt921x_priv *priv, u32 port)
 
 	eir = FIELD_GET(YT921X_PSCH_SHP_EIR_M, ebs_eir);
 	ebs = FIELD_GET(YT921X_PSCH_SHP_EBS_M, ebs_eir);
-	rate_kbps = yt921x_tbf_eir_to_rate_kbps(eir);
-	burst_bytes = (u64)ebs * YT921X_PSCH_EBS_UNIT_BYTES;
+	token_level = FIELD_GET(YT921X_PSCH_SHP_TOKEN_LEVEL_M, ctrl);
+	rate_kbps = yt921x_tbf_token_to_rate_kbps(eir, priv->port_shape_slot_ns,
+						  token_level);
+	burst_bytes = yt921x_tbf_token_to_burst_bytes(ebs, token_level);
 
 	yt921x_proc_reply_append(priv,
-				 "tbf p%u: en=%u dual_rate=%u meter=%u eir=%u (~%u kbps) ebs=%u (~%llu bytes)\n",
+				 "tbf p%u: en=%u mode=%u token=%u cir=%u (~%u kbps) cbs=%u (~%llu bytes)\n",
 				 port, !!(ctrl & YT921X_PSCH_SHP_EN),
-				 !!(ctrl & YT921X_PSCH_SHP_DUAL_RATE),
-				 FIELD_GET(YT921X_PSCH_SHP_METER_ID_M, ctrl),
+				 !!(ctrl & YT921X_PSCH_SHP_MODE),
+				 token_level,
 				 eir, rate_kbps, ebs, burst_bytes);
 
 	return 0;
@@ -2358,11 +2361,11 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e1[] = {
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e9[] = {
-	YT921X_PROC_FIELD(1, 2, 6, "en"),
-	YT921X_PROC_FIELD(1, 2, 5, "dual_rate"),
-	YT921X_PROC_FIELD(1, 2, 4, "couple"),
+	YT921X_PROC_FIELD(1, 2, 6, "cf"),
+	YT921X_PROC_FIELD(1, 2, 5, "e_shaper_en"),
+	YT921X_PROC_FIELD(1, 2, 4, "c_shaper_en"),
 	YT921X_PROC_FIELD(1, 2, 3, "mode"),
-	YT921X_PROC_FIELD(3, 2, 0, "meter_id"),
+	YT921X_PROC_FIELD(3, 2, 0, "token_level"),
 	YT921X_PROC_FIELD(14, 1, 18, "ebs"),
 	YT921X_PROC_FIELD(18, 1, 0, "eir"),
 	YT921X_PROC_FIELD(14, 0, 18, "cbs"),
@@ -2374,9 +2377,9 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ea[] = {
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_eb[] = {
-	YT921X_PROC_FIELD(1, 1, 4, "en"),
-	YT921X_PROC_FIELD(1, 1, 3, "dual_rate"),
-	YT921X_PROC_FIELD(3, 1, 0, "meter_id"),
+	YT921X_PROC_FIELD(1, 1, 4, "c_shaper_en"),
+	YT921X_PROC_FIELD(1, 1, 3, "shaper_mode"),
+	YT921X_PROC_FIELD(3, 1, 0, "token_level"),
 	YT921X_PROC_FIELD(14, 0, 18, "ebs"),
 	YT921X_PROC_FIELD(18, 0, 0, "eir"),
 };

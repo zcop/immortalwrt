@@ -141,7 +141,8 @@ int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv);
 int yt921x_proc_init(struct yt921x_priv *priv);
 void yt921x_proc_exit(struct yt921x_priv *priv);
 
-u32 yt921x_tbf_eir_to_rate_kbps(u32 eir);
+u32 yt921x_tbf_token_to_rate_kbps(u32 token, unsigned int slot_ns, u8 token_level);
+u64 yt921x_tbf_token_to_burst_bytes(u32 token, u8 token_level);
 int yt921x_read_mib(struct yt921x_priv *priv, int port);
 void yt921x_poll_mib(struct work_struct *work);
 int yt921x_meter_tfm(struct yt921x_priv *priv, int port, unsigned int slot_ns,

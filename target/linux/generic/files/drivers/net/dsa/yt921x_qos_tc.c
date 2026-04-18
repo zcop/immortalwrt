@@ -8,14 +8,34 @@
 
 #include "yt921x_internal.h"
 
-u32 yt921x_tbf_eir_to_rate_kbps(u32 eir)
+u32 yt921x_tbf_token_to_rate_kbps(u32 token, unsigned int slot_ns, u8 token_level)
 {
-	if (eir <= YT921X_PSCH_EIR_RATE_OFFSET)
+	u64 rate_bps;
+	int exp;
+
+	if (!token || !slot_ns)
 		return 0;
 
-	return DIV_ROUND_CLOSEST_ULL((u64)(eir - YT921X_PSCH_EIR_RATE_OFFSET) *
-				     YT921X_PSCH_EIR_RATE_SCALE_DEN,
-				     YT921X_PSCH_EIR_RATE_SCALE_NUM);
+	/* From yt9215rb rate_tran_reg2usr() in BPS mode:
+	 * rate = token * 1e9 * 2^(2 * token_level - 11) / slot_ns.
+	 */
+	exp = 2 * (int)token_level - 11;
+	if (exp >= 0)
+		rate_bps = div_u64((u64)token * 1000000000ULL << exp, slot_ns);
+	else
+		rate_bps = div_u64((u64)token * 1000000000ULL,
+				   (u64)slot_ns << -exp);
+
+	return DIV_ROUND_CLOSEST_ULL(rate_bps, 1000);
+}
+
+u64 yt921x_tbf_token_to_burst_bytes(u32 token, u8 token_level)
+{
+	/* From yt9215rb shaping defaults:
+	 * token = burst << (14 - 2 * token_level) >> 16
+	 * => burst = token << (2 * token_level + 2).
+	 */
+	return (u64)token << (2 * (u8)token_level + 2);
 }
 
 /* Read and handle overflow of 32bit MIBs. MIB buffer must be zeroed before. */
@@ -188,8 +208,13 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 	}
 
 	data[j++] = !!(port_ctrl & YT921X_PSCH_SHP_EN);
-	data[j++] = yt921x_tbf_eir_to_rate_kbps(FIELD_GET(YT921X_PSCH_SHP_EIR_M, port_ebs_eir));
-	data[j++] = (u64)FIELD_GET(YT921X_PSCH_SHP_EBS_M, port_ebs_eir) * YT921X_PSCH_EBS_UNIT_BYTES;
+	data[j++] = yt921x_tbf_token_to_rate_kbps(
+		FIELD_GET(YT921X_PSCH_SHP_EIR_M, port_ebs_eir),
+		priv->port_shape_slot_ns,
+		FIELD_GET(YT921X_PSCH_SHP_TOKEN_LEVEL_M, port_ctrl));
+	data[j++] = yt921x_tbf_token_to_burst_bytes(
+		FIELD_GET(YT921X_PSCH_SHP_EBS_M, port_ebs_eir),
+		FIELD_GET(YT921X_PSCH_SHP_TOKEN_LEVEL_M, port_ctrl));
 
 	for (qid = 0; qid < YT921X_QSCH_SHP_QUEUES; qid++) {
 		u32 idx = 0;
@@ -205,7 +230,7 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 		idx = (u32)port * YT921X_QSCH_SHP_FLOWS_PER_PORT + qid;
 
 		res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD2(idx), &w2);
-		if (res || !(w2 & YT921X_QSCH_SHP_EN))
+		if (res || !(w2 & YT921X_QSCH_SHP_C_SHAPER_EN))
 			continue;
 
 		queue_en_mask |= BIT(qid);
@@ -214,10 +239,14 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 		if (res)
 			continue;
 
-		data[j + qid] =
-			yt921x_tbf_eir_to_rate_kbps(FIELD_GET(YT921X_QSCH_SHP_CIR_M, w0));
+		data[j + qid] = yt921x_tbf_token_to_rate_kbps(
+			FIELD_GET(YT921X_QSCH_SHP_CIR_M, w0),
+			priv->queue_shape_slot_ns,
+			FIELD_GET(YT921X_QSCH_SHP_TOKEN_LEVEL_M, w2));
 		data[j + YT921X_QSCH_SHP_QUEUES + qid] =
-			(u64)FIELD_GET(YT921X_QSCH_SHP_CBS_M, w0) * YT921X_PSCH_EBS_UNIT_BYTES;
+			yt921x_tbf_token_to_burst_bytes(
+				FIELD_GET(YT921X_QSCH_SHP_CBS_M, w0),
+				FIELD_GET(YT921X_QSCH_SHP_TOKEN_LEVEL_M, w2));
 	}
 
 	data[j++] = queue_en_mask;
@@ -763,41 +792,48 @@ static bool yt921x_mqprio_supported_port(struct dsa_switch *ds, int port)
 	return dsa_is_user_port(ds, port);
 }
 
-static int yt921x_tbf_rate_to_eir(u64 rate_bytes_ps, u32 *eirp)
+static int yt921x_tbf_rate_to_token(u64 rate_bytes_ps, unsigned int slot_ns,
+				    u8 token_level, u32 *tokenp)
 {
-	u64 rate_kbps;
-	u64 eir;
+	u64 rate_bps;
+	u32 token;
 
-	if (!rate_bytes_ps)
+	if (!rate_bytes_ps || !slot_ns)
 		return -EINVAL;
 
-	/* bytes/s -> kbits/s */
-	rate_kbps = div_u64(rate_bytes_ps, 125);
-	eir = DIV_ROUND_CLOSEST_ULL(rate_kbps * YT921X_PSCH_EIR_RATE_SCALE_NUM,
-				    YT921X_PSCH_EIR_RATE_SCALE_DEN);
-	eir += YT921X_PSCH_EIR_RATE_OFFSET;
-	eir = max(eir, YT921X_PSCH_EIR_MIN_SAFE);
-
-	if (eir > YT921X_PSCH_EIR_MAX)
+	if (rate_bytes_ps > U64_MAX / 8)
 		return -EOPNOTSUPP;
 
-	*eirp = (u32)eir;
+	rate_bps = rate_bytes_ps * 8ULL;
+	if (rate_bps > div_u64(U64_MAX, slot_ns))
+		return -EOPNOTSUPP;
+
+	token = rate2token(rate_bps, slot_ns, token_level, 4);
+	if (!token)
+		token = 1;
+
+	if (token > YT921X_PSCH_EIR_MAX)
+		return -EOPNOTSUPP;
+
+	*tokenp = token;
 	return 0;
 }
 
-static int yt921x_tbf_burst_to_ebs(u32 max_size, u32 *ebsp)
+static int yt921x_tbf_burst_to_token(u32 max_size, u8 token_level, u32 *tokenp)
 {
-	u64 ebs;
+	u32 token;
 
 	if (!max_size)
 		return -EINVAL;
 
-	/* TBF burst (bytes) -> PSCH EBS cells (64B each). */
-	ebs = DIV_ROUND_UP_ULL((u64)max_size, YT921X_PSCH_EBS_UNIT_BYTES);
-	if (ebs > YT921X_PSCH_EBS_MAX)
+	token = burst2token(max_size, token_level, 2);
+	if (!token)
+		token = 1;
+
+	if (token > YT921X_PSCH_EBS_MAX)
 		return -EOPNOTSUPP;
 
-	*ebsp = (u32)ebs;
+	*tokenp = token;
 	return 0;
 }
 
@@ -819,15 +855,18 @@ static int
 yt921x_tbf_add(struct yt921x_priv *priv, int port, struct tc_tbf_qopt_offload *qopt)
 {
 	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
-	u32 eir;
-	u32 ebs;
+	u8 token_level = YT921X_SHAPER_TOKEN_LEVEL_DEFAULT;
+	u32 cir;
+	u32 cbs;
 	int res;
 
-	res = yt921x_tbf_rate_to_eir(params->rate.rate_bytes_ps, &eir);
+	res = yt921x_tbf_rate_to_token(params->rate.rate_bytes_ps,
+				       priv->port_shape_slot_ns,
+				       token_level, &cir);
 	if (res)
 		return res;
 
-	res = yt921x_tbf_burst_to_ebs(params->max_size, &ebs);
+	res = yt921x_tbf_burst_to_token(params->max_size, token_level, &cbs);
 	if (res)
 		return res;
 
@@ -839,14 +878,14 @@ yt921x_tbf_add(struct yt921x_priv *priv, int port, struct tc_tbf_qopt_offload *q
 		return res;
 
 	res = yt921x_reg_write(priv, YT921X_PSCH_SHPn_EBS_EIR(port),
-			       YT921X_PSCH_SHP_EIR(eir) |
-			       YT921X_PSCH_SHP_EBS(ebs));
+			       YT921X_PSCH_SHP_EIR(cir) |
+			       YT921X_PSCH_SHP_EBS(cbs));
 	if (res)
 		return res;
 
 	return yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port),
 				YT921X_PSCH_SHP_EN |
-				YT921X_PSCH_SHP_METER_ID(0));
+				YT921X_PSCH_SHP_TOKEN_LEVEL(token_level));
 }
 
 static int yt921x_qsch_queue_from_parent(u32 parent, u8 *qidp)
@@ -927,6 +966,7 @@ static int
 yt921x_qsch_tbf_apply_raw(struct yt921x_priv *priv, int port, u8 qid,
 			  u64 rate_bytes_ps, u32 burst_bytes)
 {
+	u8 token_level = YT921X_SHAPER_TOKEN_LEVEL_DEFAULT;
 	u32 cir;
 	u32 cbs;
 	u32 idx;
@@ -940,11 +980,12 @@ yt921x_qsch_tbf_apply_raw(struct yt921x_priv *priv, int port, u8 qid,
 	if (res)
 		return res;
 
-	res = yt921x_tbf_rate_to_eir(rate_bytes_ps, &cir);
+	res = yt921x_tbf_rate_to_token(rate_bytes_ps, priv->queue_shape_slot_ns,
+				       token_level, &cir);
 	if (res)
 		return res;
 
-	res = yt921x_tbf_burst_to_ebs(burst_bytes, &cbs);
+	res = yt921x_tbf_burst_to_token(burst_bytes, token_level, &cbs);
 	if (res)
 		return res;
 
@@ -973,8 +1014,9 @@ yt921x_qsch_tbf_apply_raw(struct yt921x_priv *priv, int port, u8 qid,
 		return res;
 
 	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx),
-				YT921X_QSCH_SHP_EN |
-				YT921X_QSCH_SHP_METER_ID(0));
+				YT921X_QSCH_SHP_C_SHAPER_EN |
+				YT921X_QSCH_SHP_E_SHAPER_EN |
+				YT921X_QSCH_SHP_TOKEN_LEVEL(token_level));
 }
 
 static int
