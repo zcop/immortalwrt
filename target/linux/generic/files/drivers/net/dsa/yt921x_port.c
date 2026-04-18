@@ -419,7 +419,7 @@ yt921x_stock_ingress_meter_token_level(struct yt921x_priv *priv, u32 *token_leve
 
 static int
 yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
-				 u32 meter_f4, bool meter_f6, u32 *cirp)
+				 u32 token_unit, bool rate_mode_pps, u32 *cirp)
 {
 	u64 rate_bits_per_sec;
 	u64 scaled;
@@ -437,7 +437,12 @@ yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
 		return -ERANGE;
 	scaled = rate_bits_per_sec * token_level;
 
-	shift = (meter_f4 ? 21 : 11) - (meter_f6 ? 2 : 0);
+	/* Vendor HAL conversion:
+	 *   cir = (rate * timeslot_ns << (base - 2 * token_unit)) / 1e9
+	 * where base is 11 in BPS mode and 21 in PPS mode.
+	 * token_level here is timeslot_ns-equivalent for current chip clocks.
+	 */
+	shift = (rate_mode_pps ? 21 : 11) - 2 * token_unit;
 	if (shift > 0) {
 		if (scaled > (U64_MAX >> shift))
 			return -ERANGE;
@@ -456,22 +461,69 @@ yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
 	return 0;
 }
 
+static int
+yt921x_ingress_meter_profile_apply(struct yt921x_priv *priv, u32 token_level,
+				   u32 meter_id)
+{
+	u32 meter_idx = meter_id + YT921X_RATE_IGR_METER_BASE;
+	u32 meter_word1;
+	u32 meter_word2;
+	u32 cir;
+	u32 f4;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_RATE_METER_CONFIG_WORD2(meter_idx),
+			      &meter_word2);
+	if (res)
+		return res;
+
+	/* Stock ingress path uses BPS mode with token-unit defaults and
+	 * color-blind drop on Y/R for out-of-profile traffic.
+	 */
+	f4 = FIELD_GET(YT921X_RATE_METER_CFG_F4_M, meter_word2);
+	if (!f4) {
+		f4 = YT921X_RATE_TOKEN_UNIT_DEFAULT;
+		meter_word2 &= ~YT921X_RATE_METER_CFG_F4_M;
+		meter_word2 |= YT921X_RATE_METER_CFG_F4(f4);
+	}
+
+	meter_word2 &= ~(YT921X_RATE_METER_CFG_F6 |
+			 YT921X_METER_CTRLc_RFC2698 |
+			 YT921X_METER_CTRLc_PKT_MODE |
+			 YT921X_METER_CTRLc_DROP_M);
+	meter_word2 |= YT921X_METER_CTRLc_METER_EN |
+		       YT921X_METER_CTRLc_COLOR_BLIND |
+		       YT921X_METER_CTRLc_DROP_YR;
+
+	res = yt921x_stock_ingress_rate_to_cir(priv->storm_policer_rate_bytes_per_sec,
+					       token_level, f4, false, &cir);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_RATE_METER_CONFIG_WORD1(meter_idx),
+			      &meter_word1);
+	if (res)
+		return res;
+
+	meter_word1 &= ~YT921X_RATE_METER_CFG_CIR_M;
+	meter_word1 |= YT921X_RATE_METER_CFG_CIR(cir);
+	res = yt921x_reg_write(priv, YT921X_RATE_METER_CONFIG_WORD1(meter_idx),
+			       meter_word1);
+	if (res)
+		return res;
+
+	return yt921x_reg_write(priv, YT921X_RATE_METER_CONFIG_WORD2(meter_idx),
+				meter_word2);
+}
+
 static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
 {
 	u32 policer_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
 	unsigned long targets_mask = yt921x_non_cpu_port_mask(priv);
-	u32 meter_word1;
-	u32 meter_word2;
 	u32 token_level;
-	u32 cir;
 	u32 c8;
-	u32 f4;
-	bool f6;
 	int port;
 	int res;
-
-	if (YT921X_RATE_METER_DEFAULT_ID >= YT921X_RATE_METER_NUM)
-		return -EINVAL;
 
 	if (!policer_ports)
 		goto disable_port_ctrl;
@@ -480,36 +532,10 @@ static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
 	if (res)
 		return res;
 
-	res = yt921x_reg_read(priv,
-			      YT921X_RATE_METER_CONFIG_WORD2(YT921X_RATE_METER_DEFAULT_ID),
-			      &meter_word2);
-	if (res)
-		return res;
-
-	f4 = FIELD_GET(YT921X_RATE_METER_CFG_F4_M, meter_word2);
-	f6 = !!(meter_word2 & YT921X_RATE_METER_CFG_F6);
-
-	res = yt921x_stock_ingress_rate_to_cir(priv->storm_policer_rate_bytes_per_sec,
-					       token_level, f4, f6, &cir);
-	if (res)
-		return res;
-
-	res = yt921x_reg_read(priv,
-			      YT921X_RATE_METER_CONFIG_WORD1(YT921X_RATE_METER_DEFAULT_ID),
-			      &meter_word1);
-	if (res)
-		return res;
-
-	meter_word1 &= ~YT921X_RATE_METER_CFG_CIR_M;
-	meter_word1 |= YT921X_RATE_METER_CFG_CIR(cir);
-	res = yt921x_reg_write(priv,
-			       YT921X_RATE_METER_CONFIG_WORD1(YT921X_RATE_METER_DEFAULT_ID),
-			       meter_word1);
-	if (res)
-		return res;
-
 disable_port_ctrl:
 	for_each_set_bit(port, &targets_mask, YT921X_PORT_NUM) {
+		u32 meter_id = port;
+
 		if (!dsa_is_user_port(&priv->ds, port))
 			continue;
 
@@ -519,10 +545,16 @@ disable_port_ctrl:
 
 		c8 &= ~(YT921X_RATE_IGR_BW_ENABLE_EN |
 			YT921X_RATE_IGR_BW_ENABLE_METER_ID_M);
-		if (policer_ports & BIT(port))
+
+		if (policer_ports & BIT(port)) {
+			res = yt921x_ingress_meter_profile_apply(priv, token_level,
+								 meter_id);
+			if (res)
+				return res;
+
 			c8 |= YT921X_RATE_IGR_BW_ENABLE_EN |
-			      YT921X_RATE_IGR_BW_ENABLE_METER_ID(
-				      YT921X_RATE_METER_DEFAULT_ID);
+			      YT921X_RATE_IGR_BW_ENABLE_METER_ID(meter_id);
+		}
 
 		res = yt921x_reg_write(priv, YT921X_RATE_IGR_BW_ENABLE + 4 * port, c8);
 		if (res)
