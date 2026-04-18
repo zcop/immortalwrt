@@ -311,6 +311,12 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_CTAG,
 	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_STAG,
 	YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PROTO,
+	YT921X_DEVLINK_PARAM_ID_VLAN_UNTAG_PVID_IGNORE,
+	YT921X_DEVLINK_PARAM_ID_VLAN_RANGE_EN_MASK,
+	YT921X_DEVLINK_PARAM_ID_VLAN_CVLAN_DROP_TAGGED_MASK,
+	YT921X_DEVLINK_PARAM_ID_VLAN_CVLAN_DROP_UNTAGGED_MASK,
+	YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_TAGGED_MASK,
+	YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_UNTAGGED_MASK,
 	YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
 };
 
@@ -334,6 +340,29 @@ static int yt921x_devlink_param_to_vlan_mask(u32 id, u32 *mask)
 	}
 }
 
+static int yt921x_devlink_param_to_vlan_ctrl1_mask(u32 id, u32 *mask)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_VLAN_RANGE_EN_MASK:
+		*mask = YT921X_PORT_VLAN_CTRL1_VLAN_RANGE_EN;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_VLAN_CVLAN_DROP_TAGGED_MASK:
+		*mask = YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_TAGGED;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_VLAN_CVLAN_DROP_UNTAGGED_MASK:
+		*mask = YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_UNTAGGED;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_TAGGED_MASK:
+		*mask = YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_UNTAGGED_MASK:
+		*mask = YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static u32 yt921x_user_ports_mask(struct dsa_switch *ds)
 {
 	struct dsa_port *dp;
@@ -343,6 +372,52 @@ static u32 yt921x_user_ports_mask(struct dsa_switch *ds)
 		mask |= BIT(dp->index);
 
 	return mask;
+}
+
+static int yt921x_vlan_ctrl1_port_mask_get_locked(struct yt921x_priv *priv,
+						  u32 ctrl1_mask, u32 *mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	u32 ctrl1;
+	int res;
+
+	*mask = 0;
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_reg_read(priv, YT921X_PORTn_VLAN_CTRL1(dp->index),
+				      &ctrl1);
+		if (res)
+			return res;
+		if (ctrl1 & ctrl1_mask)
+			*mask |= BIT(dp->index);
+	}
+
+	return 0;
+}
+
+static int yt921x_vlan_ctrl1_port_mask_set_locked(struct yt921x_priv *priv,
+						  u32 ctrl1_mask, u32 req_mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	u32 allowed_mask;
+	int res;
+
+	allowed_mask = yt921x_user_ports_mask(ds);
+	if (req_mask & ~allowed_mask)
+		return -EINVAL;
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_reg_toggle_bits(priv,
+					     YT921X_PORTn_VLAN_CTRL1(dp->index),
+					     ctrl1_mask,
+					     !!(req_mask & BIT(dp->index)));
+		if (res)
+			return res;
+	}
+
+	return 0;
 }
 
 static int yt921x_dot1x_mac_based_get_locked(struct yt921x_priv *priv, u32 *mask)
@@ -440,9 +515,11 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			     struct devlink_param_gset_ctx *ctx)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 ctrl1_mask;
 	u32 mask;
 	u32 ctrl;
 	u32 dot1x_mask;
+	u32 port_mask;
 	int res;
 
 	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
@@ -453,6 +530,31 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			return res;
 
 		ctx->val.vu32 = dot1x_mask;
+		return 0;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_VLAN_UNTAG_PVID_IGNORE) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_reg_read(priv, YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE,
+				      &ctrl);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vbool = !!(ctrl & YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE_EN);
+		return 0;
+	}
+
+	res = yt921x_devlink_param_to_vlan_ctrl1_mask(id, &ctrl1_mask);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_vlan_ctrl1_port_mask_get_locked(priv, ctrl1_mask,
+							      &port_mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = port_mask;
 		return 0;
 	}
 
@@ -475,12 +577,32 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 			     struct devlink_param_gset_ctx *ctx)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 ctrl1_mask;
 	u32 mask;
 	int res;
 
 	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_dot1x_mac_based_set_locked(priv, ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_VLAN_UNTAG_PVID_IGNORE) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_reg_toggle_bits(priv,
+					     YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE,
+					     YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE_EN,
+					     ctx->val.vbool);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	res = yt921x_devlink_param_to_vlan_ctrl1_mask(id, &ctrl1_mask);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_vlan_ctrl1_port_mask_set_locked(priv, ctrl1_mask,
+							      ctx->val.vu32);
 		mutex_unlock(&priv->reg_lock);
 		return res;
 	}
@@ -509,6 +631,30 @@ static const struct devlink_param yt921x_devlink_params[] = {
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_MODE_PROTO,
 				 "vlan_mode_proto", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_UNTAG_PVID_IGNORE,
+				 "vlan_trans_untag_pvid_ignore",
+				 DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_RANGE_EN_MASK,
+				 "vlan_trans_range_en_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_CVLAN_DROP_TAGGED_MASK,
+				 "vlan_trans_cvlan_drop_tagged_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_CVLAN_DROP_UNTAGGED_MASK,
+				 "vlan_trans_cvlan_drop_untagged_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_TAGGED_MASK,
+				 "vlan_trans_svlan_drop_tagged_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_UNTAGGED_MASK,
+				 "vlan_trans_svlan_drop_untagged_mask",
+				 DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
 				 "dot1x_mac_based_mask", DEVLINK_PARAM_TYPE_U32,
