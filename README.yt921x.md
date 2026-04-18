@@ -19,7 +19,13 @@ Important:
 ## YT9215S Key Features (Datasheet Form)
 
 Source: `Collection-Data/motorcom~yt9215s.pdf`
-Status semantics: `DONE`/`TODO` here indicates current driver exposure and validation in this tree.
+Status semantics used below:
+- `DONE`: Implemented and validated on live CR881x dataplane/control-plane tests.
+- `CODE READY`: Implemented in driver with user/kernel control surface, but this board cannot fully validate end-to-end behavior.
+- `TODO`: Not implemented yet, or implemented partially without sufficient validation.
+
+Board-specific validation note:
+- CR881x does not expose per-port LED wiring from YT9215S, so LED-controller code can be `CODE READY` without board-level visual validation.
 
 ### High performance nonblocking switch
 - 7-port switch architecture - DONE
@@ -32,7 +38,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 - Embedded extension MAC interface (RGMII/MII/RMII class) - DONE
 
 ### Advanced features
-- LED output modes - TODO
+- LED output modes - CODE READY
 - MDIO/I2C slave and master control interfaces - TODO
 - Interrupt signaling toward external CPU - TODO
 - EEPROM-assisted configuration - TODO
@@ -51,7 +57,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 ### Control, management and statistics
 - RFC-family MIB coverage (including bridge/RMON classes) - DONE
 - Temperature sensor telemetry (DT-gated per board) - TODO
-- OAM and EEE LLDP feature family - TODO
+- OAM and EEE LLDP feature family - CODE READY
 - Loop detection feature family - DONE
 - Loop prevention/enforcement feature family - TODO
 
@@ -77,11 +83,11 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
 - IGMP/MLD router-port policy parity (IGMP/MLD control frames) - TODO
 - Mirror feature families (port-based and flow-based) - DONE
 - Reserved multicast control family - DONE
-- WoL feature family - TODO
+- WoL feature family - CODE READY
 
 ### Quality of service (QoS)
 - Queue scheduling families (SP/DWRR classes) - DONE
-- Queue/port shaping families - TODO
+- Queue/port shaping families - TODO (token-level conversion and telemetry alignment landed; remaining dataplane parity still pending)
 - trTCM class policing families - TODO
 - Multi-source traffic classification - DONE
 - 8 unicast queues + 4 multicast queues per port class - DONE
@@ -104,6 +110,7 @@ Status semantics: `DONE`/`TODO` here indicates current driver exposure and valid
   - UDF-backed TTL/hop-limit matching path
 - QoS bandwidth offload:
   - queue bandwidth shaping via `tc tbf` offload path
+  - shaper telemetry/conversion path aligned to token-level + slot-time model
   - ingress bandwidth policing via DSA policer path
   - hardware queue scheduling policies via `mqprio`/`ets`
 - Bridge dataplane controls offload:
