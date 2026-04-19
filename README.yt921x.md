@@ -87,8 +87,8 @@ Board-specific validation note:
 
 ### Quality of service (QoS)
 - Queue scheduling families (SP/DWRR classes) - DONE
-- Queue/port shaping families - TODO (token-level conversion and telemetry alignment landed; remaining dataplane parity still pending)
-- trTCM class policing families - TODO
+- Queue/port shaping families - DONE (CR881x live dataplane validated: root port `tbf` offload and queue `tbf` offload via `mqprio` + class `tbf` both enforce configured rate in hardware.)
+- trTCM class policing families - DONE (ingress policer dataplane path validated on CR881x; release path is enabled. Current DSA core in this tree limits active port policer scope to one port at a time.)
 - Multi-source traffic classification - DONE
 - 8 unicast queues + 4 multicast queues per port class - DONE
 - Tail-drop and WRED feature families - TODO
@@ -111,7 +111,7 @@ Board-specific validation note:
 - QoS bandwidth offload:
   - queue bandwidth shaping via `tc tbf` offload path
   - shaper telemetry/conversion path aligned to token-level + slot-time model
-  - ingress bandwidth policing via DSA policer path
+  - ingress bandwidth policing via DSA policer path (release-enabled; current DSA core limits active scope to one port policer at a time)
   - hardware queue scheduling policies via `mqprio`/`ets`
 - Bridge dataplane controls offload:
   - STP/MST state programming
@@ -155,7 +155,7 @@ Board-specific validation note:
   - `mqprio`
   - `ets`
   - `tbf`
-  - ingress policer add/del path
+  - ingress policer add/del path (release; current DSA core limits active scope to one port policer at a time)
 
 ### ACL Engine Offload (`tc flower`)
 - Ingress and egress ACL offload (egress uses supported subset)

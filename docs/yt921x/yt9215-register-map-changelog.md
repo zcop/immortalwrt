@@ -1,5 +1,18 @@
 # YT9215 Register Map Changelog
 
+## 2026-04-19: ingress policer bank mapping + CIR conversion validation
+
+What changed:
+- Documented live-validated ingress policer binding semantics:
+  - `0xc8` (`YT921X_RATE_IGR_BW_ENABLE`) carries per-port `meter_id`.
+  - Effective ingress meter profile is resolved from `0xce` as
+    `meter_index = meter_id + 64` (upper meter bank).
+- Captured conversion note for current driver dataplane path:
+  - CIR token conversion uses corrected shift baseline
+    `(rate_mode_pps ? 21 : 11) - 2 * token_unit`.
+- Register-map rows were updated to explicitly annotate the upper-bank path,
+  so `0xc8`/`0xce` behavior matches verified CR881x runtime behavior.
+
 ## 2026-04-15: DT-gated sensor enable path
 
 What changed:
