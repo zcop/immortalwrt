@@ -1,0 +1,102 @@
+#!/bin/sh
+
+set -e
+
+. /lib/functions.sh
+. /lib/functions/system.sh
+
+usage() {
+	cat <<'EOF'
+Usage: cr881x-loopsafe-profile [--dedicated-mgmt-lan1]
+
+Applies loop-safe bridge defaults on Xiaomi CR881x:
+  - STP enabled
+  - IGMP snooping enabled
+  - Fast-converge bridge timers (hello/max_age/forward_delay)
+
+Optional:
+  --dedicated-mgmt-lan1
+      Remove lan1 from br-lan and create:
+        network.mgmt (static 192.168.9.1/24 on lan1)
+      This keeps management path outside lan2/lan3 loop tests.
+EOF
+}
+
+dedicated_mgmt=0
+case "$1" in
+--dedicated-mgmt-lan1)
+	dedicated_mgmt=1
+	;;
+"")
+	;;
+*)
+	usage
+	exit 1
+	;;
+esac
+
+[ "$(board_name)" = "xiaomi,cr881x" ] || {
+	echo "This helper is only for xiaomi,cr881x" >&2
+	exit 1
+}
+
+lan_dev="$(uci -q get network.lan.device)"
+[ -n "$lan_dev" ] || lan_dev='br-lan'
+
+dev_sec=""
+for sec in $(uci -q show network | sed -n "s/^\(network\..*\)=device$/\1/p"); do
+	[ "$(uci -q get "$sec.name")" = "$lan_dev" ] || continue
+	dev_sec="$sec"
+	break
+done
+
+if [ -n "$dev_sec" ]; then
+	uci -q set "$dev_sec.stp=1"
+	uci -q set "$dev_sec.igmp_snooping=1"
+	uci -q set "$dev_sec.hello_time=2"
+	uci -q set "$dev_sec.max_age=12"
+	uci -q set "$dev_sec.forward_delay=4"
+else
+	uci -q set network.lan.stp='1'
+	uci -q set network.lan.igmp_snooping='1'
+fi
+
+if [ "$dedicated_mgmt" -eq 1 ]; then
+	if [ -n "$dev_sec" ]; then
+		ports="$(uci -q get "$dev_sec.ports" || true)"
+		case " $ports " in
+		*" lan1 "*)
+			new_ports="$(printf "%s\n" "$ports" | sed -e 's/\<lan1\>//g' -e 's/[[:space:]]\+/ /g' -e 's/^ //' -e 's/ $//')"
+			uci -q set "$dev_sec.ports=$new_ports"
+			;;
+		esac
+	fi
+
+	uci -q delete network.mgmt
+	uci -q set network.mgmt='interface'
+	uci -q set network.mgmt.proto='static'
+	uci -q set network.mgmt.device='lan1'
+	uci -q set network.mgmt.ipaddr='192.168.9.1'
+	uci -q set network.mgmt.netmask='255.255.255.0'
+
+	for z in $(uci -q show firewall | sed -n "s/^\(firewall\..*\)=zone$/\1/p"); do
+		[ "$(uci -q get "$z.name")" = "lan" ] || continue
+		zone_nets="$(uci -q get "$z.network" || true)"
+		case " $zone_nets " in
+		*" mgmt "*)
+			;;
+		*)
+			uci -q add_list "$z.network=mgmt"
+			;;
+		esac
+		break
+	done
+fi
+
+uci -q commit network
+uci -q commit firewall 2>/dev/null || true
+
+/etc/init.d/network reload || true
+/etc/init.d/firewall reload 2>/dev/null || true
+
+echo "Applied CR881x loop-safe profile."

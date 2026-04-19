@@ -1,9 +1,14 @@
 #!/bin/sh
 
+. /lib/functions.sh
+. /lib/functions/system.sh
+
 [ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
 
 # Enable bridge STP by default on first boot to provide loop protection
 # via the existing yt921x DSA STP path.
+# Also enable bridge multicast snooping and set a fast-converge profile
+# compatible with small home topologies.
 lan_dev="$(uci -q get network.lan.device)"
 [ -n "$lan_dev" ] || lan_dev='br-lan'
 
@@ -13,12 +18,27 @@ for sec in $(uci -q show network | sed -n "s/^\(network\..*\)=device$/\1/p"); do
 	if [ -z "$(uci -q get "$sec.stp")" ]; then
 		uci -q set "$sec.stp=1"
 	fi
+	if [ -z "$(uci -q get "$sec.igmp_snooping")" ]; then
+		uci -q set "$sec.igmp_snooping=1"
+	fi
+	if [ -z "$(uci -q get "$sec.hello_time")" ]; then
+		uci -q set "$sec.hello_time=2"
+	fi
+	if [ -z "$(uci -q get "$sec.max_age")" ]; then
+		uci -q set "$sec.max_age=12"
+	fi
+	if [ -z "$(uci -q get "$sec.forward_delay")" ]; then
+		uci -q set "$sec.forward_delay=4"
+	fi
 	applied=1
 done
 
 # Fallback for legacy layouts that may still read STP from interface section.
 if [ "$applied" -eq 0 ] && [ -z "$(uci -q get network.lan.stp)" ]; then
 	uci -q set network.lan.stp='1'
+fi
+if [ "$applied" -eq 0 ] && [ -z "$(uci -q get network.lan.igmp_snooping)" ]; then
+	uci -q set network.lan.igmp_snooping='1'
 fi
 
 uci -q commit network
