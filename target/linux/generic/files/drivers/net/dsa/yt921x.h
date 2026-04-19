@@ -7,6 +7,7 @@
 #ifndef __YT921X_H
 #define __YT921X_H
 
+#include <linux/atomic.h>
 #include <net/dsa.h>
 
 struct dentry;
@@ -1241,6 +1242,38 @@ struct yt921x_acl {
 	struct yt921x_acl_entry entries[YT921X_ACL_NUM];
 };
 
+enum yt921x_telemetry_stage {
+	YT921X_TELEM_STAGE_NONE = 0,
+	YT921X_TELEM_STAGE_REG_READ,
+	YT921X_TELEM_STAGE_REG_WRITE,
+	YT921X_TELEM_STAGE_REG_WAIT,
+	YT921X_TELEM_STAGE_ACL_PARSE,
+	YT921X_TELEM_STAGE_ACL_COMMIT,
+	YT921X_TELEM_STAGE_VLAN_CFG,
+	YT921X_TELEM_STAGE_QOS_CFG,
+	YT921X_TELEM_STAGE_STP_CFG,
+};
+
+struct yt921x_telemetry {
+	atomic64_t reg_io_errors;
+	atomic64_t reg_poll_timeouts;
+	atomic64_t acl_parse_errors;
+	atomic64_t acl_commit_errors;
+	atomic64_t vlan_config_errors;
+	atomic64_t qos_config_errors;
+	atomic64_t stp_config_errors;
+
+	const char *last_err_func;
+	int last_err_line;
+	int last_err_code;
+	int last_err_port;
+	u32 last_err_stage;
+	u32 last_err_detail0;
+	u32 last_err_detail1;
+	unsigned long last_err_cookie;
+	unsigned long last_err_jiffies;
+};
+
 struct yt921x_port {
 	unsigned char index;
 	struct yt921x_priv *priv;
@@ -1335,6 +1368,7 @@ struct yt921x_priv {
 	bool dt_temp_sensor_supported;
 	u16 dt_secondary_conduit_user_mask;
 	bool dt_secondary_conduit_user_mask_valid;
+	struct yt921x_telemetry telemetry;
 };
 
 #endif

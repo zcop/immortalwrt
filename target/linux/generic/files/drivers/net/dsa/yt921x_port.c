@@ -128,6 +128,10 @@ yt921x_dsa_port_mst_state_set(struct dsa_switch *ds, int port,
 	mutex_lock(&priv->reg_lock);
 	res = yt921x_reg_update_bits(priv, YT921X_STPn(st->msti), mask, ctrl);
 	mutex_unlock(&priv->reg_lock);
+	if (res)
+		YT921X_RECORD_ERR(priv, stp_config_errors,
+				  YT921X_TELEM_STAGE_STP_CFG, res, port,
+				  st->msti, st->state, 0);
 
 	return res;
 }
@@ -153,6 +157,10 @@ yt921x_dsa_vlan_msti_set(struct dsa_switch *ds, struct dsa_bridge bridge,
 	res = yt921x_reg64_update_bits(priv, YT921X_VLANn_CTRL(msti->vid),
 				       mask64, ctrl64);
 	mutex_unlock(&priv->reg_lock);
+	if (res)
+		YT921X_RECORD_ERR(priv, stp_config_errors,
+				  YT921X_TELEM_STAGE_STP_CFG, res, -1,
+				  msti->vid, msti->msti, 0);
 
 	return res;
 }
@@ -171,6 +179,9 @@ yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
 	mask = YT921X_STP_PORTn_M(port);
 	res = yt921x_stp_encode_state(port, state, &ctrl);
 	if (res) {
+		YT921X_RECORD_ERR(priv, stp_config_errors,
+				  YT921X_TELEM_STAGE_STP_CFG, res, port,
+				  state, 0, 0);
 		dev_warn(dev, "Ignore unsupported STP state %u on port %d\n",
 			 state, port);
 		return;
@@ -192,6 +203,10 @@ yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
 	} while (0);
 	mutex_unlock(&priv->reg_lock);
 
+	if (res)
+		YT921X_RECORD_ERR(priv, stp_config_errors,
+				  YT921X_TELEM_STAGE_STP_CFG, res, port,
+				  state, dp ? dp->learning : 0, 0);
 	if (res)
 		dev_err(dev, "Failed to %s port %d: %i\n", "set STP state for",
 			port, res);

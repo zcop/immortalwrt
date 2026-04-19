@@ -130,16 +130,30 @@ bool yt921x_is_secondary_cpu_port(const struct yt921x_priv *priv, int port)
 
 int yt921x_reg_read(struct yt921x_priv *priv, u32 reg, u32 *valp)
 {
+	int res;
+
 	WARN_ON(!mutex_is_locked(&priv->reg_lock));
 
-	return priv->reg_ops->read(priv->reg_ctx, reg, valp);
+	res = priv->reg_ops->read(priv->reg_ctx, reg, valp);
+	if (res)
+		YT921X_RECORD_ERR(priv, reg_io_errors, YT921X_TELEM_STAGE_REG_READ,
+				  res, -1, reg, 0, 0);
+
+	return res;
 }
 
 int yt921x_reg_write(struct yt921x_priv *priv, u32 reg, u32 val)
 {
+	int res;
+
 	WARN_ON(!mutex_is_locked(&priv->reg_lock));
 
-	return priv->reg_ops->write(priv->reg_ctx, reg, val);
+	res = priv->reg_ops->write(priv->reg_ctx, reg, val);
+	if (res)
+		YT921X_RECORD_ERR(priv, reg_io_errors, YT921X_TELEM_STAGE_REG_WRITE,
+				  res, -1, reg, val, 0);
+
+	return res;
 }
 
 int
@@ -153,8 +167,11 @@ yt921x_reg_wait(struct yt921x_priv *priv, u32 reg, u32 mask, u32 *valp)
 				res || (val & mask) == *valp,
 				YT921X_POLL_SLEEP_US, YT921X_POLL_TIMEOUT_US,
 				false, priv, reg, &val);
-	if (ret)
+	if (ret) {
+		YT921X_RECORD_ERR(priv, reg_poll_timeouts, YT921X_TELEM_STAGE_REG_WAIT,
+				  ret, -1, reg, mask, *valp);
 		return ret;
+	}
 	if (res)
 		return res;
 
@@ -975,4 +992,3 @@ int yt921x_reg96_write(struct yt921x_priv *priv, u32 reg,
 
 	return yt921x_reg_write(priv, reg + 8, vals[2]);
 }
-

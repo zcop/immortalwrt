@@ -1043,17 +1043,26 @@ yt921x_acl_parse(struct yt921x_acl_entry *group, u16 ports_mask,
 		 struct yt921x_priv *priv, struct dsa_switch *ds,
 		 struct flow_cls_offload *cls, bool ingress)
 {
+	int port = ports_mask ? __ffs(ports_mask) : -1;
 	unsigned int size;
 	int res;
 
 	size = yt921x_acl_parse_key(priv, group, ports_mask, udfs_ctrl,
 				    udfs_cntp, cls, ingress);
-	if (!size)
+	if (!size) {
+		YT921X_RECORD_ERR(priv, acl_parse_errors,
+				  YT921X_TELEM_STAGE_ACL_PARSE, -EOPNOTSUPP,
+				  port, ports_mask, ingress, cls->cookie);
 		return 0;
+	}
 
 	res = yt921x_acl_parse_action(group, ds, cls);
-	if (res)
+	if (res) {
+		YT921X_RECORD_ERR(priv, acl_parse_errors,
+				  YT921X_TELEM_STAGE_ACL_PARSE, res,
+				  port, ports_mask, ingress, cls->cookie);
 		return 0;
+	}
 
 	for (unsigned int i = 0; i < size; i++)
 		group[i].cookie = cls->cookie;
@@ -1085,8 +1094,12 @@ yt921x_acl_commit(struct yt921x_priv *priv, unsigned int blkid, u8 ents_mask,
 
 	ctrl = YT921X_ACL_BLK_CMD_MODIFY | YT921X_ACL_BLK_CMD_BLKID(blkid);
 	res = yt921x_reg_write(priv, YT921X_ACL_BLK_CMD, ctrl);
-	if (res)
+	if (res) {
+		YT921X_RECORD_ERR(priv, acl_commit_errors,
+				  YT921X_TELEM_STAGE_ACL_COMMIT, res, -1,
+				  YT921X_ACL_BLK_CMD, blkid, 0);
 		return res;
+	}
 
 	mask = ents_mask;
 	for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK) {
@@ -1094,12 +1107,20 @@ yt921x_acl_commit(struct yt921x_priv *priv, unsigned int blkid, u8 ents_mask,
 		u64 acl_mask = ((u64)entries[i].mask[1] << 32) | entries[i].mask[0];
 
 		res = yt921x_reg64_write(priv, YT921X_ACLn_KEYm(blkid, i), key);
-		if (res)
+		if (res) {
+			YT921X_RECORD_ERR(priv, acl_commit_errors,
+					  YT921X_TELEM_STAGE_ACL_COMMIT, res, -1,
+					  YT921X_ACLn_KEYm(blkid, i), i, 0);
 			return res;
+		}
 		res = yt921x_reg64_write(priv, YT921X_ACLn_MASKm(blkid, i),
 					 acl_mask);
-		if (res)
+		if (res) {
+			YT921X_RECORD_ERR(priv, acl_commit_errors,
+					  YT921X_TELEM_STAGE_ACL_COMMIT, res, -1,
+					  YT921X_ACLn_MASKm(blkid, i), i, 0);
 			return res;
+		}
 	}
 
 	ctrl = 0;
@@ -1109,8 +1130,12 @@ yt921x_acl_commit(struct yt921x_priv *priv, unsigned int blkid, u8 ents_mask,
 	for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK)
 		ctrl &= ~YT921X_ACL_BLK_KEEP_KEEPn(i);
 	res = yt921x_reg_write(priv, YT921X_ACL_BLK_KEEP, ctrl);
-	if (res)
+	if (res) {
+		YT921X_RECORD_ERR(priv, acl_commit_errors,
+				  YT921X_TELEM_STAGE_ACL_COMMIT, res, -1,
+				  YT921X_ACL_BLK_KEEP, blkid, 0);
 		return res;
+	}
 
 	/* Write actions first, then enable entries. This avoids a window where
 	 * an entry is active while still carrying stale action state.
@@ -1121,8 +1146,12 @@ yt921x_acl_commit(struct yt921x_priv *priv, unsigned int blkid, u8 ents_mask,
 
 		res = yt921x_reg96_write(priv, YT921X_ACLn_ACT(e),
 					 entries[i].action);
-		if (res)
+		if (res) {
+			YT921X_RECORD_ERR(priv, acl_commit_errors,
+					  YT921X_TELEM_STAGE_ACL_COMMIT, res, -1,
+					  YT921X_ACLn_ACT(e), e, entries[i].cookie);
 			return res;
+		}
 	}
 
 	ctrl = 0;
@@ -1135,13 +1164,21 @@ yt921x_acl_commit(struct yt921x_priv *priv, unsigned int blkid, u8 ents_mask,
 		ctrl |= YT921X_ACL_ENTRY_ENm(j) | YT921X_ACL_ENTRY_GRPIDm(j, start);
 	}
 	res = yt921x_reg_write(priv, YT921X_ACLn_ENTRY(blkid), ctrl);
-	if (res)
+	if (res) {
+		YT921X_RECORD_ERR(priv, acl_commit_errors,
+				  YT921X_TELEM_STAGE_ACL_COMMIT, res, -1,
+				  YT921X_ACLn_ENTRY(blkid), blkid, 0);
 		return res;
+	}
 
 	ctrl = YT921X_ACL_BLK_CMD_BLKID(blkid);
 	res = yt921x_reg_write(priv, YT921X_ACL_BLK_CMD, ctrl);
-	if (res)
+	if (res) {
+		YT921X_RECORD_ERR(priv, acl_commit_errors,
+				  YT921X_TELEM_STAGE_ACL_COMMIT, res, -1,
+				  YT921X_ACL_BLK_CMD, blkid, 0);
 		return res;
+	}
 
 	return 0;
 }

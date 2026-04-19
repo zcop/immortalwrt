@@ -73,6 +73,32 @@ struct yt921x_meter {
 	int unit;
 };
 
+static inline void
+yt921x_record_err(struct yt921x_priv *priv, atomic64_t *counter,
+		  enum yt921x_telemetry_stage stage, int err, int port,
+		  u32 detail0, u32 detail1, unsigned long cookie,
+		  const char *func, int line)
+{
+	if (counter)
+		atomic64_inc(counter);
+
+	WRITE_ONCE(priv->telemetry.last_err_stage, stage);
+	WRITE_ONCE(priv->telemetry.last_err_code, err);
+	WRITE_ONCE(priv->telemetry.last_err_port, port);
+	WRITE_ONCE(priv->telemetry.last_err_detail0, detail0);
+	WRITE_ONCE(priv->telemetry.last_err_detail1, detail1);
+	WRITE_ONCE(priv->telemetry.last_err_cookie, cookie);
+	WRITE_ONCE(priv->telemetry.last_err_func, func);
+	WRITE_ONCE(priv->telemetry.last_err_line, line);
+	WRITE_ONCE(priv->telemetry.last_err_jiffies, jiffies);
+}
+
+#define YT921X_RECORD_ERR(_priv, _counter_member, _stage, _err, _port, \
+			  _detail0, _detail1, _cookie) \
+	yt921x_record_err((_priv), &(_priv)->telemetry._counter_member, \
+			  (_stage), (_err), (_port), (_detail0), (_detail1), \
+			  (_cookie), __func__, __LINE__)
+
 #define YT921X_METER_PKT_MODE		BIT(0)
 #define YT921X_METER_SINGLE_BUCKET	BIT(1)
 #define YT921X_ACL_METER_ID_BLACKHOLE	(YT921X_METER_NUM - 1)

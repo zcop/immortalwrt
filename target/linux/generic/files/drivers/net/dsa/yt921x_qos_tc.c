@@ -138,6 +138,24 @@ static const char *const yt921x_qos_stat_names[] = {
 	"qos_policer_burst_b",
 };
 
+static const char *const yt921x_diag_stat_names[] = {
+	"drv_err_reg_io",
+	"drv_err_reg_timeout",
+	"drv_err_acl_parse",
+	"drv_err_acl_commit",
+	"drv_err_vlan_cfg",
+	"drv_err_qos_cfg",
+	"drv_err_stp_cfg",
+	"drv_latch_stage",
+	"drv_latch_err_code",
+	"drv_latch_err_line",
+	"drv_latch_err_port",
+	"drv_latch_jiffies",
+	"drv_latch_detail0",
+	"drv_latch_detail1",
+	"drv_latch_cookie",
+};
+
 static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *data)
 {
 	u32 ucast = 0;
@@ -259,6 +277,28 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 	data[j++] = priv->policer_burst[port];
 }
 
+static void yt921x_diag_telemetry_fill(struct yt921x_priv *priv, u64 *data)
+{
+	size_t j = 0;
+
+	data[j++] = atomic64_read(&priv->telemetry.reg_io_errors);
+	data[j++] = atomic64_read(&priv->telemetry.reg_poll_timeouts);
+	data[j++] = atomic64_read(&priv->telemetry.acl_parse_errors);
+	data[j++] = atomic64_read(&priv->telemetry.acl_commit_errors);
+	data[j++] = atomic64_read(&priv->telemetry.vlan_config_errors);
+	data[j++] = atomic64_read(&priv->telemetry.qos_config_errors);
+	data[j++] = atomic64_read(&priv->telemetry.stp_config_errors);
+
+	data[j++] = READ_ONCE(priv->telemetry.last_err_stage);
+	data[j++] = READ_ONCE(priv->telemetry.last_err_code);
+	data[j++] = READ_ONCE(priv->telemetry.last_err_line);
+	data[j++] = READ_ONCE(priv->telemetry.last_err_port);
+	data[j++] = READ_ONCE(priv->telemetry.last_err_jiffies);
+	data[j++] = READ_ONCE(priv->telemetry.last_err_detail0);
+	data[j++] = READ_ONCE(priv->telemetry.last_err_detail1);
+	data[j++] = READ_ONCE(priv->telemetry.last_err_cookie);
+}
+
 void
 yt921x_dsa_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 		       uint8_t *data)
@@ -275,6 +315,9 @@ yt921x_dsa_get_strings(struct dsa_switch *ds, int port, u32 stringset,
 
 	for (size_t i = 0; i < ARRAY_SIZE(yt921x_qos_stat_names); i++)
 		ethtool_puts(&data, yt921x_qos_stat_names[i]);
+
+	for (size_t i = 0; i < ARRAY_SIZE(yt921x_diag_stat_names); i++)
+		ethtool_puts(&data, yt921x_diag_stat_names[i]);
 }
 
 void
@@ -301,6 +344,8 @@ yt921x_dsa_get_ethtool_stats(struct dsa_switch *ds, int port, uint64_t *data)
 
 	yt921x_qos_telemetry_fill(priv, port, &data[j]);
 	j += ARRAY_SIZE(yt921x_qos_stat_names);
+	yt921x_diag_telemetry_fill(priv, &data[j]);
+	j += ARRAY_SIZE(yt921x_diag_stat_names);
 	mutex_unlock(&priv->reg_lock);
 }
 
@@ -319,6 +364,7 @@ int yt921x_dsa_get_sset_count(struct dsa_switch *ds, int port, int sset)
 	}
 
 	cnt += ARRAY_SIZE(yt921x_qos_stat_names);
+	cnt += ARRAY_SIZE(yt921x_diag_stat_names);
 
 	return cnt;
 }
@@ -1532,6 +1578,11 @@ yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 	default:
 		return -EOPNOTSUPP;
 	}
+
+	if (res)
+		YT921X_RECORD_ERR(priv, qos_config_errors,
+				  YT921X_TELEM_STAGE_QOS_CFG, res, port,
+				  type, 0, 0);
 
 	return res;
 }

@@ -972,6 +972,10 @@ yt921x_dsa_port_vlan_filtering(struct dsa_switch *ds, int port,
 		res = yt921x_fdb_flush_port(priv, port, false);
 	} while (0);
 	mutex_unlock(&priv->reg_lock);
+	if (res)
+		YT921X_RECORD_ERR(priv, vlan_config_errors,
+				  YT921X_TELEM_STAGE_VLAN_CFG, res, port,
+				  vlan_filtering, 0, 0);
 
 	return res;
 }
@@ -1004,6 +1008,10 @@ yt921x_dsa_port_vlan_del(struct dsa_switch *ds, int port,
 		}
 	} while (0);
 	mutex_unlock(&priv->reg_lock);
+	if (res)
+		YT921X_RECORD_ERR(priv, vlan_config_errors,
+				  YT921X_TELEM_STAGE_VLAN_CFG, res, port,
+				  vid, 0, 0);
 
 	return res;
 }
@@ -1042,6 +1050,10 @@ yt921x_dsa_port_vlan_add(struct dsa_switch *ds, int port,
 		}
 	} while (0);
 	mutex_unlock(&priv->reg_lock);
+	if (res)
+		YT921X_RECORD_ERR(priv, vlan_config_errors,
+				  YT921X_TELEM_STAGE_VLAN_CFG, res, port,
+				  vid, vlan->flags, 0);
 
 	return res;
 }
