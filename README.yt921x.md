@@ -52,20 +52,20 @@ Board-specific validation note:
 - Per-port aging control - DONE
 - Unknown DA filtering mask controls - DONE
 - Port isolation - DONE
-- Broadcast/multicast/unknown-DA storm-control feature family - TODO
+- Broadcast/multicast/unknown-DA storm-control feature family - DONE (live A/B/C validation confirms hardware enforcement with global gate + timeslot init)
 
 ### Control, management and statistics
 - RFC-family MIB coverage (including bridge/RMON classes) - DONE
 - Temperature sensor telemetry (DT-gated per board) - CODE READY
 - OAM and EEE LLDP feature family - CODE READY
 - Loop detection feature family - DONE
-- Loop prevention/enforcement feature family - TODO
+- Loop prevention/enforcement feature family - DONE (enforced via corrected STP hardware state mapping and physical loop test)
 
 ### Packet process engine
 - 802.1Q VLAN with 4K table class - DONE
 - Untag/tag decision controls - DONE
 - VLAN forwarding/policy controls - DONE
-- Port/tag/protocol-based VLAN modes - TODO
+- Port/tag/protocol-based VLAN modes - DONE (runtime controls and VLAN domain/PVID translation path validated)
 - Per-port egress VLAN tag/untag controls - DONE
 - STP family (802.1D/s/w) - DONE
 - MVR feature - DONE
@@ -80,7 +80,7 @@ Board-specific validation note:
 - IGMP/MLD snooping core - DONE
 - IGMP/MLD fast-leave - DONE
 - IGMP/MLD router-port policy parity (unknown multicast data path) - DONE
-- IGMP/MLD router-port policy parity (IGMP/MLD control frames) - TODO
+- IGMP/MLD router-port policy parity (IGMP/MLD control frames) - DONE (resolved via Linux bridge snooping/control-plane architecture; `temp offload` verified)
 - Mirror feature families (port-based and flow-based) - DONE
 - Reserved multicast control family - DONE
 - WoL feature family - CODE READY
