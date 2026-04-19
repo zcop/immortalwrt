@@ -1298,13 +1298,13 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 	},
 	{
 		.id = 0xcc, .name = "storm-config", .base = YT921X_STORM_CONFIG,
-		.entry_words = 1, .rw_words = 1, .entries = 1,
+		.entry_words = 1, .rw_words = 1, .entries = YT921X_STORM_CONFIG_ENTRIES,
 		.fields = yt921x_tbl_fields_cc,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_cc),
 	},
 	{
 		.id = 0xce, .name = "meter-config", .base = 0x220800,
-		.entry_words = 4, .rw_words = 3, .entries = 14,
+		.entry_words = 4, .rw_words = 3, .entries = YT921X_RATE_METER_NUM,
 		.fields = yt921x_tbl_fields_ce,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_ce),
 	},

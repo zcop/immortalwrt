@@ -1122,8 +1122,13 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 
 static int yt921x_chip_setup_tc(struct yt921x_priv *priv)
 {
+	unsigned int storm_slot;
 	unsigned int op_ns;
 	u32 ctrl;
+	u32 storm_base;
+	u32 storm_mask;
+	u32 storm_val;
+	unsigned int i;
 	int res;
 
 	op_ns = 8 * priv->cycle_ns;
@@ -1133,6 +1138,16 @@ static int yt921x_chip_setup_tc(struct yt921x_priv *priv)
 	if (res)
 		return res;
 	priv->meter_slot_ns = ctrl * op_ns;
+
+	/* Legacy storm engine has an independent timeslot register. Keep it
+	 * aligned with meter slot so CIR math remains deterministic.
+	 */
+	storm_slot = max(priv->meter_slot_ns / op_ns, YT921X_METER_SLOT_MIN);
+	res = yt921x_reg_write(priv, YT921X_STORM_RATE_IO,
+			       FIELD_PREP(YT921X_STORM_RATE_IO_TIMESLOT_M,
+					  storm_slot));
+	if (res)
+		return res;
 
 	ctrl = max(priv->port_shape_slot_ns / op_ns,
 		   YT921X_PORT_SHAPE_SLOT_MIN);
@@ -1154,10 +1169,19 @@ static int yt921x_chip_setup_tc(struct yt921x_priv *priv)
 	if (res)
 		return res;
 
-	res = yt921x_reg_update_bits(priv, YT921X_STORM_CONFIG,
-				     YT921X_STORM_CONFIG_EN, 0);
-	if (res)
-		return res;
+	/* Disable every storm slot to avoid stale per-port/type state left by
+	 * previous firmware. STORM_CTRL_CONFIG has 33 entries:
+	 * bcast[0..10], mcast[11..21], unknown_ucast[22..32].
+	 */
+	storm_base = YT921X_STORM_CONFIG;
+	storm_mask = YT921X_STORM_CONFIG_EN;
+	storm_val = 0;
+	for (i = 0; i < YT921X_STORM_CONFIG_ENTRIES; i++) {
+		res = yt921x_reg_update_bits(priv, storm_base + 4 * i,
+					     storm_mask, storm_val);
+		if (res)
+			return res;
+	}
 
 	return 0;
 }
