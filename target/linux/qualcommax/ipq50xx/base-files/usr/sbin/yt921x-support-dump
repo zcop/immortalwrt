@@ -1,0 +1,135 @@
+#!/bin/sh
+
+set -u
+
+usage() {
+	cat <<'EOF'
+Usage: yt921x-support-dump [output_file]
+
+Collects YT921x support diagnostics into a single text report.
+Default output:
+  /tmp/yt921x-support-YYYYmmdd-HHMMSS.txt
+EOF
+}
+
+case "${1:-}" in
+	-h|--help)
+		usage
+		exit 0
+		;;
+esac
+
+ts="$(date +%Y%m%d-%H%M%S)"
+out="${1:-/tmp/yt921x-support-${ts}.txt}"
+tmp="${out}.tmp.$$"
+
+have_cmd() {
+	command -v "$1" >/dev/null 2>&1
+}
+
+section() {
+	printf '\n===== %s =====\n' "$1" >>"$tmp"
+}
+
+run_cmd() {
+	desc="$1"
+	shift
+	section "$desc"
+	printf '+' >>"$tmp"
+	for arg in "$@"; do
+		printf ' %s' "$arg"
+	done >>"$tmp"
+	printf '\n' >>"$tmp"
+	"$@" >>"$tmp" 2>&1
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf '[exit=%d]\n' "$rc" >>"$tmp"
+	fi
+}
+
+run_sh() {
+	desc="$1"
+	cmd="$2"
+	section "$desc"
+	printf '+ sh -c %s\n' "$cmd" >>"$tmp"
+	sh -c "$cmd" >>"$tmp" 2>&1
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf '[exit=%d]\n' "$rc" >>"$tmp"
+	fi
+}
+
+{
+	echo "yt921x-support-dump timestamp: $(date)"
+	echo "output_file: $out"
+	echo "hostname: $(hostname 2>/dev/null || echo unknown)"
+	echo "board_name: $(cat /tmp/sysinfo/board_name 2>/dev/null || echo unknown)"
+	echo "model: $(cat /tmp/sysinfo/model 2>/dev/null || echo unknown)"
+	echo "kernel: $(uname -a 2>/dev/null || echo unknown)"
+} >"$tmp"
+
+if have_cmd ubus; then
+	run_cmd "System board (ubus)" ubus call system board
+fi
+
+if [ -r /etc/openwrt_release ]; then
+	run_cmd "OpenWrt release" cat /etc/openwrt_release
+fi
+
+if have_cmd dmesg; then
+	run_sh "Kernel log filter (yt/dsa/mdio/switch)" \
+		"dmesg | grep -iE 'yt921|dsa|mdio|switch' || true"
+fi
+
+if have_cmd logread; then
+	run_sh "System log filter (yt/dsa/mdio/switch)" \
+		"logread | grep -iE 'yt921|dsa|mdio|switch' || true"
+fi
+
+if [ -d /sys/module/yt921x_driver ]; then
+	run_cmd "Module info (/sys/module/yt921x_driver)" ls -la /sys/module/yt921x_driver
+	if [ -d /sys/module/yt921x_driver/parameters ]; then
+		run_sh "Module parameters (yt921x_driver)" \
+			"for p in /sys/module/yt921x_driver/parameters/*; do [ -e \"\$p\" ] && echo \"\$(basename \"\$p\")=\$(cat \"\$p\" 2>/dev/null)\"; done"
+	fi
+else
+	section "Module info (/sys/module/yt921x_driver)"
+	echo "yt921x_driver module path not present (possibly built-in or not loaded)" >>"$tmp"
+fi
+
+if have_cmd ip; then
+	run_cmd "Interfaces (ip -d link show)" ip -d link show
+fi
+
+if have_cmd bridge; then
+	run_cmd "Bridge links" bridge link show
+	run_cmd "Bridge VLAN table" bridge vlan show
+	run_cmd "Bridge FDB (all)" bridge fdb show
+	run_cmd "Bridge FDB (br-lan)" bridge fdb show br br-lan
+	run_cmd "Bridge MDB" bridge mdb show
+fi
+
+if have_cmd tc; then
+	for dev in lan1 lan2 lan3 wan br-lan eth0 eth1; do
+		[ -d "/sys/class/net/$dev" ] || continue
+		run_cmd "tc qdisc stats ($dev)" tc -s qdisc show dev "$dev"
+		run_cmd "tc ingress filters ($dev)" tc -s filter show dev "$dev" ingress
+		run_cmd "tc egress filters ($dev)" tc -s filter show dev "$dev" egress
+	done
+fi
+
+if have_cmd ethtool; then
+	for dev in lan1 lan2 lan3 wan br-lan eth0 eth1; do
+		[ -d "/sys/class/net/$dev" ] || continue
+		run_sh "yt921x telemetry counters ($dev)" \
+			"ethtool -S \"$dev\" 2>/dev/null | grep -E 'drv_err_|drv_latch_' || echo 'No drv_* telemetry counters on this netdev'"
+	done
+fi
+
+if have_cmd uci; then
+	run_cmd "UCI network config" uci show network
+	run_cmd "UCI firewall config" uci show firewall
+fi
+
+mv "$tmp" "$out"
+echo "Support dump written to: $out"
