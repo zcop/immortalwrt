@@ -254,6 +254,15 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
 	struct netlink_ext_ack *extack = cls->common.extack;
 	const struct flow_dissector *dissector;
+	bool have_basic;
+	bool have_ip;
+	bool have_ipv4;
+	bool have_ipv6;
+	bool have_ports;
+	bool have_ports_range;
+	bool have_eth;
+	bool have_ctrl;
+	bool have_tcp;
 	bool n_proto_is_ipv4 = false;
 	bool n_proto_is_ipv6 = false;
 	bool want_n_proto = false;
@@ -271,6 +280,16 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	unsigned int size = 0;
 
 	dissector = rule->match.dissector;
+	have_basic = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC);
+	have_ip = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP);
+	have_ipv4 = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV4_ADDRS);
+	have_ipv6 = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV6_ADDRS);
+	have_ports = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS);
+	have_ports_range = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS_RANGE);
+	have_eth = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS);
+	have_ctrl = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL);
+	have_tcp = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_TCP);
+
 	if (dissector->used_keys &
 	    ~(BIT_ULL(FLOW_DISSECTOR_KEY_CONTROL) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_BASIC) |
@@ -285,7 +304,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		return 0;
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC)) {
+	if (have_basic) {
 		struct flow_match_basic match;
 
 		flow_rule_match_basic(rule, &match);
@@ -311,6 +330,68 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 			}
 			want_ip_proto = true;
 			ip_proto = match.key->ip_proto;
+		}
+	}
+
+	/* Tiger ACL uses fixed key-template reductions, not a dynamic parser.
+	 * Reject ambiguous key mixes up-front so unsupported shapes never report
+	 * false hardware offload.
+	 */
+	if (have_ipv4 && have_ipv6) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "IPv4 and IPv6 address matches cannot be combined");
+		return 0;
+	}
+
+	if (have_ports_range) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "L4 port-range offload is not supported");
+		return 0;
+	}
+
+	if ((have_ipv4 || have_ipv6 || have_ip || have_ports || have_tcp) &&
+	    !want_n_proto) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "IP/L4 matches require exact protocol ip or ipv6");
+		return 0;
+	}
+
+	if (have_ipv4 && !n_proto_is_ipv4) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "IPv4 address match requires protocol ip");
+		return 0;
+	}
+
+	if (have_ipv6 && !n_proto_is_ipv6) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "IPv6 address match requires protocol ipv6");
+		return 0;
+	}
+
+	if (have_ports || have_tcp) {
+		if (!want_ip_proto) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "L4 keys require exact ip_proto");
+			return 0;
+		}
+
+		if (have_tcp && ip_proto != IPPROTO_TCP) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "tcp_flags match requires ip_proto tcp");
+			return 0;
+		}
+
+		if (have_ports &&
+		    ip_proto != IPPROTO_TCP && ip_proto != IPPROTO_UDP) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "L4 port match supports only TCP/UDP");
+			return 0;
+		}
+
+		if (n_proto_is_ipv6) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "IPv6 L4 ACL template is not supported");
+			return 0;
 		}
 	}
 
@@ -348,8 +429,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		entry->mask[0] |= YT921X_ACL_BINa_MISC_IP_PROTO(ip_proto_mask);
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV4_ADDRS) &&
-	    !n_proto_is_ipv6) {
+	if (have_ipv4) {
 		struct flow_match_ipv4_addrs match;
 		bool want_dst;
 		bool want_src;
@@ -377,8 +457,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		}
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV6_ADDRS) &&
-	    !n_proto_is_ipv4) {
+	if (have_ipv6) {
 		struct flow_match_ipv6_addrs match;
 		bool want_dst;
 		bool want_src;
@@ -414,7 +493,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 			}
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS)) {
+	if (have_ports) {
 		struct flow_match_ports match;
 
 		entry_prepare();
@@ -425,16 +504,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 				 ntohs(match.mask->src);
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS_RANGE)) {
-		NL_SET_ERR_MSG_MOD(extack,
-				   "L4 port-range offload is not supported");
-		/* Parse helper uses size==0 as "reject". Caller converts this to
-		 * -EOPNOTSUPP for the flower add path.
-		 */
-		return 0;
-	}
-
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP)) {
+	if (have_ip) {
 		struct flow_match_ip match;
 		bool want_tos;
 		bool want_ttl;
@@ -510,7 +580,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		}
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS)) {
+	if (have_eth) {
 		struct flow_match_eth_addrs match;
 		bool want_dst;
 		bool want_src;
@@ -546,7 +616,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		}
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL)) {
+	if (have_ctrl) {
 		u32 supp_flags = FLOW_DIS_IS_FRAGMENT | FLOW_DIS_FIRST_FRAG;
 		struct flow_match_control match;
 
@@ -564,7 +634,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 			goto too_complex;
 	}
 
-	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_TCP)) {
+	if (have_tcp) {
 		struct flow_match_tcp match;
 
 		entry = yt921x_acl_find_misc(group, size);
