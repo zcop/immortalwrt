@@ -86,12 +86,12 @@ Board-specific validation note:
 - WoL feature family - CODE READY
 
 ### Quality of service (QoS)
-- Queue scheduling families (SP/DWRR classes) - DONE
-- Queue/port shaping families - DONE (CR881x live dataplane re-validated: root port `tbf` reports `offloaded` and enforces measurable throughput shaping in A/B transfer tests; queue `tbf` via `mqprio` + class `tbf` remains enforced in hardware.)
+- Egress Traffic Management (Scheduling & Shaping via `tc mqprio` / `tc tbf`) - DONE (mapped to `0x342000` DWRR and `0x34c000` shaper tables; verified via live throughput deltas on CR881x)
+- Active Queue Management (WRED/RED) - UNSUPPORTED / hardware limitation (no validated silicon support for probabilistic drop math path on this target)
+- Buffer Management (tail-drop limit tuning) - TODO (hardware defaults to global BMU hard-limits; tunable threshold registers in undocumented `0x34xx` range are not mapped yet)
 - trTCM class policing families - DONE (ingress policer dataplane path validated on CR881x; release path is enabled. Current DSA core in this tree limits active port policer scope to one port at a time.)
 - Multi-source traffic classification - DONE
 - 8 unicast queues + 4 multicast queues per port class - DONE
-- Tail-drop and WRED feature families - TODO
 
 ### Microprocessor
 - Integrated RISC-V microprocessor in silicon feature set - DONE
@@ -238,7 +238,7 @@ Design intent:
 
 - Some `tc flower` key combinations that exceed silicon block shape or unsupported match geometry are rejected by design.
 - Per-port unknown-unicast flood semantics do not map 1:1 to hardware in all cases; unsupported bridge flag semantics are rejected instead of partially emulated.
-- Queue drop policy (WRED/tail-drop style tuning) is not yet proven as a complete userspace feature in current phase.
+- Active queue management (WRED/RED) is not available on this target; tail-drop threshold tuning remains pending undocumented `0x34xx` BMU mapping.
 
 ## Useful References
 
