@@ -319,76 +319,6 @@ static bool yt921x_storm_policer_supported_port(struct dsa_switch *ds, int port)
 }
 
 static int
-yt921x_storm_rate_to_fields(struct yt921x_priv *priv, u64 rate_bytes_per_sec,
-			    u32 *rate_f0, u32 *rate_f1)
-{
-	u64 units_per_sec;
-	u32 io;
-	u32 slot;
-	int res;
-
-	if (!rate_bytes_per_sec)
-		return -EINVAL;
-
-	/* Stock code derives storm config fields from this timeslot register.
-	 * Keep using the same source and encode as a 29-bit split value
-	 * ([31:13] + [12:3]) expected by 0x220200.
-	 */
-	res = yt921x_reg_read(priv, YT921X_STORM_RATE_IO, &io);
-	if (res)
-		return res;
-
-	slot = FIELD_GET(YT921X_STORM_RATE_IO_TIMESLOT_M, io);
-	if (!slot)
-		slot = 1;
-
-	units_per_sec = DIV_ROUND_UP_ULL(rate_bytes_per_sec, slot);
-	units_per_sec = clamp_t(u64, units_per_sec, 1, YT921X_STORM_RATE_UNITS_MAX);
-
-	*rate_f0 = (u32)(units_per_sec >> 10);
-	*rate_f1 = (u32)(units_per_sec & GENMASK(9, 0));
-
-	return 0;
-}
-
-static int yt921x_storm_policer_apply(struct yt921x_priv *priv)
-{
-	u32 storm_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
-	u32 cfg;
-	u32 f0;
-	u32 f1;
-	int res;
-
-	res = yt921x_reg_update_bits(priv, YT921X_STORM_MC_TYPE_CTRL,
-				     YT921X_STORM_MC_TYPE_CTRL_PORTS_M,
-				     YT921X_STORM_MC_TYPE_CTRL_PORTS(storm_ports));
-	if (res)
-		return res;
-
-	res = yt921x_reg_read(priv, YT921X_STORM_CONFIG, &cfg);
-	if (res)
-		return res;
-
-	if (!storm_ports) {
-		cfg &= ~YT921X_STORM_CONFIG_EN;
-		return yt921x_reg_write(priv, YT921X_STORM_CONFIG, cfg);
-	}
-
-	res = yt921x_storm_rate_to_fields(priv, priv->storm_policer_rate_bytes_per_sec,
-					  &f0, &f1);
-	if (res)
-		return res;
-
-	cfg &= ~(YT921X_STORM_CONFIG_RATE_F0_M |
-		 YT921X_STORM_CONFIG_RATE_F1_M);
-	cfg |= YT921X_STORM_CONFIG_RATE_F0(f0) |
-	       YT921X_STORM_CONFIG_RATE_F1(f1) |
-	       YT921X_STORM_CONFIG_EN;
-
-	return yt921x_reg_write(priv, YT921X_STORM_CONFIG, cfg);
-}
-
-static int
 yt921x_stock_ingress_meter_token_level(struct yt921x_priv *priv, u32 *token_level)
 {
 	u32 chip_id;
@@ -463,7 +393,7 @@ yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
 
 static int
 yt921x_ingress_meter_profile_apply(struct yt921x_priv *priv, u32 token_level,
-				   u32 meter_id)
+				   u32 meter_id, u64 rate_bytes_per_sec)
 {
 	u32 meter_idx = meter_id + YT921X_RATE_IGR_METER_BASE;
 	u32 meter_word1;
@@ -495,8 +425,8 @@ yt921x_ingress_meter_profile_apply(struct yt921x_priv *priv, u32 token_level,
 		       YT921X_METER_CTRLc_COLOR_BLIND |
 		       YT921X_METER_CTRLc_DROP_YR;
 
-	res = yt921x_stock_ingress_rate_to_cir(priv->storm_policer_rate_bytes_per_sec,
-					       token_level, f4, false, &cir);
+	res = yt921x_stock_ingress_rate_to_cir(rate_bytes_per_sec, token_level,
+					       f4, false, &cir);
 	if (res)
 		return res;
 
@@ -518,7 +448,7 @@ yt921x_ingress_meter_profile_apply(struct yt921x_priv *priv, u32 token_level,
 
 static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
 {
-	u32 policer_ports = priv->storm_policer_ports & yt921x_non_cpu_port_mask(priv);
+	u32 policer_ports = priv->policer_ports & yt921x_non_cpu_port_mask(priv);
 	unsigned long targets_mask = yt921x_non_cpu_port_mask(priv);
 	u32 token_level;
 	u32 c8;
@@ -547,8 +477,12 @@ disable_port_ctrl:
 			YT921X_RATE_IGR_BW_ENABLE_METER_ID_M);
 
 		if (policer_ports & BIT(port)) {
+			if (!priv->policer_rate_bytes_per_sec[port])
+				return -EINVAL;
+
 			res = yt921x_ingress_meter_profile_apply(priv, token_level,
-								 meter_id);
+								 meter_id,
+								 priv->policer_rate_bytes_per_sec[port]);
 			if (res)
 				return res;
 
@@ -577,28 +511,17 @@ disable_port_ctrl:
 
 static int yt921x_dsa_policer_apply(struct yt921x_priv *priv)
 {
-	int res;
-
-	res = yt921x_ingress_meter_policer_apply(priv);
-	if (!res)
-		return 0;
-
-	dev_warn(yt921x_dev(priv),
-		 "ingress policer apply failed (%d), fallback to storm path\n", res);
-	return yt921x_storm_policer_apply(priv);
+	return yt921x_ingress_meter_policer_apply(priv);
 }
 
 int
 yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 			    struct dsa_mall_policer_tc_entry *policer)
 {
-#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-	return -EOPNOTSUPP;
-#else
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u64 old_rate_bytes_per_sec;
-	u16 old_ports;
 	u32 old_burst;
+	bool old_enabled;
 	int res = 0;
 
 	if (!yt921x_storm_policer_supported_port(ds, port))
@@ -608,43 +531,33 @@ yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 
 	mutex_lock(&priv->reg_lock);
 
-	old_ports = priv->storm_policer_ports;
-	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
-	old_burst = priv->storm_policer_burst;
+	old_enabled = !!(priv->policer_ports & BIT(port));
+	old_rate_bytes_per_sec = priv->policer_rate_bytes_per_sec[port];
+	old_burst = priv->policer_burst[port];
 
-	if (old_ports &&
-	    (old_rate_bytes_per_sec != policer->rate_bytes_per_sec ||
-	     old_burst != policer->burst)) {
-		res = -EOPNOTSUPP;
-		goto out_unlock;
-	}
-
-	priv->storm_policer_ports |= BIT(port);
-	priv->storm_policer_rate_bytes_per_sec = policer->rate_bytes_per_sec;
-	priv->storm_policer_burst = policer->burst;
+	priv->policer_ports |= BIT(port);
+	priv->policer_rate_bytes_per_sec[port] = policer->rate_bytes_per_sec;
+	priv->policer_burst[port] = policer->burst;
 
 	res = yt921x_dsa_policer_apply(priv);
 	if (res) {
-		priv->storm_policer_ports = old_ports;
-		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
-		priv->storm_policer_burst = old_burst;
+		if (!old_enabled)
+			priv->policer_ports &= ~BIT(port);
+		priv->policer_rate_bytes_per_sec[port] = old_rate_bytes_per_sec;
+		priv->policer_burst[port] = old_burst;
 	}
 
 out_unlock:
 	mutex_unlock(&priv->reg_lock);
 	return res;
-#endif
 }
 
 void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
 {
-#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-	return;
-#else
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u64 old_rate_bytes_per_sec;
-	u16 old_ports;
 	u32 old_burst;
+	bool old_enabled;
 	int res;
 
 	if (!yt921x_storm_policer_supported_port(ds, port))
@@ -652,27 +565,25 @@ void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port)
 
 	mutex_lock(&priv->reg_lock);
 
-	old_ports = priv->storm_policer_ports;
-	old_rate_bytes_per_sec = priv->storm_policer_rate_bytes_per_sec;
-	old_burst = priv->storm_policer_burst;
+	old_enabled = !!(priv->policer_ports & BIT(port));
+	old_rate_bytes_per_sec = priv->policer_rate_bytes_per_sec[port];
+	old_burst = priv->policer_burst[port];
 
-	priv->storm_policer_ports &= ~BIT(port);
-	if (!priv->storm_policer_ports) {
-		priv->storm_policer_rate_bytes_per_sec = 0;
-		priv->storm_policer_burst = 0;
-	}
+	priv->policer_ports &= ~BIT(port);
+	priv->policer_rate_bytes_per_sec[port] = 0;
+	priv->policer_burst[port] = 0;
 
 	res = yt921x_dsa_policer_apply(priv);
 	if (res) {
-		priv->storm_policer_ports = old_ports;
-		priv->storm_policer_rate_bytes_per_sec = old_rate_bytes_per_sec;
-		priv->storm_policer_burst = old_burst;
+		if (old_enabled)
+			priv->policer_ports |= BIT(port);
+		priv->policer_rate_bytes_per_sec[port] = old_rate_bytes_per_sec;
+		priv->policer_burst[port] = old_burst;
 		dev_warn(yt921x_dev(priv), "policer remove failed on port %d: %d\n",
 			 port, res);
 	}
 
 	mutex_unlock(&priv->reg_lock);
-#endif
 }
 
 int yt921x_port_down(struct yt921x_priv *priv, int port)

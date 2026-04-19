@@ -1321,9 +1321,9 @@ struct yt921x_priv {
 	unsigned long acl_meter_map[BITS_TO_LONGS(YT921X_METER_NUM)];
 	u32 udfs_ctrl[YT921X_UDF_NUM];
 	u16 udfs_refcnt[YT921X_UDF_NUM];
-	u16 storm_policer_ports;
-	u64 storm_policer_rate_bytes_per_sec;
-	u32 storm_policer_burst;
+	u16 policer_ports;
+	u64 policer_rate_bytes_per_sec[YT921X_PORT_NUM];
+	u32 policer_burst[YT921X_PORT_NUM];
 	u8 vlan_fid_mode;
 	u16 vlan_svl_fid;
 	bool devlink_params_registered;

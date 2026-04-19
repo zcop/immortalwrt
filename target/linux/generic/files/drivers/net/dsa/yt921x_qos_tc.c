@@ -253,10 +253,10 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 	j += YT921X_QSCH_SHP_QUEUES;
 	j += YT921X_QSCH_SHP_QUEUES;
 
-	data[j++] = !!(priv->storm_policer_ports & BIT(port));
-	rate_kbps = DIV_ROUND_UP_ULL(priv->storm_policer_rate_bytes_per_sec * 8, 1000);
+	data[j++] = !!(priv->policer_ports & BIT(port));
+	rate_kbps = DIV_ROUND_UP_ULL(priv->policer_rate_bytes_per_sec[port] * 8, 1000);
 	data[j++] = rate_kbps;
-	data[j++] = priv->storm_policer_burst;
+	data[j++] = priv->policer_burst[port];
 }
 
 void
