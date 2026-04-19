@@ -426,17 +426,12 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	}
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS_RANGE)) {
-		struct flow_match_ports_range match;
-
-		entry_prepare();
-		flow_rule_match_ports_range(rule, &match);
-		entry->key[0] = (ntohs(match.key->tp_min.dst) << 16) |
-				ntohs(match.key->tp_min.src);
-		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_L4) |
-				YT921X_ACL_KEYb_L4_SPORT_RANGE_EN |
-				YT921X_ACL_KEYb_L4_DPORT_RANGE_EN;
-		entry->mask[0] = (ntohs(match.mask->tp_max.dst) << 16) |
-				 ntohs(match.mask->tp_max.src);
+		NL_SET_ERR_MSG_MOD(extack,
+				   "L4 port-range offload is not supported");
+		/* Parse helper uses size==0 as "reject". Caller converts this to
+		 * -EOPNOTSUPP for the flower add path.
+		 */
+		return 0;
 	}
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IP)) {
