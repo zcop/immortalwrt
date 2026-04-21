@@ -1538,14 +1538,18 @@ yt921x_dsa_port_bridge_flags(struct dsa_switch *ds, int port,
 int yt921x_dsa_port_mrouter(struct dsa_switch *ds, int port, bool mrouter)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	bool old_mrouter;
 	int res;
 
 	if (dsa_is_cpu_port(ds, port))
 		return 0;
 
 	mutex_lock(&priv->reg_lock);
+	old_mrouter = priv->ports[port].mrouter;
 	priv->ports[port].mrouter = mrouter;
 	res = yt921x_sync_mrouter_masks_locked(priv);
+	if (res)
+		priv->ports[port].mrouter = old_mrouter;
 	mutex_unlock(&priv->reg_lock);
 
 	return res;
