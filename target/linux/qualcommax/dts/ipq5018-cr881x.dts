@@ -396,9 +396,9 @@
 &switch {
 	status = "okay";
 
-	// Keep both CPU uplinks on 1G SGMII for compatibility/stability.
-	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
-	switch_mac_mode1 = <MAC_MODE_SGMII_CHANNEL1>;
+	// MAC0 uses SGMII+ for 2.5G CPU<->switch link.
+	switch_mac_mode = <MAC_MODE_SGMII_PLUS>;
+	switch_mac_mode1 = <MAC_MODE_SGMII_PLUS>;
 	switch_mac_mode2 = <MAC_MODE_DISABLED>;
 
 	// ESS port bitmaps (match MAC0/MAC1 usage in qcom,port_phyinfo)
@@ -416,13 +416,27 @@
 			phy_dac = <0x10 0x10>;
 		};
 
-		// MAC1 -> Uniphy --- SGMII --- YT9215 Phy8
+		// MAC1 -> Uniphy --- SGMII+ --- YT9215 SerDes
 		port@2 {
 			port_id = <2>;
-			forced-speed = <1000>;
-			forced-duplex = <1>;
+
+			/* Explicitly bind the Uniphy block so ESS can set lane clocks */
+			uniphy = <&{/soc@0/ess-uniphy@98000}>;
+
+			/* Tell phylink the lane mode */
+			phy-mode = "2500base-x";
+
+			/* Replace legacy forced-speed with standard fixed-link */
+				fixed-link {
+					speed = <2500>;
+					full-duplex;
+				};
+			};
 		};
-	};
+};
+
+&{/soc@0/ess-uniphy@98000} {
+	status = "okay";
 };
 
 &dp1 {
@@ -436,16 +450,18 @@
 
 &dp2 {
 	status = "okay";
-	phy-mode = "sgmii";
+	phy-mode = "2500base-x";
+
+	/* Bind MAC1 to ESS Uniphy SerDes lane */
+	phys = <&{/soc@0/ess-uniphy@98000}>;
+	phy-names = "sgmii";
 
 	nvmem-cells = <&mac_addr_dp2 0>;
 	nvmem-cell-names = "mac-address";
 
 	fixed-link {
-		speed = <1000>;
+		speed = <2500>;
 		full-duplex;
-		pause;
-		asym-pause;
 	};
 };
 
@@ -565,16 +581,14 @@
 				};
 			};
 
-			// MAC8 ---SGMII---> IPQ5018 MAC1 (CPU: eth1)
+			// MAC8 ---SGMII+---> IPQ5018 MAC1 (CPU: eth1)
 			port@8 {
 				reg = <8>;
-				phy-mode = "sgmii";
+				phy-mode = "2500base-x";
 				ethernet = <&dp2>;
 				fixed-link {
-					speed = <1000>;
+					speed = <2500>;
 					full-duplex;
-					pause;
-					asym-pause;
 				};
 			};
 

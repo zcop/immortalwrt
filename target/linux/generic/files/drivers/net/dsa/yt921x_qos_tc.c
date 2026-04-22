@@ -1113,9 +1113,11 @@ int yt921x_trap_copp_default_apply(struct yt921x_priv *priv)
 		if (res)
 			return res;
 
-		res = yt921x_qsch_tbf_apply_raw(priv, port, qid,
-						YT921X_TRAP_COPP_DEFAULT_RATE_BYTES_PER_SEC,
-						YT921X_TRAP_COPP_DEFAULT_BURST_BYTES);
+		/* Keep trap queue mapping, but do not install a default
+		 * hardware queue shaper on CPU ports. This avoids capping
+		 * CPU-bound dataplane traffic when dual-conduit is active.
+		 */
+		res = yt921x_qsch_tbf_del(priv, port, qid);
 		if (res)
 			return res;
 	}
