@@ -1,0 +1,28 @@
+From 1111111111111111111111111111111111111111 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 5 May 2026 19:35:00 +0700
+Subject: [PATCH] arm64: dts: qcom: ipq5018: set CPU OPP to 1.2GHz
+
+Raise the single IPQ5018 CPU operating point from 1.008GHz to 1.2GHz.
+This keeps the no-scaling behavior introduced by the existing cpufreq
+scaling removal while increasing CPU frequency for higher routing
+throughput.
+
+Signed-off-by: Codex <codex@local>
+---
+ arch/arm64/boot/dts/qcom/ipq5018.dtsi | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/arch/arm64/boot/dts/qcom/ipq5018.dtsi
++++ b/arch/arm64/boot/dts/qcom/ipq5018.dtsi
+@@ -94,8 +94,8 @@
+ 		compatible = "operating-points-v2";
+ 		opp-shared;
+ 
+-		opp-1008000000 {
+-			opp-hz = /bits/ 64 <1008000000>;
++		opp-1200000000 {
++			opp-hz = /bits/ 64 <1200000000>;
+ 			opp-microvolt = <1100000>;
+ 			clock-latency-ns = <200000>;
+ 		};
