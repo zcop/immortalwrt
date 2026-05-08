@@ -1,6 +1,13 @@
 #!/bin/sh
 
-[ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
+case $(board_name) in
+	xiaomi,cr881x|\
+	redmi,ax3000)
+		;;
+	*)
+		exit 0
+		;;
+esac
 
 # Ensure a wireless config exists on first boot.
 [ -s /etc/config/wireless ] || wifi config >/dev/null 2>&1 || true

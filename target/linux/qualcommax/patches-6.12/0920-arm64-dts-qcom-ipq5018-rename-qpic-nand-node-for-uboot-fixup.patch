@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: zcop <zcop@local>
+Date: Thu, 7 May 2026 22:15:00 +0700
+Subject: [PATCH] arm64: dts: qcom: ipq5018: rename qpic nand node for u-boot fixup
+
+Some Xiaomi IPQ5018 bootloaders try to patch NAND DT properties through a
+hardcoded node path:
+
+  /soc/qpic-nand@79b0000
+
+Mainline DTS names this node as "spi@79b0000", which causes those fixups to
+miss and may break boot argument / NAND related handoff behavior on these
+boards.
+
+Keep the same register address and functionality, but rename the node to match
+the bootloader expectation.
+
+Signed-off-by: zcop <zcop@local>
+---
+ arch/arm64/boot/dts/qcom/ipq5018.dtsi | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/arch/arm64/boot/dts/qcom/ipq5018.dtsi
++++ b/arch/arm64/boot/dts/qcom/ipq5018.dtsi
+@@ -559,7 +559,7 @@
+ 			status = "disabled";
+ 		};
+ 
+-		qpic_nand: spi@79b0000 {
++		qpic_nand: qpic-nand@79b0000 {
+ 			compatible = "qcom,ipq5018-snand", "qcom,ipq9574-snand";
