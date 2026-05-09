@@ -364,10 +364,8 @@
 &switch {
 	status = "okay";
 
-	// mdio-bus = <&mdio0>;
-
 	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
-	switch_mac_mode1 = <MAC_MODE_DISABLED>;
+	switch_mac_mode1 = <MAC_MODE_SGMII_CHANNEL1>;
 	switch_mac_mode2 = <MAC_MODE_DISABLED>;
 
 	// ESS port bitmaps (match MAC0/MAC1 usage in qcom,port_phyinfo)
@@ -378,7 +376,7 @@
 
 	qcom,port_phyinfo {
 		// MAC0 -> GE Phy -> QCA8337 Phy4
-		port@0 {
+		port@1 {
 			port_id = <1>;
 			mdiobus = <&mdio0>;
 			phy_address = <7>;
@@ -386,7 +384,7 @@
 		};
 
 		// MAC1 ---SGMII---> QCA8337 SerDes
-		port@1 {
+		port@2 {
 			port_id = <2>;
 			forced-speed = <1000>;
 			forced-duplex = <1>;
@@ -394,37 +392,27 @@
 	};
 };
 
-// MAC0 -> GE PHY
 &dp1 {
-	/*
-	 * ===============================================================
-	 *     _______________________         _______________________
-	 *    |        IPQ5018        |       |        QCA8337        |
-	 *    | +------+   +--------+ |       | +--------+   +------+ |
-	 *    | | MAC0 |---| GE Phy |-+--UTP--+-|  Phy4  |---| MAC5 | |
-	 *    | +------+   +--------+ |       | +--------+   +------+ |
-	 *    | +------+   +--------+ |       | +--------+   +------+ |
-	 *    | | MAC1 |---| Uniphy |-+-SGMII-+-| SerDes |---| MAC0 | |
-	 *    | +------+   +--------+ |       | +--------+   +------+ |
-	 *    |_______________________|       |_______________________|
-	 *
-	 * ===============================================================
-	 *
-	 * Current drivers don't support such topology. So dp1 and ge_phy
-	 * are useless. But they can't be disabled dut to qca-ssdk use
-	 * ge_phy to detect IPQ5018 dummy switch.
-	 */
 	status = "okay";
+	phy-mode = "internal";
+	phy-handle = <&ge_phy>;
+
+	nvmem-cells = <&mac_addr_dp1 0>;
+	nvmem-cell-names = "mac-address";
 };
 
-// MAC1 ---SGMII---> QCA8337 SerDes
 &dp2 {
 	status = "okay";
 	phy-mode = "sgmii";
 
+	nvmem-cells = <&mac_addr_dp2 0>;
+	nvmem-cell-names = "mac-address";
+
 	fixed-link {
 		speed = <1000>;
 		full-duplex;
+		pause;
+		asym-pause;
 	};
 };
 
@@ -435,6 +423,7 @@
 // IPQ5018 GE Phy -> QCA8337 Phy4
 &ge_phy {
 	status = "okay";
+	qcom,dac-preset-short-cable;
 };
 
 &mdio1 {
@@ -469,7 +458,6 @@
 	// QCA8337 Phy4 -> IPQ5018 GE Phy
 	qca8337_4: ethernet-phy@4 {
 		reg = <4>;
-		status = "disabled";
 	};
 
 	switch0: ethernet-switch@17 {
@@ -490,6 +478,8 @@
 				fixed-link {
 					speed = <1000>;
 					full-duplex;
+					pause;
+					asym-pause;
 				};
 			};
 
@@ -497,31 +487,42 @@
 				reg = <1>;
 				label = "lan1";
 				phy-handle = <&qca8337_0>;
+				conduit = <&switch0cpu>;
 			};
 
 			port@2 {
 				reg = <2>;
 				label = "lan2";
 				phy-handle = <&qca8337_1>;
+				conduit = <&switch0cpu>;
 			};
 
 			port@3 {
 				reg = <3>;
 				label = "lan3";
 				phy-handle = <&qca8337_2>;
+				conduit = <&switch0cpu>;
 			};
 
 			port@4 {
 				reg = <4>;
 				label = "wan";
 				phy-handle = <&qca8337_3>;
+				conduit = <&switch0cpu2>;
 			};
 
-			port@5 {
+			switch0cpu2: port@5 {
 				reg = <5>;
-				label = "cpu2";
-				phy-handle = <&qca8337_4>;
-				status = "disabled";
+				label = "cpu";
+				phy-mode = "internal";
+				ethernet = <&dp1>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+					pause;
+					asym-pause;
+				};
 			};
 		};
 	};

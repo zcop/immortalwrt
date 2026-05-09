@@ -1,0 +1,19 @@
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -1138,12 +1138,11 @@ qca8k_parse_port_config(struct qca8k_pri
+ 
+ 	/* We have 2 CPU port. Check them */
+ 	for (port = 0; port < QCA8K_NUM_PORTS; port++) {
+-		/* Skip every other port */
+-		if (port != 0 && port != 6)
+-			continue;
+-
++		if (!dsa_is_cpu_port(priv->ds, port))
++			continue;
++
++		cpu_port_index++;
+ 		dp = dsa_to_port(priv->ds, port);
+ 		port_dn = dp->dn;
+-		cpu_port_index++;
+ 
+ 		if (!of_device_is_available(port_dn))

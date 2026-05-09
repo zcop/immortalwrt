@@ -1,0 +1,56 @@
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c	2026-05-09 05:56:48.372335121 +0700
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c	2026-05-09 05:59:06.766689987 +0700
+@@ -1274,22 +1274,11 @@
+ 	struct phylink_pcs *pcs = NULL;
+ 	int port = dp->index;
+ 
+-	switch (interface) {
+-	case PHY_INTERFACE_MODE_SGMII:
+-	case PHY_INTERFACE_MODE_1000BASEX:
+-		switch (port) {
+-		case 0:
+-			pcs = &priv->pcs_port_0.pcs;
+-			break;
+-
+-		case 6:
+-			pcs = &priv->pcs_port_6.pcs;
+-			break;
+-		}
+-		break;
+-
+-	default:
+-		break;
++	if (interface == PHY_INTERFACE_MODE_SGMII ||
++	    interface == PHY_INTERFACE_MODE_1000BASEX ||
++	    interface == PHY_INTERFACE_MODE_2500BASEX) {
++		if (port >= 0 && port < QCA8K_NUM_PORTS)
++			pcs = &priv->pcs_port[port].pcs;
+ 	}
+ 
+ 	return pcs;
+@@ -1964,8 +1953,10 @@
+ 	if (ret)
+ 		return ret;
+ 
+-	qca8k_setup_pcs(priv, &priv->pcs_port_0, 0);
+-	qca8k_setup_pcs(priv, &priv->pcs_port_6, 6);
++	for (int i = 0; i < QCA8K_NUM_PORTS; i++) {
++		if (dsa_is_cpu_port(ds, i))
++			qca8k_setup_pcs(priv, &priv->pcs_port[i], i);
++	}
+ 
+ 	/* Make sure MAC06 is disabled */
+ 	ret = regmap_clear_bits(priv->regmap, QCA8K_REG_PORT0_PAD_CTRL,
+
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -464,8 +464,7 @@ struct qca8k_priv {
+ 	struct qca8k_mgmt_eth_data mgmt_eth_data;
+ 	struct qca8k_mib_eth_data mib_eth_data;
+ 	struct qca8k_mdio_cache mdio_cache;
+-	struct qca8k_pcs pcs_port_0;
+-	struct qca8k_pcs pcs_port_6;
++	struct qca8k_pcs pcs_port[QCA8K_NUM_PORTS];
+ 	const struct qca8k_match_data *info;
+ 	struct qca8k_led ports_led[QCA8K_LED_COUNT];
+ };
