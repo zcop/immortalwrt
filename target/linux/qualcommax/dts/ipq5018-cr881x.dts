@@ -182,141 +182,32 @@
 		nand-bus-width = <8>;
 
 		partitions {
-			compatible = "fixed-partitions";
-			#address-cells = <1>;
-			#size-cells = <1>;
+			compatible = "qcom,smem-part";
 
-			partition@0 {
-				label = "0:SBL1";
-				reg = <0x00000000 0x00080000>;
-				read-only;
-			};
+			fixed-partitions {
+				compatible = "fixed-partitions";
+				#address-cells = <1>;
+				#size-cells = <1>;
 
-			partition@80000 {
-				label = "0:MIBIB";
-				reg = <0x00080000 0x00080000>;
-				read-only;
-			};
+				partition@780000 {
+					label = "0:ART";
+					reg = <0x00780000 0x00100000>;
+					read-only;
 
-			partition@100000 {
-				label = "0:BOOTCONFIG";
-				reg = <0x00100000 0x00040000>;
-				read-only;
-			};
+					art: nvmem-layout {
+						compatible = "fixed-layout";
+						#address-cells = <1>;
+						#size-cells = <1>;
 
-			partition@140000 {
-				label = "0:BOOTCONFIG1";
-				reg = <0x00140000 0x00040000>;
-				read-only;
-			};
+						mac_addr_dp1: macaddr@0 {
+							reg = <0x0 0x6>;
+						};
 
-			partition@180000 {
-				label = "0:QSEE";
-				reg = <0x00180000 0x00100000>;
-				read-only;
-			};
-
-			partition@280000 {
-				label = "0:QSEE_1";
-				reg = <0x00280000 0x00100000>;
-				read-only;
-			};
-
-			partition@380000 {
-				label = "0:DEVCFG";
-				reg = <0x00380000 0x00040000>;
-				read-only;
-			};
-
-			partition@3c0000 {
-				label = "0:DEVCFG_1";
-				reg = <0x003c0000 0x00040000>;
-				read-only;
-			};
-
-			partition@400000 {
-				label = "0:CDT";
-				reg = <0x00400000 0x00040000>;
-				read-only;
-			};
-
-			partition@440000 {
-				label = "0:CDT_1";
-				reg = <0x00440000 0x00040000>;
-				read-only;
-			};
-
-			partition@480000 {
-				label = "0:APPSBLENV";
-				reg = <0x00480000 0x00080000>;
-			};
-
-			partition@500000 {
-				label = "0:APPSBL";
-				reg = <0x00500000 0x00140000>;
-				read-only;
-			};
-
-			partition@640000 {
-				label = "0:APPSBL_1";
-				reg = <0x00640000 0x00140000>;
-				read-only;
-			};
-
-			partition@780000 {
-				label = "0:ART";
-				reg = <0x00780000 0x00100000>;
-				read-only;
-
-				art: nvmem-layout {
-					compatible = "fixed-layout";
-					#address-cells = <1>;
-					#size-cells = <1>;
-
-					mac_addr_dp1: macaddr@0 {
-						reg = <0x0 0x6>;
-					};
-
-					mac_addr_dp2: macaddr@6 {
-						reg = <0x6 0x6>;
+						mac_addr_dp2: macaddr@6 {
+							reg = <0x6 0x6>;
+						};
 					};
 				};
-			};
-
-			partition@880000 {
-				label = "0:TRAINING";
-				reg = <0x00880000 0x00080000>;
-				read-only;
-			};
-
-			partition@900000 {
-				label = "bdata";
-				reg = <0x00900000 0x00080000>;
-			};
-
-			partition@980000 {
-				label = "crash";
-				reg = <0x00980000 0x00080000>;
-			};
-
-			partition@a00000 {
-				label = "crash_syslog";
-				reg = <0x00a00000 0x00080000>;
-			};
-
-			partition@a80000 {
-				label = "rootfs";
-				reg = <0x00a80000 0x01e00000>;
-			};
-
-			partition@2880000 {
-				label = "rootfs_1";
-				reg = <0x02880000 0x01e00000>;
-			};
-
-			partition@4680000 {
-				label = "overlay";
-				reg = <0x04680000 0x03980000>;
 			};
 		};
 	};
