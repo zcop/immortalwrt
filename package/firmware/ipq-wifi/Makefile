@@ -131,7 +131,7 @@ ALLWIFIBOARDS:= \
 ALLWIFIPACKAGES:=$(foreach BOARD,$(ALLWIFIBOARDS),ipq-wifi-$(BOARD))
 
 # Device-specific runtime deps needed when board-data package is present.
-IPQ_WIFI_EXTRA_DEPENDS_xiaomi_cr881x:=+ath11k-firmware-ipq5018-qcn6122 +wpad-openssl
+IPQ_WIFI_EXTRA_DEPENDS_xiaomi_cr881x:=+ath11k-firmware-ipq5018-qcn6122
 
 define Package/ipq-wifi-default
   SUBMENU:=ath10k Board-Specific Overrides
