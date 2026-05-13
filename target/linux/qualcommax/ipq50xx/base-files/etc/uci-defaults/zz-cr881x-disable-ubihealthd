@@ -1,0 +1,30 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+case "$(board_name)" in
+	xiaomi,cr881x|redmi,ax3000)
+		;;
+	*)
+		exit 0
+		;;
+esac
+
+# Run after generic /etc/uci-defaults/ubihealthd and force-disable it on CR881x/AX3000.
+if [ -f /etc/config/ubihealthd ]; then
+	for s in $(uci -q show ubihealthd 2>/dev/null | sed -n 's/^\(ubihealthd\.[^.=]*\)=ubi-device$/\1/p'); do
+		uci -q set "$s.enable=0"
+	done
+	uci -q commit ubihealthd
+fi
+
+/etc/init.d/ubihealthd disable 2>/dev/null || true
+/etc/init.d/ubihealthd stop 2>/dev/null || true
+
+# Hide ubihealthd artifacts from the rootfs (overlay whiteouts).
+rm -f /etc/uci-defaults/ubihealthd 2>/dev/null || true
+rm -f /etc/init.d/ubihealthd 2>/dev/null || true
+rm -f /usr/sbin/ubihealthd 2>/dev/null || true
+rm -f /etc/config/ubihealthd 2>/dev/null || true
+
+exit 0

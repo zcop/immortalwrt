@@ -198,7 +198,13 @@ define Device/redmi_ax3000
 	PAGESIZE := 2048
 	DEVICE_DTS_CONFIG := config@mp02.1
 	DEVICE_PACKAGES := ipq-wifi-redmi_ax3000 ath11k-firmware-ipq5018-qcn6122 \
-		-ath11k-firmware-ipq5018
+		-ath11k-firmware-ipq5018 \
+		-dnsmasq-full dnsmasq \
+		kmod-dsa-qca8k \
+		-automount \
+		-kmod-usb3 -kmod-usb-dwc3 -kmod-usb-dwc3-qcom \
+		-kmod-usb-storage -kmod-usb-storage-uas \
+		-ntfs3-mount
 endef
 TARGET_DEVICES += redmi_ax3000
 
@@ -213,10 +219,15 @@ define Device/xiaomi_cr881x
 	DEVICE_DTS_CONFIG := config@mp03.3
 	DEVICE_PACKAGES := ipq-wifi-xiaomi_cr881x ath11k-firmware-ipq5018-qcn6122 \
 		-ath11k-firmware-ipq5018 \
+		-dnsmasq-full dnsmasq \
 		ethtool ip-full tcpdump phytool mii-tool luci-app-portstatus \
 		autocore \
 		luci-app-cr881x-yt921x-qos luci-app-cr881x-wan-mode \
-		kmod-net-dsa kmod-dsa-yt921x
+		kmod-net-dsa kmod-dsa-yt921x \
+		-automount \
+		-kmod-usb3 -kmod-usb-dwc3 -kmod-usb-dwc3-qcom \
+		-kmod-usb-storage -kmod-usb-storage-uas \
+		-ntfs3-mount
 endef
 TARGET_DEVICES += xiaomi_cr881x
 
