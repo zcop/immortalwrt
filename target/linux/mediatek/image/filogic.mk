@@ -1479,7 +1479,7 @@ define Device/cudy_wr3000p-v1
   IMAGE_SIZE := 65536k
   KERNEL_IN_UBI := 1
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-  DEVICE_PACKAGES := kmod-usb3 kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware
+  DEVICE_PACKAGES := kmod-usb3 kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware automount
 endef
 TARGET_DEVICES += cudy_wr3000p-v1
 
@@ -1489,7 +1489,7 @@ define Device/cudy_wr3000p-v1-ubootmod
   DEVICE_VARIANT := v1 (OpenWrt U-Boot layout)
   DEVICE_DTS := mt7981b-cudy-wr3000p-v1-ubootmod
   DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-usb3 kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware
+  DEVICE_PACKAGES := kmod-usb3 kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware automount
   UBINIZE_OPTS := -E 5
   BLOCKSIZE := 128k
   PAGESIZE := 2048
@@ -2691,16 +2691,19 @@ endef
 TARGET_DEVICES += netgear_wax220
 
 define Device/netis_nx30v2
-  DEVICE_VENDOR := Netis
-  DEVICE_MODEL := NX30V2
+  DEVICE_VENDOR := netis
+  DEVICE_MODEL := NX30
+  DEVICE_VARIANT := V2
   DEVICE_ALT0_VENDOR := Netcore
-  DEVICE_ALT0_MODEL := POWER30AX
+  DEVICE_ALT0_MODEL := POWER 30AX
   DEVICE_ALT1_VENDOR := Netcore
-  DEVICE_ALT1_MODEL := N30PRO
+  DEVICE_ALT1_MODEL := N30 Pro
   DEVICE_ALT2_VENDOR := GWBN
   DEVICE_ALT2_MODEL := GW3001
   DEVICE_ALT3_VENDOR := GLC
   DEVICE_ALT3_MODEL := W7
+  DEVICE_ALT4_VENDOR := netis
+  DEVICE_ALT4_MODEL := MEX605
   DEVICE_DTS := mt7981b-netis-nx30v2
   DEVICE_DTS_DIR := ../dts
   DEVICE_DTC_FLAGS := --pad 4096
