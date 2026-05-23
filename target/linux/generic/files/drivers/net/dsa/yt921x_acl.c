@@ -1190,6 +1190,7 @@ static int
 yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 	       bool *mirror_enp, u8 *mirror_to_portp)
 {
+	struct yt921x_acl_entry backup[YT921X_ACL_ENT_PER_BLK] = {};
 	struct yt921x_acl_entry *entries;
 	unsigned int offset;
 	unsigned int blkid;
@@ -1231,6 +1232,7 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 				priv->udfs_refcnt[udf]--;
 		}
 
+		backup[i] = entries[i];
 		entries[i] = (typeof(*entries)){};
 		ents_mask |= BIT(i);
 	}
@@ -1238,16 +1240,29 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 	priv->acl.useds[blkid] -= hweight8(ents_mask);
 
 	res = yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
-	if (res)
+	if (res) {
+		unsigned long mask = ents_mask;
+		unsigned long i;
+
+		for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK) {
+			entries[i] = backup[i];
+			u32 type = FIELD_GET(YT921X_ACL_KEYb_TYPE_M, entries[i].key[1]);
+			if (type >= YT921X_ACL_TYPE_UDF0 && type <= YT921X_ACL_TYPE_UDF7) {
+				unsigned int udf = type - YT921X_ACL_TYPE_UDF0;
+				priv->udfs_refcnt[udf]++;
+			}
+		}
+		priv->acl.useds[blkid] += hweight8(ents_mask);
 		return res;
+	}
 
 	if (meter_en && meter_id != YT921X_ACL_METER_ID_INVALID &&
 	    meter_id != YT921X_ACL_METER_ID_BLACKHOLE) {
-		res = yt921x_acl_meter_clear_hw(priv, meter_id);
-		if (res)
-			return res;
+		int clear_res = yt921x_acl_meter_clear_hw(priv, meter_id);
 
 		yt921x_acl_meter_free(priv, meter_id);
+		if (clear_res)
+			return clear_res;
 	}
 
 	return 0;
@@ -1358,8 +1373,16 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 	WARN_ON(priv->acl.useds[blkid] > YT921X_ACL_ENT_PER_BLK);
 
 	res = yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
-	if (res)
+	if (res) {
+		unsigned long mask = ents_mask;
+		unsigned long i;
+
+		for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK)
+			entries[i] = (typeof(*entries)){};
+
+		priv->acl.useds[blkid] -= hweight8(ents_mask);
 		return res;
+	}
 
 	for (unsigned int i = 0; i < udfs_cnt; i++) {
 		unsigned int o = udfs_remap[i];
