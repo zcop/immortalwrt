@@ -120,6 +120,9 @@ yt921x_tag_rcv(struct sk_buff *skb, struct net_device *netdev)
 				if (dsa_port_to_conduit(dp) != netdev)
 					continue;
 
+				if (!dp->user)
+					continue;
+
 				if (unlikely(user)) {
 					dev_warn_ratelimited(&netdev->dev,
 							     "secondary conduit has multiple user ports, dropping raw frame\n");

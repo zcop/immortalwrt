@@ -465,7 +465,7 @@ static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
 {
 	u32 policer_ports = priv->policer_ports & yt921x_non_cpu_port_mask(priv);
 	unsigned long targets_mask = yt921x_non_cpu_port_mask(priv);
-	u32 token_level;
+	u32 token_level = 0;
 	u32 c8;
 	int port;
 	int res;
@@ -833,29 +833,32 @@ validate_force_mode:
 			if (force_mode == YT921X_SERDES_MODE_SGMII ||
 			    force_mode == YT921X_SERDES_MODE_REVSGMII)
 				break;
-			fallthrough;
+			goto incompatible;
 		case PHY_INTERFACE_MODE_100BASEX:
 			if (force_mode == YT921X_SERDES_MODE_100BASEX)
 				break;
-			fallthrough;
+			goto incompatible;
 		case PHY_INTERFACE_MODE_1000BASEX:
 			if (force_mode == YT921X_SERDES_MODE_1000BASEX)
 				break;
-			fallthrough;
+			goto incompatible;
 		case PHY_INTERFACE_MODE_2500BASEX:
 			if (force_mode == YT921X_SERDES_MODE_2500BASEX)
 				break;
-			fallthrough;
+			goto incompatible;
 		default:
-			dev_err(dev,
-				"Port %d serdes-mode incompatible with phy-mode %d\n",
-				port, interface);
-			return -EINVAL;
+			goto incompatible;
 		}
 
 		*ctrl = force_mode;
 		return 0;
 	}
+
+incompatible:
+	dev_err(dev,
+		"Port %d serdes-mode incompatible with phy-mode %d\n",
+		port, interface);
+	return -EINVAL;
 
 from_phy_mode:
 	switch (interface) {
