@@ -147,7 +147,7 @@ yt921x_dsa_vlan_msti_set(struct dsa_switch *ds, struct dsa_bridge bridge,
 
 	if (!msti->vid)
 		return -EINVAL;
-	if (!msti->msti || msti->msti >= YT921X_MSTI_NUM)
+	if (msti->msti >= YT921X_MSTI_NUM)
 		return -EINVAL;
 
 	mask64 = YT921X_VLAN_CTRL_STP_ID_M;
