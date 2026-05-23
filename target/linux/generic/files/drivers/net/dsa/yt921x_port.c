@@ -562,7 +562,6 @@ yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 		priv->policer_burst[port] = old_burst;
 	}
 
-out_unlock:
 	mutex_unlock(&priv->reg_lock);
 	return res;
 }
