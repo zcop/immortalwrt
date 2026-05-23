@@ -363,8 +363,11 @@
 			motorcomm,rma-slow-action = <2>;
 			motorcomm,ctrlpkt-lldp-act = <0x400>;
 			motorcomm,ctrlpkt-lldp-eee-act = <0x400>;
-			/* Constrain secondary conduit (eth0/raw) to WAN only
-			 * at init: permit only user port@3 on CPU port@4.
+			/* Constrain secondary conduit destination set at init.
+			 * Bitmask is over user ports (BIT(port@N reg value)):
+			 * here allow only WAN user port@3 to use secondary-conduit.
+			 * This must stay aligned with conduit defaults in
+			 * base-files/etc/board.d/02_network.
 			 */
 			motorcomm,secondary-conduit-user-mask = <0x8>;
 
@@ -442,11 +445,18 @@
 				phy-handle = <&sw_phy3>;
 			};
 
-			// MAC4 -> Phy4 -> IPQ5018 GE Phy (CPU: eth0 WAN conduit)
+			/* MAC4 -> Phy4 -> IPQ5018 GE Phy (CPU: eth0)
+			 * YT921x conduit-role contract:
+			 * - "primary-conduit": anchor CPU conduit selected by
+			 *   EXT_CPU_PORT and used for YT921x tagged dataplane.
+			 * - "secondary-conduit": optional secondary CPU conduit
+			 *   using tagless mode (still may carry regular 802.1Q).
+			 */
 			port@4 {
 				reg = <4>;
 				label = "cpu";
 				phy-mode = "internal";
+				motorcomm,conduit-role = "secondary-conduit";
 				ethernet = <&dp1>;
 				fixed-link {
 					speed = <1000>;
@@ -456,10 +466,14 @@
 				};
 			};
 
-			// MAC8 ---SGMII---> IPQ5018 MAC1 (CPU: eth1)
+			/* MAC8 ---SGMII---> IPQ5018 MAC1 (CPU: eth1)
+			 * Keep this as primary-conduit so EXT_CPU_PORT and tagger
+			 * parsing stay pinned to this conduit.
+			 */
 			port@8 {
 				reg = <8>;
 				phy-mode = "sgmii";
+				motorcomm,conduit-role = "primary-conduit";
 				ethernet = <&dp2>;
 				fixed-link {
 					speed = <1000>;

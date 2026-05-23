@@ -1303,6 +1303,9 @@ enum yt921x_vlan_fid_mode {
 	YT921X_VLAN_FID_MODE_SVL = 1,
 };
 
+#define YT921X_CONDUIT_ROLE_PRIMARY	"primary-conduit"
+#define YT921X_CONDUIT_ROLE_SECONDARY	"secondary-conduit"
+
 struct yt921x_priv {
 	struct dsa_switch ds;
 

@@ -50,6 +50,19 @@ enum yt921x_tag_code {
 	YT921X_TAG_CODE_FDB_COPY = 0x1c,
 };
 
+static bool yt921x_conduit_is_raw(const struct dsa_port *cpu_dp)
+{
+	enum dsa_tag_protocol proto;
+
+	if (!cpu_dp || !cpu_dp->ds || !cpu_dp->ds->ops ||
+	    !cpu_dp->ds->ops->get_tag_protocol)
+		return false;
+
+	proto = cpu_dp->ds->ops->get_tag_protocol(cpu_dp->ds, cpu_dp->index,
+						  DSA_TAG_PROTO_NONE);
+	return proto == DSA_TAG_PROTO_NONE;
+}
+
 static struct sk_buff *
 yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
 {
@@ -58,7 +71,7 @@ yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
 	__be16 *tag;
 	u16 tx;
 
-	if (dp->cpu_dp && dp->cpu_dp->index != 8) {
+	if (yt921x_conduit_is_raw(dp->cpu_dp)) {
 		/* Secondary conduit sends raw frames (no YT tag). */
 		return skb;
 	}
@@ -99,7 +112,7 @@ yt921x_tag_rcv(struct sk_buff *skb, struct net_device *netdev)
 
 	if (unlikely(tag[0] != htons(ETH_P_YT921X))) {
 		/* Secondary conduit receives plain Ethernet frames. */
-		if (cpu_dp && cpu_dp->index != 8) {
+		if (yt921x_conduit_is_raw(cpu_dp)) {
 			struct dsa_port *dp;
 			struct net_device *user = NULL;
 
