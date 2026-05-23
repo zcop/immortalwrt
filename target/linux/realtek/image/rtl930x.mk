@@ -17,6 +17,7 @@ define Device/hasivo_s1100w-8xgt-se
   DEVICE_VENDOR := Hasivo
   DEVICE_MODEL := S1100W-8XGT-SE
   IMAGE_SIZE := 12288k
+  DEVICE_PACKAGES := rtl8264b-firmware
   $(Device/kernel-lzma)
 endef
 TARGET_DEVICES += hasivo_s1100w-8xgt-se
@@ -94,12 +95,39 @@ define Device/vimin_vm-s100-0800ms
 endef
 TARGET_DEVICES += vimin_vm-s100-0800ms
 
+define Device/xikestor_sks7300-4x4t
+  SOC := rtl9303
+  DEVICE_VENDOR := XikeStor
+  DEVICE_MODEL := SKS7300-4X4T
+  DEVICE_PACKAGES := kmod-hwmon-lm75
+  KERNEL_SIZE:= 8192k
+  IMAGE_SIZE := 28160k
+  KERNEL := \
+    kernel-bin | \
+    append-dtb | \
+    lzma | \
+    xikestor-sks7300-img
+  KERNEL_INITRAMFS := \
+    kernel-bin | \
+    append-dtb | \
+    lzma | \
+    xikestor-sks7300-img
+  IMAGE/sysupgrade.bin := \
+    append-kernel | \
+    pad-to 8192k | \
+    append-rootfs | \
+    pad-rootfs | \
+    check-size | \
+    append-metadata
+endef
+TARGET_DEVICES += xikestor_sks7300-4x4t
+
 define Device/xikestor_sks8300-8t
   SOC := rtl9303
   UIMAGE_MAGIC := 0x93000000
   DEVICE_VENDOR := XikeStor
   DEVICE_MODEL := SKS8300-8T
-  DEVICE_PACKAGES := kmod-hwmon-lm75
+  DEVICE_PACKAGES := kmod-hwmon-lm75 rtl8261n-firmware
   IMAGE_SIZE := 20480k
   $(Device/kernel-lzma)
   IMAGE/sysupgrade.bin := \
@@ -133,6 +161,7 @@ define Device/xikestor_sks8300-12e2t2x
   UIMAGE_MAGIC := 0x93000000
   DEVICE_VENDOR := XikeStor
   DEVICE_MODEL := SKS8300-12E2T2X
+  DEVICE_PACKAGES := rtl8261n-firmware
   IMAGE_SIZE := 20480k
   $(Device/kernel-lzma)
   IMAGE/sysupgrade.bin := \
@@ -223,8 +252,20 @@ TARGET_DEVICES += zyxel_xgs1250-12-a1
 define Device/zyxel_xgs1250-12-b1
   $(Device/zyxel_xgs1250-12-common)
   DEVICE_VARIANT := B1
+  DEVICE_PACKAGES += rtl8261n-firmware
 endef
 TARGET_DEVICES += zyxel_xgs1250-12-b1
+
+define Device/zyxel_xgs1930-28hp
+  SOC := rtl9301
+  DEVICE_MODEL := XGS1930-28HP
+  DEVICE_PACKAGES := kmod-hwmon-gpiofan
+  FLASH_ADDR := 0xb4260000
+  IMAGE_SIZE := 30336k
+  ZYNFW_ALIGN := 0x10000
+  $(Device/zyxel_zynos)
+endef
+TARGET_DEVICES += zyxel_xgs1930-28hp
 
 define Device/zyxel_xmg1915
   SOC := rtl9302

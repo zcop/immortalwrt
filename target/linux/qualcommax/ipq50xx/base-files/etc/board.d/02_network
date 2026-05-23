@@ -23,19 +23,20 @@ ipq50xx_setup_interfaces()
 	xiaomi,ax6000)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
 		;;
+	linksys,mx6200|\
+	yuncore,ax830|\
+	yuncore,ax850)
+		ucidef_set_interfaces_lan_wan "lan" "wan"
+		;;
 	cmcc,pz-l8|\
 	redmi,ax3000|\
-	xiaomi,cr881x)
+	xiaomi,cr881x|\
+	xiaomi,redmi-ax5400)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" "wan"
 		ucidef_set_network_device_conduit "lan1" "eth1"
 		ucidef_set_network_device_conduit "lan2" "eth1"
 		ucidef_set_network_device_conduit "lan3" "eth1"
 		ucidef_set_network_device_conduit "wan" "eth0"
-		;;
-	linksys,mx6200|\
-	yuncore,ax830|\
-	yuncore,ax850)
-		ucidef_set_interfaces_lan_wan "lan" "wan"
 		;;
 	esac
 }
