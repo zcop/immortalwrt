@@ -189,23 +189,17 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 		res = yt921x_secondary_cpu_isolation_sync(priv, new_cpu_port);
 	if (!res && new_cpu_port != old_cpu_port)
 		res = yt921x_secondary_cpu_isolation_sync(priv, old_cpu_port);
-	if (!res) {
+	if (!res)
 		res = yt921x_conduit_fdb_retarget(priv, port, old_cpu_port,
 						  new_cpu_port);
-		if (!res) {
-			res = yt921x_reg_update_bits(priv, YT921X_EXT_CPU_PORT,
-						     YT921X_EXT_CPU_PORT_PORT_M,
-						     YT921X_EXT_CPU_PORT_PORT(new_cpu_port));
-			if (!res) {
-				res = yt921x_reg_read(priv, YT921X_EXT_CPU_PORT, &val);
-				if (!res)
-					dev_dbg(ds->dev,
-						"port%d conduit cpu%d->cpu%d ext_cpu=%lu\n",
-						port, old_cpu_port, new_cpu_port,
-						FIELD_GET(YT921X_EXT_CPU_PORT_PORT_M, val));
-			}
-		}
-	}
+
+	/* Do NOT update YT921X_EXT_CPU_PORT here. That register must stay
+	 * pinned to primary_cpu_port (set once in yt921x_chip_setup_dsa).
+	 * The secondary conduit uses DSA_TAG_PROTO_NONE and receives raw
+	 * untagged frames via port isolation steering alone. Redirecting
+	 * EXT_CPU_PORT to the secondary conduit would break the tagged
+	 * dataplane for every user port still on the primary conduit.
+	 */
 out_unlock:
 	mutex_unlock(&priv->reg_lock);
 
