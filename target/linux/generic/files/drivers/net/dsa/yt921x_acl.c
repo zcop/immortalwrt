@@ -128,7 +128,10 @@ yt921x_acl_meter_apply(struct yt921x_priv *priv, int port, u32 meter_id,
 			       YT921X_METER_RATE_MAX, YT921X_METER_BURST_MAX,
 			       YT921X_METER_UNIT_MAX, &meter);
 	if (res) {
-		NL_SET_ERR_MSG_MOD(extack, "Unexpected tremendous rate");
+		if (res == -EINVAL)
+			NL_SET_ERR_MSG_MOD(extack, "Invalid meter time slot configuration");
+		else
+			NL_SET_ERR_MSG_MOD(extack, "Unexpected tremendous rate");
 		return res;
 	}
 

@@ -163,6 +163,12 @@ static void yt921x_mdio_shutdown(struct mdio_device *mdiodev)
 	if (!priv)
 		return;
 
+	for (size_t i = ARRAY_SIZE(priv->ports); i-- > 0; ) {
+		struct yt921x_port *pp = &priv->ports[i];
+
+		disable_delayed_work_sync(&pp->mib_read);
+	}
+
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	cancel_delayed_work_sync(&priv->storm_guard_work);
 #endif
