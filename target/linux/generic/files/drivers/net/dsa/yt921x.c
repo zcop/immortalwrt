@@ -329,6 +329,7 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 
 		pp->index = i;
 		pp->priv = priv;
+		pp->ucast_flood = true;
 		pp->mcast_flood = true;
 		pp->bcast_flood = true;
 		pp->mcast_fast_leave = false;

@@ -1353,6 +1353,8 @@ struct yt921x_priv {
 	u16 flood_mcast_base_mask;
 	u16 flood_bcast_base_mask;
 	u16 flood_storm_mask;
+	unsigned long fdb_recover_last_jiffies;
+	bool fdb_recover_armed;
 	u16 acl_mirror_count;
 	int acl_mirror_to_port;
 	unsigned long acl_meter_map[BITS_TO_LONGS(YT921X_METER_NUM)];

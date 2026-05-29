@@ -257,6 +257,93 @@ yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag,
 	return res;
 }
 
+#define YT921X_FDB_RECOVER_ESCALATE_WINDOW	(5 * HZ)
+
+static int yt921x_fdb_recover_soft_locked(struct yt921x_priv *priv)
+{
+	struct device *dev = yt921x_dev(priv);
+	u32 val;
+	int res;
+
+	res = yt921x_reg_write(priv, YT921X_FDB_OP, 0);
+	if (res)
+		return res;
+
+	val = YT921X_FDB_RESULT_DONE;
+	res = yt921x_reg_wait(priv, YT921X_FDB_RESULT, YT921X_FDB_RESULT_DONE,
+			      &val);
+	if (res) {
+		dev_warn(dev, "FDB soft recovery: command latch clear timeout: %d\n",
+			 res);
+		return res;
+	}
+
+	return 0;
+}
+
+static int yt921x_fdb_recover_hard_locked(struct yt921x_priv *priv)
+{
+	struct device *dev = yt921x_dev(priv);
+	u32 ctrl;
+	u32 val;
+	int res;
+
+	res = yt921x_reg_write(priv, YT921X_FDB_IN2,
+			       YT921X_FDB_IO2_EGR_PORTS(GENMASK(YT921X_PORT_NUM - 1, 0)));
+	if (res)
+		return res;
+
+	ctrl = YT921X_FDB_OP_OP_FLUSH | YT921X_FDB_OP_FLUSH_PORT |
+	       YT921X_FDB_OP_START;
+	res = yt921x_reg_write(priv, YT921X_FDB_OP, ctrl);
+	if (res)
+		return res;
+
+	val = YT921X_FDB_RESULT_DONE;
+	res = yt921x_reg_wait(priv, YT921X_FDB_RESULT, YT921X_FDB_RESULT_DONE,
+			      &val);
+	if (res)
+		return res;
+
+	dev_warn(dev, "FDB hard recovery: dynamic table flushed for relearn\n");
+	return 0;
+}
+
+/* FDB engine timeout recovery policy:
+ * - always try soft latch recovery first
+ * - escalate to hard dynamic-table flush only when a second timeout happens
+ *   within a short window
+ */
+static int yt921x_fdb_recover_locked(struct yt921x_priv *priv)
+{
+	struct device *dev = yt921x_dev(priv);
+	bool escalate;
+	int res;
+
+	escalate = priv->fdb_recover_armed &&
+		   time_before(jiffies, priv->fdb_recover_last_jiffies +
+				       YT921X_FDB_RECOVER_ESCALATE_WINDOW);
+
+	priv->fdb_recover_armed = true;
+	priv->fdb_recover_last_jiffies = jiffies;
+
+	res = yt921x_fdb_recover_soft_locked(priv);
+	if (res)
+		return res;
+
+	if (!escalate) {
+		dev_warn(dev, "FDB soft recovery complete (no flush)\n");
+		return 0;
+	}
+
+	res = yt921x_fdb_recover_hard_locked(priv);
+	if (res)
+		return res;
+
+	dev_warn(dev, "FDB recovery escalated to hard flush\n");
+	return 0;
+}
+
 static int yt921x_fdb_wait(struct yt921x_priv *priv, u32 *valp)
 {
 	struct device *dev = yt921x_dev(priv);
@@ -266,7 +353,12 @@ static int yt921x_fdb_wait(struct yt921x_priv *priv, u32 *valp)
 	res = yt921x_reg_wait(priv, YT921X_FDB_RESULT, YT921X_FDB_RESULT_DONE,
 			      &val);
 	if (res) {
+		int recover_res;
+
 		dev_err(dev, "FDB probably stuck\n");
+		recover_res = yt921x_fdb_recover_locked(priv);
+		if (recover_res)
+			dev_err(dev, "FDB recovery failed: %d\n", recover_res);
 		return res;
 	}
 
