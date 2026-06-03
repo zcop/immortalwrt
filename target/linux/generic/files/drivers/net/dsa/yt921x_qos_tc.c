@@ -765,6 +765,8 @@ yt921x_meter_tfm(struct yt921x_priv *priv, int port, unsigned int slot_ns,
 
 	if (!slot_ns)
 		return -EINVAL;
+	if (rate > div_u64(U64_MAX, slot_ns))
+		return -ERANGE;
 
 	meter.unit = unit_max;
 	rate_max = token2rate(cir_max, slot_ns, meter.unit, C);
