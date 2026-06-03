@@ -1262,7 +1262,9 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 
 		yt921x_acl_meter_free(priv, meter_id);
 		if (clear_res)
-			return clear_res;
+			YT921X_RECORD_ERR(priv, acl_commit_errors,
+					  YT921X_TELEM_STAGE_ACL_COMMIT,
+					  clear_res, -1, meter_id, 0, cookie);
 	}
 
 	return 0;
