@@ -1464,6 +1464,13 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		return -EOPNOTSUPP;
 
 	mutex_lock(&priv->reg_lock);
+	if (yt921x_acl_find(priv, cls->cookie) != UINT_MAX) {
+		NL_SET_ERR_MSG_MOD(cls->common.extack,
+				   "filter cookie already exists");
+		res = -EEXIST;
+		goto out_unlock;
+	}
+
 	flow_action_for_each(i, act, &rule->action) {
 		if (act->id != FLOW_ACTION_POLICE)
 			continue;
