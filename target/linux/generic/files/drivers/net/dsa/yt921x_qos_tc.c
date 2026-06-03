@@ -888,7 +888,12 @@ static int yt921x_tbf_burst_to_token(u32 max_size, u8 token_level, u32 *tokenp)
 
 static int yt921x_tbf_del(struct yt921x_priv *priv, int port)
 {
+	u32 old_ctrl;
 	int res;
+
+	res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_CTRL(port), &old_ctrl);
+	if (res)
+		return res;
 
 	/* Hard-clear both words to avoid stale EIR/EBS retention across
 	 * qdisc teardown/recreate cycles.
@@ -897,7 +902,11 @@ static int yt921x_tbf_del(struct yt921x_priv *priv, int port)
 	if (res)
 		return res;
 
-	return yt921x_reg_write(priv, YT921X_PSCH_SHPn_EBS_EIR(port), 0);
+	res = yt921x_reg_write(priv, YT921X_PSCH_SHPn_EBS_EIR(port), 0);
+	if (res)
+		yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port), old_ctrl);
+
+	return res;
 }
 
 static int
@@ -905,9 +914,18 @@ yt921x_tbf_add(struct yt921x_priv *priv, int port, struct tc_tbf_qopt_offload *q
 {
 	const struct tc_tbf_qopt_offload_replace_params *params = &qopt->replace_params;
 	u8 token_level = YT921X_SHAPER_TOKEN_LEVEL_DEFAULT;
+	u32 old_ctrl;
+	u32 old_ebs_eir;
 	u32 cir;
 	u32 cbs;
 	int res;
+
+	res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_CTRL(port), &old_ctrl);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_EBS_EIR(port), &old_ebs_eir);
+	if (res)
+		return res;
 
 	res = yt921x_tbf_rate_to_token(params->rate.rate_bytes_ps,
 				       priv->port_shape_slot_ns,
@@ -929,12 +947,20 @@ yt921x_tbf_add(struct yt921x_priv *priv, int port, struct tc_tbf_qopt_offload *q
 	res = yt921x_reg_write(priv, YT921X_PSCH_SHPn_EBS_EIR(port),
 			       YT921X_PSCH_SHP_EIR(cir) |
 			       YT921X_PSCH_SHP_EBS(cbs));
-	if (res)
+	if (res) {
+		yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port), old_ctrl);
 		return res;
+	}
 
-	return yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port),
-				YT921X_PSCH_SHP_EN |
-				YT921X_PSCH_SHP_TOKEN_LEVEL(token_level));
+	res = yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port),
+			       YT921X_PSCH_SHP_EN |
+			       YT921X_PSCH_SHP_TOKEN_LEVEL(token_level));
+	if (res) {
+		yt921x_reg_write(priv, YT921X_PSCH_SHPn_EBS_EIR(port), old_ebs_eir);
+		yt921x_reg_write(priv, YT921X_PSCH_SHPn_CTRL(port), old_ctrl);
+	}
+
+	return res;
 }
 
 static int yt921x_qsch_queue_from_parent(u32 parent, u8 *qidp)
@@ -987,10 +1013,27 @@ static int yt921x_qsch_slot_time_ensure(struct yt921x_priv *priv)
 
 static int yt921x_qsch_tbf_del(struct yt921x_priv *priv, int port, u8 qid)
 {
+	u32 old_meter;
+	u32 old_w0;
+	u32 old_w1;
+	u32 old_w2;
 	u32 idx;
 	int res;
 
 	res = yt921x_qsch_flow_index(port, qid, &idx);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_QSCH_METER_WORD0(idx), &old_meter);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD2(idx), &old_w2);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD1(idx), &old_w1);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD0(idx), &old_w0);
 	if (res)
 		return res;
 
@@ -999,16 +1042,28 @@ static int yt921x_qsch_tbf_del(struct yt921x_priv *priv, int port, u8 qid)
 				     YT921X_QSCH_METER_TOKEN(
 					     YT921X_QSCH_METER_TOKEN_DEFAULT));
 	if (res)
-		return res;
+		goto rollback;
 
 	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx), 0);
 	if (res)
-		return res;
+		goto rollback;
 	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx), 0);
 	if (res)
-		return res;
+		goto rollback;
 
-	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx), 0);
+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx), 0);
+	if (res)
+		goto rollback;
+
+	return 0;
+
+rollback:
+	yt921x_reg_write(priv, YT921X_QSCH_METER_WORD0(idx), old_meter);
+	yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx), old_w0);
+	yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx), old_w1);
+	yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx), old_w2);
+
+	return res;
 }
 
 static int
@@ -1016,12 +1071,29 @@ yt921x_qsch_tbf_apply_raw(struct yt921x_priv *priv, int port, u8 qid,
 			  u64 rate_bytes_ps, u32 burst_bytes)
 {
 	u8 token_level = YT921X_SHAPER_TOKEN_LEVEL_DEFAULT;
+	u32 old_meter;
+	u32 old_w0;
+	u32 old_w1;
+	u32 old_w2;
 	u32 cir;
 	u32 cbs;
 	u32 idx;
 	int res;
 
 	res = yt921x_qsch_flow_index(port, qid, &idx);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_QSCH_METER_WORD0(idx), &old_meter);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD2(idx), &old_w2);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD1(idx), &old_w1);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD0(idx), &old_w0);
 	if (res)
 		return res;
 
@@ -1043,29 +1115,41 @@ yt921x_qsch_tbf_apply_raw(struct yt921x_priv *priv, int port, u8 qid,
 	 */
 	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx), 0);
 	if (res)
-		return res;
+		goto rollback;
 	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx),
 			       YT921X_QSCH_SHP_EIR(cir) |
 			       YT921X_QSCH_SHP_EBS(cbs));
 	if (res)
-		return res;
+		goto rollback;
 	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx),
 			       YT921X_QSCH_SHP_CIR(cir) |
 			       YT921X_QSCH_SHP_CBS(cbs));
 	if (res)
-		return res;
+		goto rollback;
 
 	res = yt921x_reg_update_bits(priv, YT921X_QSCH_METER_WORD0(idx),
 				     YT921X_QSCH_METER_TOKEN_M,
 				     YT921X_QSCH_METER_TOKEN(
 					     YT921X_QSCH_METER_TOKEN_DEFAULT));
 	if (res)
-		return res;
+		goto rollback;
 
-	return yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx),
-				YT921X_QSCH_SHP_C_SHAPER_EN |
-				YT921X_QSCH_SHP_E_SHAPER_EN |
-				YT921X_QSCH_SHP_TOKEN_LEVEL(token_level));
+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx),
+			       YT921X_QSCH_SHP_C_SHAPER_EN |
+			       YT921X_QSCH_SHP_E_SHAPER_EN |
+			       YT921X_QSCH_SHP_TOKEN_LEVEL(token_level));
+	if (res)
+		goto rollback;
+
+	return 0;
+
+rollback:
+	yt921x_reg_write(priv, YT921X_QSCH_METER_WORD0(idx), old_meter);
+	yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx), old_w0);
+	yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx), old_w1);
+	yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx), old_w2);
+
+	return res;
 }
 
 static int
@@ -1468,6 +1552,8 @@ yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 	struct tc_mqprio_qopt_offload *mqprio;
 	struct tc_tbf_qopt_offload *qopt;
 	u8 prio_qid_map[YT921X_PRIO_NUM];
+	u32 old_mcast;
+	u32 old_ucast;
 	int res = -EOPNOTSUPP;
 
 	switch (type) {
@@ -1489,9 +1575,34 @@ yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 			return res;
 
 		mutex_lock(&priv->reg_lock);
-		res = yt921x_mqprio_apply(priv, port, prio_qid_map);
+		res = yt921x_reg_read(priv, YT921X_QOS_QUEUE_MAP_UCASTn(port),
+				      &old_ucast);
 		if (!res)
-			res = yt921x_mqprio_sched_apply(priv, port, prio_qid_map);
+			res = yt921x_reg_read(priv,
+					      YT921X_QOS_QUEUE_MAP_MCASTn(port),
+					      &old_mcast);
+		if (!res) {
+			res = yt921x_mqprio_apply(priv, port, prio_qid_map);
+			if (res) {
+				yt921x_reg_write(priv,
+						  YT921X_QOS_QUEUE_MAP_UCASTn(port),
+						  old_ucast);
+				yt921x_reg_write(priv,
+						  YT921X_QOS_QUEUE_MAP_MCASTn(port),
+						  old_mcast);
+			} else {
+				res = yt921x_mqprio_sched_apply(priv, port,
+								prio_qid_map);
+				if (res) {
+					yt921x_reg_write(priv,
+							  YT921X_QOS_QUEUE_MAP_UCASTn(port),
+							  old_ucast);
+					yt921x_reg_write(priv,
+							  YT921X_QOS_QUEUE_MAP_MCASTn(port),
+							  old_mcast);
+				}
+			}
+		}
 		mutex_unlock(&priv->reg_lock);
 		if (!res)
 			mqprio->qopt.hw = TC_MQPRIO_HW_OFFLOAD_TCS;
