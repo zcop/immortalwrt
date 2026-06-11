@@ -66,6 +66,8 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_EXT_CPU_PORT` | `0x8000c` | 0x0000c008 | Select tagged CPU conduit. 0x0000c008 => p8; 0x0000c004 => p4. | High |
 | `YT921X_CPU_TAG_TPID` | `0x80010` | 0x00009988 | CPU-tag TPID register; default 0x9988. | High |
 | `YT921X_PVID_SEL` | `0x80014` | 0x00000000 | Global PVID select path; low bits latch, no gate-unlock effect found. | High |
+| `UNKNOWN_80040` | `0x80040` | dynamic / see probes | Core control word present in live inventory and stock table decode (`tbl id 0x05`); semantics unknown. | Low |
+| `UNKNOWN_80044` | `0x80044` | dynamic / see probes | Core control word present in live inventory and stock table decode (`tbl id 0x06`); semantics unknown. | Low |
 | `YT921X_SYS_CLK` | `0x0e0040` | dynamic / see probes | System clock selector used by meter/shaper conversion logic (`YT921X_SYS_CLK_SEL_M`). | Medium |
 | `YT921X_SERDES_CTRL` | `0x80028` | 0x00000041 | Header-defined register/formula; behavior not yet fully profiled. | Medium |
 | `YT921X_IO_LEVEL` | `0x80030` | dynamic / see probes | Pad IO voltage level control. | Medium |
@@ -78,6 +80,8 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_PON_STRAP_VAL` | `0x80324` | dynamic / see probes | Power-on strap function/value/capture registers. | Medium |
 | `YT921X_PON_STRAP_CAP` | `0x80328` | dynamic / see probes | Power-on strap function/value/capture registers. | Medium |
 | `YT921X_MDIO_POLLINGn(port)` | `(0x80364 + 4 * ((port) - 8))` | dynamic (p8=0x1a, p9=0x12 sample) | Serdes polling summary (link/duplex/speed code fields). | Medium |
+| `UNKNOWN_80380` | `0x80380` | dynamic / see probes | Core/serdes-adjacent control word present in live inventory (`tbl id 0x12`); semantics unknown. | Low |
+| `UNKNOWN_80384` | `0x80384` | dynamic / see probes | Core/serdes-adjacent control word present in live inventory (`tbl id 0x13`); semantics unknown. | Low |
 | `YT921X_SENSOR` | `0x8036c` | dynamic / see probes | Sensor control register (`bit18` temp enable). Driver enables it only when DT property `motorcomm,temp-sensor-supported` (or `temp-sensor-supported`) is present. | Medium |
 | `YT921X_TEMP` | `0x80374` | dynamic / see probes | Sensor/temperature path registers. | Medium |
 | `YT921X_CHIP_MODE` | `0x80388` | 0x00000002 | Chip mode profile selection/readback. | Medium |
@@ -228,13 +232,19 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_STORM_RATE_IO` | `0x00220100` | stock-path only | Stock storm table (`tbl id 0xc6`) used by `fal_tiger_storm_ctrl_rate_set/get` as rate/timeslot input side. | Medium |
 | `YT921X_STORM_MC_TYPE_CTRL` | `0x00220140` | stock-path only | Stock storm multicast-type mask table (`tbl id 0xc9`), decoded `11@0` port/type mask field. | Medium |
 | `YT921X_STORM_CONFIG` | `0x00220200` | stock-path only | Stock storm global config (`tbl id 0xcc`), decoded fields: `f4=bit0` enable, `f3=bit1` mode, `f2=bit2` include-gap, plus rate fields `f1=10@3`, `f0=19@13`. | Medium |
+| `UNKNOWN_220400` | `0x00220400` | stock-path only | Stock table `0xcd`, between storm and ingress meter blocks; semantics unknown. | Low |
 | `YT921X_RATE_IGR_BW_CTRL` | `0x00220104` | dynamic / policer-mapped | Ingress-meter timeslot table (`tbl id 0xc7`), decoded `field0=12@w0:0` (`meter_timeslot`); driver alias macro: `YT921X_METER_SLOT`; used by current `port_policer` path. | High |
 | `YT921X_RATE_IGR_BW_ENABLE` | `0x00220108` | dynamic / policer-mapped | Ingress-meter per-port control (`tbl id 0xc8`): `field0=bit4` enable, `field1=[3:0]` meter-id. Live path notes: ingress port policer binds via this meter-id but profile is taken from `0xce` upper bank (`meter_id + 64`). | High |
 | `YT921X_RATE_METER_CONFIG` | `0x00220800` | dynamic / policer-mapped | Ingress-meter config base (`tbl id 0xce`), 3-word entries with decoded CIR/CBS/token/mode fields; ingress port-policer uses upper bank entries (`index >= 64`). | High |
 | `YT921X_RATE_METER_CONFIGn(n)` | `(0x220800 + 0x10 * n)` | dynamic / policer-mapped | Meter entry stride (`0x10` per meter id). Driver alias macro: `YT921X_METERn_CTRL(n)`. Word0/1/2 fields decoded in stock field map. Ingress policer dataplane path programs `n = meter_id + 64`. | High |
+| `UNKNOWN_INGRESS_COUNTER_BANK` | `0x00221000` | stock-path only | Stock table `0xcf`, 8-byte stride with 75 entries, adjacent to ingress meter and ACL flow-stat blocks; likely accounting-related but not decoded. | Low |
+| `YT921X_FLOWSTATn_STAT(n)` | `(0x221400 + 8 * n)` | stock-path only / mainline-evidenced | ACL flow-stat counter block (`tbl id 0xd0`), 64 entries, 64-bit counter per slot; current mainline stats patch uses byte mode. | High |
+| `YT921X_FLOWSTATn_CTRL(n)` | `(0x221c00 + 4 * n)` | stock-path only / mainline-evidenced | ACL flow-stat control block (`tbl id 0xd1`), 64 entries; mainline programs enable + type=FLOW with `PKT_MODE=0` for byte counts. | High |
+| `UNKNOWN_300000` | `0x00300000` | stock-path only | Stock table `0xd2`, before queue-map and mirror QoS tables; likely QoS/global lookup state, semantics unknown. | Low |
 | `YT921X_QOS_QUEUE_MAP_UCAST` | `0x00300200` | dynamic / mqprio-mapped | Queue map base (`tbl id 0xd3`): internal prio `0..7` to unicast qid (`3-bit` each slot). | High |
 | `YT921X_QOS_QUEUE_MAP_MCAST` | `0x00300280` | dynamic / mqprio-mapped | Queue map base (`tbl id 0xd4`): internal prio `0..7` to multicast qid (`2-bit` each slot). | High |
 | `YT921X_QOS_SCHED_SP` | `0x00300400` | dynamic / ets-mapped (subset) | Scheduler SP control (`tbl id 0xd7`), programmed by current ETS/mqprio scheduler path. | Medium |
+| `UNKNOWN_308000` | `0x00308000` | stock-path only | Stock table `0xd8`, 132 entries, adjacent to queue-map and scheduler cluster; semantics unknown. | Low |
 | `YT921X_QOS_SCHED_DWRR` | `0x00341000` | dynamic / ets-mapped (subset) | DWRR scheduler config (`tbl id 0xe6`), programmed by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_QOS_SCHED_DWRR_MODE0` | `0x00342000` | dynamic / ets-mapped (subset) | DWRR mode bank0 (`tbl id 0xe7`), used by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_QOS_SCHED_DWRR_MODE1` | `0x00343000` | dynamic / ets-mapped (subset) | DWRR mode bank1 (`tbl id 0xe8`), used by current ETS/mqprio scheduler path. | Medium |
@@ -255,9 +265,14 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_PSCH_SHPn_EBS_EIR(port)` | `(0x354000 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper EBS/EIR word. Used with `tc tbf` offload mapping on `wan`. | High |
 | `YT921X_PSCH_SHPn_CTRL(port)` | `(0x354004 + 8 * (port))` | dynamic (tc-validated) | Backport-only helper: shaper enable/mode control word. | High |
 | `YT921X_PSCH_METER_CFG` | `0x00357000` | stock-path reverse mapped | Port-shaper meter config companion (`tbl id 0xec`) used by stock `fal_tiger_rate_shaping_port_mode_set`. | Medium |
+| `UNKNOWN_198000_1A6000` | `0x198000-0x1a6000` | stock-path only | Stock tables `0xbc..0xc3`, each with 0x10 stride and 0x200 entries, between VTU and ACL action SRAM; semantics unknown. | Low |
 | `UNKNOWN_1802C0_180308` | `0x1802c0-0x180308` | `0xdeadbeef` | Gated window A; reads gated, no stable unlock sequence confirmed. | Low |
+| `UNKNOWN_180270` | `0x180270` | `0x00000000` | Standalone live-observed register near VLAN ingress controls; semantics unknown. | Low |
 | `UNKNOWN_18030C_180334` | `0x18030c-0x180334` | `0x00000000` | Writable 11-word table (`& 0x7ff` values persist); function still unknown. | Medium |
 | `UNKNOWN_180338_180388` | `0x180338-0x180388` | `0xdeadbeef` | Gated window B; reads gated, no stable unlock sequence confirmed. | Low |
+| `UNKNOWN_1803CC` | `0x1803cc` | `0x000007ff` | Writable gate-candidate or learning-neighbor register; repeated probes found no definite unlock or dataplane function. | Low |
+| `UNKNOWN_1803FC` | `0x1803fc` | `0x00000000` | Standalone register at the end of the `0x1803c0..0x1803fc` live-probed block; semantics unknown. | Low |
+| `UNKNOWN_180470` | `0x180470` | dynamic / see probes | Adjacent L2 or multicast-control word seen in raw dumps; likely part of the router-port or multicast cluster but not decoded. | Low |
 | `UNKNOWN_18051C_18053C` | `0x18051c-0x18053c` | mostly `0x00000000` | Unknown policy sub-block near flood/action regs; low-bit sweeps showed no deterministic path effect. | Low |
 | `UNKNOWN_1805D4_18068C` | `0x1805d4-0x18068c` | mostly `0x0000003f` (`0x1805d4/0x1805d8=0x0000023f`) | Unknown mask matrix; no deterministic coupling to tested known-ucast/UU/MC paths. | Low |
 | `UNKNOWN_1806B8` | `0x1806b8` | `0x000007ff` | Threshold-like candidate; A/B sweeps showed no stable limiter effect. | Low |
