@@ -1,6 +1,6 @@
 --- a/factoryreset.c
 +++ b/factoryreset.c
-@@ -26,15 +26,148 @@
+@@ -26,15 +26,149 @@
  #include <unistd.h>
  #include <getopt.h>
  #include <libgen.h>
@@ -42,7 +42,7 @@
 +	return 0;
 +}
 +
-+static bool is_cr881x(void)
++static bool is_xiaomi_ipq50xx_overlay_board(void)
 +{
 +	FILE *f;
 +	char buf[256];
@@ -59,6 +59,8 @@
 +
 +	for (i = 0; i + sizeof("xiaomi,cr881x") - 1 <= n; i++) {
 +		if (!memcmp(buf + i, "xiaomi,cr881x", sizeof("xiaomi,cr881x") - 1))
++			return true;
++		if (!memcmp(buf + i, "redmi,ax3000", sizeof("redmi,ax3000") - 1))
 +			return true;
 +	}
 +
@@ -117,12 +119,12 @@
 +	return -1;
 +}
 +
-+static int ensure_cr881x_userdata(void)
++static int ensure_xiaomi_overlay_userdata(void)
 +{
 +	char cmd[128];
 +	int mtdnum, ubi;
 +
-+	if (!is_cr881x())
++	if (!is_xiaomi_ipq50xx_overlay_board())
 +		return -1;
 +
 +	mtdnum = find_mtd_index_by_name("overlay");
@@ -138,7 +140,6 @@
 +	if (ubi < 0)
 +		return -1;
 +
-+	/* Best effort: create userdata if missing; ignore failure if it already exists. */
 +	snprintf(cmd, sizeof(cmd), UBIMKVOL_BIN " /dev/ubi%d -N userdata -m >/dev/null 2>&1", ubi);
 +	(void) system(cmd);
 +
@@ -149,7 +150,7 @@
  ask_user(void)
  {
  	ULOG_WARN("This will erase all settings and remove any installed packages. Are you sure? [N/y]\n");
-@@ -43,11 +176,32 @@
+@@ -43,11 +177,32 @@
  	return 0;
  }
  
@@ -182,13 +183,13 @@
  	if (mp) {
  		ULOG_INFO("%s is mounted as %s, only erasing files\n", v->blk, mp);
  		fs_state_set("/overlay", FS_STATE_PENDING);
-@@ -136,9 +290,16 @@
+@@ -136,9 +291,16 @@
  		return -1;
  	}
  
 -	v = volume_find("rootfs_data");
-+	if (is_cr881x()) {
-+		(void) ensure_cr881x_userdata();
++	if (is_xiaomi_ipq50xx_overlay_board()) {
++		(void) ensure_xiaomi_overlay_userdata();
 +		v = volume_find("userdata");
 +		if (!v)
 +			v = volume_find("rootfs_data");
