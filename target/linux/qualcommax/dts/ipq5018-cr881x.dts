@@ -469,10 +469,16 @@
 			/* MAC8 ---SGMII---> IPQ5018 MAC1 (CPU: eth1)
 			 * Keep this as primary-conduit so EXT_CPU_PORT and tagger
 			 * parsing stay pinned to this conduit.
+			 *
+			 * The YT921x driver treats phy-mode "sgmii" as the
+			 * REVSGMII-compatible SerDes path on this kernel line.
+			 * Make that board contract explicit to keep DTS and
+			 * driver-side validation aligned for the CPU-facing link.
 			 */
 			port@8 {
 				reg = <8>;
 				phy-mode = "sgmii";
+				motorcomm,serdes-revsgmii;
 				motorcomm,conduit-role = "primary-conduit";
 				ethernet = <&dp2>;
 				fixed-link {
