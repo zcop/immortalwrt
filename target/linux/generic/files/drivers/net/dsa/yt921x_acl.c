@@ -257,6 +257,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
 	struct netlink_ext_ack *extack = cls->common.extack;
 	const struct flow_dissector *dissector;
+	struct flow_match_control ctrl_match = {};
 	bool have_basic;
 	bool have_ip;
 	bool have_ipv4;
@@ -270,6 +271,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	bool n_proto_is_ipv6 = false;
 	bool want_n_proto = false;
 	bool want_ip_proto = false;
+	u16 addr_type = 0;
 	__be16 n_proto = 0;
 	__be16 n_proto_mask = 0;
 	u8 ip_proto = 0;
@@ -292,6 +294,11 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	have_eth = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS);
 	have_ctrl = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL);
 	have_tcp = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_TCP);
+
+	if (have_ctrl) {
+		flow_rule_match_control(rule, &ctrl_match);
+		addr_type = ctrl_match.key->addr_type;
+	}
 
 	if (dissector->used_keys &
 	    ~(BIT_ULL(FLOW_DISSECTOR_KEY_CONTROL) |
@@ -340,6 +347,19 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	 * Reject ambiguous key mixes up-front so unsupported shapes never report
 	 * false hardware offload.
 	 */
+	/* cls_flower stores IPv4/IPv6 address masks in a union and may set both
+	 * used_keys bits for an IPv4 or IPv6 rule. Use control.addr_type as the
+	 * authoritative family selector for address matches.
+	 */
+	if (addr_type == FLOW_DISSECTOR_KEY_IPV4_ADDRS)
+		have_ipv6 = false;
+	else if (addr_type == FLOW_DISSECTOR_KEY_IPV6_ADDRS)
+		have_ipv4 = false;
+	else if (have_ipv4 && have_ipv6 && n_proto_is_ipv4)
+		have_ipv6 = false;
+	else if (have_ipv4 && have_ipv6 && n_proto_is_ipv6)
+		have_ipv4 = false;
+
 	if (have_ipv4 && have_ipv6) {
 		NL_SET_ERR_MSG_MOD(extack,
 				   "IPv4 and IPv6 address matches cannot be combined");
@@ -388,12 +408,6 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		    ip_proto != IPPROTO_TCP && ip_proto != IPPROTO_UDP) {
 			NL_SET_ERR_MSG_MOD(extack,
 					   "L4 port match supports only TCP/UDP");
-			return 0;
-		}
-
-		if (n_proto_is_ipv6) {
-			NL_SET_ERR_MSG_MOD(extack,
-					   "IPv6 L4 ACL template is not supported");
 			return 0;
 		}
 	}
@@ -621,16 +635,15 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 
 	if (have_ctrl) {
 		u32 supp_flags = FLOW_DIS_IS_FRAGMENT | FLOW_DIS_FIRST_FRAG;
-		struct flow_match_control match;
+		struct flow_match_control *match = &ctrl_match;
 
-		flow_rule_match_control(rule, &match);
 		if (!flow_rule_is_supp_control_flags(supp_flags,
-						     match.mask->flags, extack))
+						     match->mask->flags, extack))
 			return 0;
 
-		if (match.mask->flags & FLOW_DIS_FIRST_FRAG)
+		if (match->mask->flags & FLOW_DIS_FIRST_FRAG)
 			size = yt921x_acl_append_first_frag(group, size);
-		else if (match.mask->flags & FLOW_DIS_IS_FRAGMENT)
+		else if (match->mask->flags & FLOW_DIS_IS_FRAGMENT)
 			size = yt921x_acl_append_frag(group, size);
 
 		if (!size)
