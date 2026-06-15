@@ -895,11 +895,6 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			group[0].meter_id = YT921X_ACL_METER_ID_BLACKHOLE;
 			break;
 		case FLOW_ACTION_TRAP:
-			if (group[0].mirror_en) {
-				NL_SET_ERR_MSG_MOD(extack,
-						   "Trap cannot be combined with mirror");
-				return -EOPNOTSUPP;
-			}
 			if (police_seen) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Trap cannot be combined with police");
@@ -930,11 +925,6 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 #ifdef FLOW_ACTION_REDIRECT_INGRESS
 		case FLOW_ACTION_REDIRECT_INGRESS:
 #endif
-			if (group[0].mirror_en) {
-				NL_SET_ERR_MSG_MOD(extack,
-						   "Redirect cannot be combined with mirror");
-				return -EOPNOTSUPP;
-			}
 			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
 			    (action[2] & YT921X_ACL_ACTc_REDIR_M) !=
 				    YT921X_ACL_ACTc_REDIR_STEER) {
@@ -977,11 +967,6 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			if (!dsa_is_user_port(ds, to_dp->index)) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Only user ports can be mirror destination");
-				return -EOPNOTSUPP;
-			}
-			if (action[2] & YT921X_ACL_ACTc_REDIR_EN) {
-				NL_SET_ERR_MSG_MOD(extack,
-						   "Mirror cannot be combined with redirect/trap");
 				return -EOPNOTSUPP;
 			}
 			if (mirror_seen && group[0].mirror_to_port != to_dp->index) {
