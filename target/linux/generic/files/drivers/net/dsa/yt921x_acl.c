@@ -9,6 +9,7 @@
 #include "yt921x_internal.h"
 
 #define YT921X_ACL_METER_ID_INVALID	U8_MAX
+#define YT921X_ACL_FLOW_STATS_ID_INVALID	U8_MAX
 
 static int yt921x_acl_meter_alloc(struct yt921x_priv *priv, u32 *meter_idp)
 {
@@ -37,6 +38,43 @@ static int yt921x_acl_meter_clear_hw(struct yt921x_priv *priv, u32 meter_id)
 	u32 ctrls[3] = {};
 
 	return yt921x_reg96_write(priv, YT921X_METERn_CTRL(meter_id), ctrls);
+}
+
+static int
+yt921x_acl_flow_stats_alloc(struct yt921x_priv *priv, u8 *flow_stats_idp)
+{
+	unsigned long flow_stats_id;
+
+	flow_stats_id = find_first_zero_bit(priv->flow_stats_map,
+					    YT921X_FLOWSTAT_NUM);
+	if (flow_stats_id >= (unsigned long)YT921X_FLOWSTAT_NUM)
+		return -ENOSPC;
+
+	__set_bit(flow_stats_id, priv->flow_stats_map);
+	*flow_stats_idp = flow_stats_id;
+
+	return 0;
+}
+
+static void
+yt921x_acl_flow_stats_free(struct yt921x_priv *priv, u8 flow_stats_id)
+{
+	if (flow_stats_id >= YT921X_FLOWSTAT_NUM)
+		return;
+
+	__clear_bit(flow_stats_id, priv->flow_stats_map);
+}
+
+static int
+yt921x_acl_flow_stats_clear_hw(struct yt921x_priv *priv, u8 flow_stats_id)
+{
+	int res;
+
+	res = yt921x_reg_write(priv, YT921X_FLOWSTATn_CTRL(flow_stats_id), 0);
+	if (res)
+		return res;
+
+	return yt921x_reg64_write(priv, YT921X_FLOWSTATn_STAT(flow_stats_id), 0);
 }
 
 static int
@@ -821,6 +859,7 @@ yt921x_acl_parse_mangle_dscp(const struct flow_rule *rule,
 
 static int
 yt921x_acl_parse_action(struct yt921x_acl_entry *group,
+			struct yt921x_priv *priv,
 			struct dsa_switch *ds,
 			struct flow_cls_offload *cls)
 {
@@ -839,6 +878,9 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 	int i;
 
 	memset(action, 0, sizeof(group[0].action));
+	group[0].meter_id = YT921X_ACL_METER_ID_INVALID;
+	group[0].flow_stats_id = YT921X_ACL_FLOW_STATS_ID_INVALID;
+	group[0].flow_stats_last = 0;
 	group[0].mirror_en = false;
 	group[0].mirror_to_port = 0;
 	flow_action_for_each(i, act, &rule->action) {
@@ -963,11 +1005,6 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[1] |= YT921X_ACL_ACTb_PRIO(act->priority);
 			break;
 		case FLOW_ACTION_POLICE:
-#if !IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-			NL_SET_ERR_MSG_MOD(extack,
-					   "Ingress policing offload is disabled in non-debug builds");
-			return -EOPNOTSUPP;
-#else
 			if (trap_seen ||
 			    ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
 			     (action[2] & YT921X_ACL_ACTc_REDIR_M) ==
@@ -991,7 +1028,6 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[0] |= YT921X_ACL_ACTa_METER_EN;
 			police_seen = true;
 			break;
-#endif
 		case FLOW_ACTION_MANGLE: {
 			u8 dscp;
 			bool is_ipv4;
@@ -1077,7 +1113,7 @@ yt921x_acl_parse(struct yt921x_acl_entry *group, u16 ports_mask,
 		return 0;
 	}
 
-	res = yt921x_acl_parse_action(group, ds, cls);
+	res = yt921x_acl_parse_action(group, priv, ds, cls);
 	if (res) {
 		YT921X_RECORD_ERR(priv, acl_parse_errors,
 				  YT921X_TELEM_STAGE_ACL_PARSE, res,
@@ -1165,6 +1201,13 @@ yt921x_acl_commit(struct yt921x_priv *priv, unsigned int blkid, u8 ents_mask,
 	for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK) {
 		unsigned int e = i + YT921X_ACL_ENT_PER_BLK * blkid;
 
+		if (entries[i].action[0] & YT921X_ACL_ACTa_FLOW_STATS_EN)
+			pr_info("yt921x acl commit blk=%u ent=%lu reg=0x%x act=%08x/%08x/%08x cookie=%lx flow_id=%u\n",
+				blkid, i, YT921X_ACLn_ACT(e),
+				entries[i].action[0], entries[i].action[1],
+				entries[i].action[2], entries[i].cookie,
+				entries[i].flow_stats_id);
+
 		res = yt921x_reg96_write(priv, YT921X_ACLn_ACT(e),
 					 entries[i].action);
 		if (res) {
@@ -1210,6 +1253,7 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 {
 	struct yt921x_acl_entry backup[YT921X_ACL_ENT_PER_BLK] = {};
 	struct yt921x_acl_entry *entries;
+	u8 flow_stats_id;
 	unsigned int offset;
 	unsigned int blkid;
 	unsigned int entid;
@@ -1228,6 +1272,7 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 	if (entries[offset].type == U32_MAX)
 		offset = entries[offset].start;
 	meter_id = entries[offset].meter_id;
+	flow_stats_id = entries[offset].flow_stats_id;
 	meter_en = !!(entries[offset].action[0] & YT921X_ACL_ACTa_METER_EN);
 	if (mirror_enp)
 		*mirror_enp = entries[offset].mirror_en;
@@ -1283,6 +1328,19 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 			YT921X_RECORD_ERR(priv, acl_commit_errors,
 					  YT921X_TELEM_STAGE_ACL_COMMIT,
 					  clear_res, -1, meter_id, 0, cookie);
+	}
+
+	if ((backup[offset].action[0] & YT921X_ACL_ACTa_FLOW_STATS_EN) &&
+	    flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
+		int clear_res = yt921x_acl_flow_stats_clear_hw(priv, flow_stats_id);
+
+		yt921x_acl_flow_stats_free(priv, flow_stats_id);
+		if (clear_res)
+			YT921X_RECORD_ERR(priv, acl_commit_errors,
+					  YT921X_TELEM_STAGE_ACL_COMMIT,
+					  clear_res, -1,
+					  YT921X_FLOWSTATn_CTRL(flow_stats_id),
+					  flow_stats_id, cookie);
 	}
 
 	return 0;
@@ -1389,19 +1447,43 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 			break;
 	}
 
+	if ((group[0].action[0] & YT921X_ACL_ACTa_FLOW_STATS_EN) &&
+	    group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
+		u8 flow_stats_id = group[0].flow_stats_id;
+		u32 ctrl = YT921X_FLOWSTAT_CTRL_EN |
+			   YT921X_FLOWSTAT_CTRL_TYPE_FLOW;
+
+		res = yt921x_reg_write(priv, YT921X_FLOWSTATn_CTRL(flow_stats_id),
+				       ctrl);
+		if (res)
+			goto err_flow_stats;
+
+		res = yt921x_reg64_write(priv, YT921X_FLOWSTATn_STAT(flow_stats_id),
+					 0);
+		if (res)
+			goto err_flow_stats;
+	}
+
 	priv->acl.useds[blkid] += size;
 	WARN_ON(priv->acl.useds[blkid] > YT921X_ACL_ENT_PER_BLK);
 
 	res = yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
-	if (res) {
-		unsigned long mask = ents_mask;
-		unsigned long i;
+	if (res)
+		goto err_flow_stats;
 
-		for_each_set_bit(i, &mask, YT921X_ACL_ENT_PER_BLK)
-			entries[i] = (typeof(*entries)){};
+	if ((group[0].action[0] & YT921X_ACL_ACTa_FLOW_STATS_EN) &&
+	    group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
+		unsigned int entid = offset + YT921X_ACL_ENT_PER_BLK * blkid;
 
-		priv->acl.useds[blkid] -= hweight8(ents_mask);
-		return res;
+		/* FLOW_STATS_EN does not appear to latch reliably when ACT is
+		 * written during ACL_BLK_CMD_MODIFY. Re-apply action word 0
+		 * after the block commit finishes and the flowstat slot is
+		 * already enabled.
+		 */
+		res = yt921x_reg_write(priv, YT921X_ACLn_ACT(entid),
+				       entries[offset].action[0]);
+		if (res)
+			goto err_flow_stats;
 	}
 
 	for (unsigned int i = 0; i < udfs_cnt; i++) {
@@ -1413,6 +1495,21 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 	}
 
 	return 0;
+
+err_flow_stats:
+	for (unsigned int i = 0; i < YT921X_ACL_ENT_PER_BLK; i++) {
+		if (!(ents_mask & BIT(i)))
+			continue;
+		entries[i] = (typeof(*entries)){};
+	}
+	if (priv->acl.useds[blkid] >= hweight8(ents_mask))
+		priv->acl.useds[blkid] -= hweight8(ents_mask);
+	yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
+	if (group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
+		yt921x_acl_flow_stats_clear_hw(priv, group[0].flow_stats_id);
+		yt921x_acl_flow_stats_free(priv, group[0].flow_stats_id);
+	}
+	return res;
 }
 
 static int yt921x_acl_mirror_get(struct yt921x_priv *priv, int to_local_port,
@@ -1423,10 +1520,53 @@ int
 yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
 			    struct flow_cls_offload *cls, bool ingress)
 {
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	struct yt921x_acl_entry *entry;
+	unsigned long lastused = 0;
+	u64 counter;
+	u64 delta;
+	int entid;
+	int res;
+
 	if (!cls->cookie)
 		return -EINVAL;
+	if (!dsa_is_user_port(ds, port))
+		return -EOPNOTSUPP;
 
-	return -EOPNOTSUPP;
+	mutex_lock(&priv->reg_lock);
+	entid = yt921x_acl_find(priv, cls->cookie);
+	if (entid == UINT_MAX) {
+		res = -ENOENT;
+		goto out_unlock;
+	}
+
+	entry = &priv->acl.entries[entid];
+	if (entry->type == U32_MAX)
+		entry = &priv->acl.entries[entry->start];
+	if (!(entry->action[0] & YT921X_ACL_ACTa_FLOW_STATS_EN) ||
+	    entry->flow_stats_id == YT921X_ACL_FLOW_STATS_ID_INVALID) {
+		res = -EOPNOTSUPP;
+		goto out_unlock;
+	}
+
+	res = yt921x_reg64_read(priv, YT921X_FLOWSTATn_STAT(entry->flow_stats_id),
+				&counter);
+	if (res)
+		goto out_unlock;
+
+	delta = counter >= entry->flow_stats_last ?
+		counter - entry->flow_stats_last : counter;
+	entry->flow_stats_last = counter;
+	flow_stats_update(&cls->stats, delta, 0, 0, lastused,
+			  FLOW_ACTION_HW_STATS_IMMEDIATE);
+	res = 0;
+
+out_unlock:
+	mutex_unlock(&priv->reg_lock);
+	if (!res)
+		cls->stats.used_hw_stats = FLOW_ACTION_HW_STATS_IMMEDIATE;
+
+	return res;
 }
 
 int
@@ -1491,6 +1631,17 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		goto out_unlock;
 	}
 
+	yt921x_reg_write(priv, YT921X_FLOWSTATn_CTRL(0), 0x8);
+
+	group[0].flow_stats_id = 0;
+	group[0].action[0] |= YT921X_ACL_ACTa_FLOW_STATS_EN;
+	group[0].action[0] &= ~YT921X_ACL_ACTa_FLOW_STATS_PTR;
+	group[0].action[0] |= FIELD_PREP(YT921X_ACL_ACTa_FLOW_STATS_PTR,
+					 group[0].flow_stats_id);
+	pr_info("yt921x acl add cookie=%lx act=%08x/%08x/%08x flow_id=%u\n",
+		cls->cookie, group[0].action[0], group[0].action[1],
+		group[0].action[2], group[0].flow_stats_id);
+
 	flow_action_for_each(i, act, &rule->action) {
 		if (act->id != FLOW_ACTION_POLICE)
 			continue;
@@ -1549,6 +1700,8 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		yt921x_acl_mirror_put(priv, group[0].mirror_to_port);
 out_unlock:
 	mutex_unlock(&priv->reg_lock);
+	if (res && group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID)
+		yt921x_acl_flow_stats_free(priv, group[0].flow_stats_id);
 
 	return res;
 }

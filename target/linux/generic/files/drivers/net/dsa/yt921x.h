@@ -755,6 +755,13 @@ enum yt921x_acl_type {
 	(YT921X_RATE_METER_CONFIGn(n) + 0x4)
 #define YT921X_RATE_METER_CONFIG_WORD2(n) \
 	(YT921X_RATE_METER_CONFIGn(n) + 0x8)
+#define YT921X_FLOWSTATn_STAT(n)		(0x221400 + 8 * (n))
+#define YT921X_FLOWSTATn_CTRL(n)		(0x221c00 + 4 * (n))
+#define  YT921X_FLOWSTAT_CTRL_EN		BIT(3)
+#define  YT921X_FLOWSTAT_CTRL_PKT_MODE		BIT(2)
+#define  YT921X_FLOWSTAT_CTRL_TYPE_M		GENMASK(1, 0)
+#define   YT921X_FLOWSTAT_CTRL_TYPE(x)		FIELD_PREP(YT921X_FLOWSTAT_CTRL_TYPE_M, (x))
+#define   YT921X_FLOWSTAT_CTRL_TYPE_FLOW	YT921X_FLOWSTAT_CTRL_TYPE(0)
 
 /* tbl 0xce selected fields used by stock ingress-meter path */
 #define  YT921X_RATE_METER_CFG_TOKEN_UNIT_M	GENMASK(1, 0)	/* field11, word1 */
@@ -1139,6 +1146,7 @@ enum yt921x_fdb_entry_status {
 #define YT921X_TOKEN_PKT_C	-6
 #define YT921X_TOKEN_RATE_C	-15
 #define YT921X_METER_NUM	64
+#define YT921X_FLOWSTAT_NUM	64
 #define YT921X_METER_SLOT_MIN	80
 #define YT921X_METER_UNIT_MAX	((1 << 3) - 1)
 #define YT921X_METER_BURST_MAX	((1 << 16) - 1)
@@ -1223,8 +1231,10 @@ struct yt921x_mib {
 struct yt921x_acl_entry {
 	unsigned long cookie;
 	u8 meter_id;
+	u8 flow_stats_id;
 	u8 mirror_to_port;
 	bool mirror_en;
+	u64 flow_stats_last;
 
 	u32 key[2];
 	u32 mask[2];
@@ -1356,6 +1366,7 @@ struct yt921x_priv {
 	u16 acl_mirror_count;
 	int acl_mirror_to_port;
 	unsigned long acl_meter_map[BITS_TO_LONGS(YT921X_METER_NUM)];
+	unsigned long flow_stats_map[BITS_TO_LONGS(YT921X_FLOWSTAT_NUM)];
 	u32 udfs_ctrl[YT921X_UDF_NUM];
 	u16 udfs_refcnt[YT921X_UDF_NUM];
 	u16 policer_ports;
