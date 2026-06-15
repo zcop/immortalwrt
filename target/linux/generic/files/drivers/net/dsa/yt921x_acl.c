@@ -277,6 +277,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	u8 ip_proto = 0;
 	u8 ip_proto_mask = 0;
 	struct yt921x_acl_entry *entry;
+	unsigned int too_complex_entries = 0;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	u32 chain_mask = READ_ONCE(priv->acl_chain_key_mask);
 #else
@@ -413,8 +414,10 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	}
 
 #define entry_prepare() \
-	if (size >= YT921X_ACL_ENT_PER_BLK) \
+	if (size >= YT921X_ACL_ENT_PER_BLK) { \
+		too_complex_entries = size + 1; \
 		goto too_complex; \
+	} \
 	entry = &group[size]; \
 	*entry = (typeof(*entry)){}; \
 	entry->meter_id = YT921X_ACL_METER_ID_INVALID; \
@@ -694,7 +697,9 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	return size;
 
 too_complex:
-	NL_SET_ERR_MSG_MOD(extack, "Rule too complex");
+	NL_SET_ERR_MSG_FMT(extack,
+			   "Rule too complex: requires %u ACL entries, max %u per block",
+			   too_complex_entries ?: size, YT921X_ACL_ENT_PER_BLK);
 	return 0;
 }
 
