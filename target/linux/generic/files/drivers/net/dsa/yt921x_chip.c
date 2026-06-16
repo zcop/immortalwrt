@@ -21,7 +21,7 @@ static int yt921x_port_setup(struct yt921x_priv *priv, int port)
 	/* Clear prio order (even if DCB is not enabled) to avoid unsolicited
 	 * priorities
 	 */
-	res = yt921x_reg_write(priv, YT921X_PORTn_PRIO_ORD(port), 0);
+	res = yt921x_reg_write(priv, YT921X_PORTn_PRIO_ORD(port), 0x3b5ed1);
 	if (res)
 		return res;
 
@@ -657,21 +657,34 @@ static int yt921x_qos_remark_prio_set(struct yt921x_priv *priv, u8 prio, u8 dp,
 }
 
 static int yt921x_qos_remark_port_enable(struct yt921x_priv *priv, int port,
-					 bool cpri_enable, bool spri_enable)
+					 bool cpri_enable, bool spri_enable,
+					 bool dscp_enable)
 {
-	u32 val = 0;
+	u32 mask, val = 0;
 
 	if (port < 0 || port >= YT921X_PORT_NUM)
 		return -ERANGE;
+
+	mask = YT921X_QOS_REMARK_PORT_CPRI_EN |
+	       YT921X_QOS_REMARK_PORT_SPRI_EN |
+	       YT921X_QOS_REMARK_PORT_DSCP_EN |
+	       YT921X_QOS_REMARK_PORT_CPRI_SEL |
+	       YT921X_QOS_REMARK_PORT_SPRI_SEL;
 
 	if (cpri_enable)
 		val |= YT921X_QOS_REMARK_PORT_CPRI_EN;
 	if (spri_enable)
 		val |= YT921X_QOS_REMARK_PORT_SPRI_EN;
+	if (dscp_enable)
+		val |= YT921X_QOS_REMARK_PORT_DSCP_EN;
+
+	/* Set CPRI/SPRI remark source selectors to standard defaults:
+	 * CPRI_SEL = 0, SPRI_SEL = 1
+	 */
+	val |= YT921X_QOS_REMARK_PORT_SPRI_SEL;
 
 	return yt921x_reg_update_bits(priv, YT921X_QOS_REMARK_PORT_CTRLn(port),
-				      YT921X_QOS_REMARK_PORT_CPRI_EN |
-				      YT921X_QOS_REMARK_PORT_SPRI_EN, val);
+				      mask, val);
 }
 
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -1399,7 +1412,7 @@ static int __maybe_unused yt921x_chip_setup_qos(struct yt921x_priv *priv)
 		if (!dsa_is_user_port(&priv->ds, port))
 			continue;
 
-		res = yt921x_qos_remark_port_enable(priv, port, true, true);
+		res = yt921x_qos_remark_port_enable(priv, port, true, true, true);
 		if (res)
 			return res;
 	}
