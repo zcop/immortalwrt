@@ -232,19 +232,19 @@ This document is the canonical, deduplicated register map for CR881x.
 | `YT921X_STORM_RATE_IO` | `0x00220100` | stock-path only | Stock storm table (`tbl id 0xc6`) used by `fal_tiger_storm_ctrl_rate_set/get` as rate/timeslot input side. | Medium |
 | `YT921X_STORM_MC_TYPE_CTRL` | `0x00220140` | stock-path only | Stock storm multicast-type mask table (`tbl id 0xc9`), decoded `11@0` port/type mask field. | Medium |
 | `YT921X_STORM_CONFIG` | `0x00220200` | stock-path only | Stock storm global config (`tbl id 0xcc`), decoded fields: `f4=bit0` enable, `f3=bit1` mode, `f2=bit2` include-gap, plus rate fields `f1=10@3`, `f0=19@13`. | Medium |
-| `UNKNOWN_220400` | `0x00220400` | stock-path only | Stock table `0xcd`, between storm and ingress meter blocks; semantics unknown. | Low |
+| `UNKNOWN_220400` | `0x00220400` | stock-path only / live-readable | Stock table `0xcd`, between storm and ingress meter blocks; live CR881x reads show a 33-word readable window (`0x220400..0x220480`) that was all-zero in an idle runtime, but semantics remain unknown. | Low |
 | `YT921X_RATE_IGR_BW_CTRL` | `0x00220104` | dynamic / policer-mapped | Ingress-meter timeslot table (`tbl id 0xc7`), decoded `field0=12@w0:0` (`meter_timeslot`); driver alias macro: `YT921X_METER_SLOT`; used by current `port_policer` path. | High |
 | `YT921X_RATE_IGR_BW_ENABLE` | `0x00220108` | dynamic / policer-mapped | Ingress-meter per-port control (`tbl id 0xc8`): `field0=bit4` enable, `field1=[3:0]` meter-id. Live path notes: ingress port policer binds via this meter-id but profile is taken from `0xce` upper bank (`meter_id + 64`). | High |
 | `YT921X_RATE_METER_CONFIG` | `0x00220800` | dynamic / policer-mapped | Ingress-meter config base (`tbl id 0xce`), 3-word entries with decoded CIR/CBS/token/mode fields; ingress port-policer uses upper bank entries (`index >= 64`). | High |
 | `YT921X_RATE_METER_CONFIGn(n)` | `(0x220800 + 0x10 * n)` | dynamic / policer-mapped | Meter entry stride (`0x10` per meter id). Driver alias macro: `YT921X_METERn_CTRL(n)`. Word0/1/2 fields decoded in stock field map. Ingress policer dataplane path programs `n = meter_id + 64`. | High |
-| `UNKNOWN_INGRESS_COUNTER_BANK` | `0x00221000` | stock-path only | Stock table `0xcf`, 8-byte stride with 75 entries, adjacent to ingress meter and ACL flow-stat blocks; likely accounting-related but not decoded. | Low |
-| `YT921X_FLOWSTATn_STAT(n)` | `(0x221400 + 8 * n)` | stock-path only / mainline-evidenced | ACL flow-stat counter block (`tbl id 0xd0`), 64 entries, 64-bit counter per slot; current mainline stats patch uses byte mode. | High |
-| `YT921X_FLOWSTATn_CTRL(n)` | `(0x221c00 + 4 * n)` | stock-path only / mainline-evidenced | ACL flow-stat control block (`tbl id 0xd1`), 64 entries; mainline programs enable + type=FLOW with `PKT_MODE=0` for byte counts. | High |
-| `UNKNOWN_300000` | `0x00300000` | stock-path only | Stock table `0xd2`, before queue-map and mirror QoS tables; likely QoS/global lookup state, semantics unknown. | Low |
+| `UNKNOWN_INGRESS_COUNTER_BANK` | `0x00221000` | stock-path only / live-readable | Stock table `0xcf`, 8-byte stride with 75 entries, adjacent to ingress meter and ACL flow-stat blocks; likely accounting-related but not decoded. Live CR881x reads of the first entries were all-zero in an idle runtime. | Low |
+| `YT921X_FLOWSTATn_STAT(n)` | `(0x221400 + 8 * n)` | stock-path only / mainline-evidenced / live-readable | ACL flow-stat counter block (`tbl id 0xd0`), 64 entries, 64-bit counter per slot; current mainline stats patch uses byte mode. Live CR881x reads showed the window present and readable, with sampled entries still zero in an idle runtime. | High |
+| `YT921X_FLOWSTATn_CTRL(n)` | `(0x221c00 + 4 * n)` | stock-path only / mainline-evidenced / live-readable | ACL flow-stat control block (`tbl id 0xd1`), 64 entries; mainline programs enable + type=FLOW with `PKT_MODE=0` for byte counts. Live CR881x reads showed sampled entries still zero in an idle runtime. | High |
+| `UNKNOWN_300000` | `0x00300000` | stock-path only / live-readable | Stock table `0xd2`, before queue-map and mirror QoS tables. Live CR881x reads show a precise 64-word window (`0x300000..0x3000fc`) with uniform `0x00000007` values, immediately followed by a gated boundary at `0x300100` and the known queue-map block at `0x300200`; likely QoS/global lookup state, semantics still unknown. | Medium |
 | `YT921X_QOS_QUEUE_MAP_UCAST` | `0x00300200` | dynamic / mqprio-mapped | Queue map base (`tbl id 0xd3`): internal prio `0..7` to unicast qid (`3-bit` each slot). | High |
 | `YT921X_QOS_QUEUE_MAP_MCAST` | `0x00300280` | dynamic / mqprio-mapped | Queue map base (`tbl id 0xd4`): internal prio `0..7` to multicast qid (`2-bit` each slot). | High |
 | `YT921X_QOS_SCHED_SP` | `0x00300400` | dynamic / ets-mapped (subset) | Scheduler SP control (`tbl id 0xd7`), programmed by current ETS/mqprio scheduler path. | Medium |
-| `UNKNOWN_308000` | `0x00308000` | stock-path only | Stock table `0xd8`, 132 entries, adjacent to queue-map and scheduler cluster; semantics unknown. | Low |
+| `UNKNOWN_308000` | `0x00308000` | stock-path only / live-readable | Stock table `0xd8`, 132 entries, adjacent to queue-map and scheduler cluster; sampled live CR881x entries were zero in an idle runtime. | Low |
 | `YT921X_QOS_SCHED_DWRR` | `0x00341000` | dynamic / ets-mapped (subset) | DWRR scheduler config (`tbl id 0xe6`), programmed by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_QOS_SCHED_DWRR_MODE0` | `0x00342000` | dynamic / ets-mapped (subset) | DWRR mode bank0 (`tbl id 0xe7`), used by current ETS/mqprio scheduler path. | Medium |
 | `YT921X_QOS_SCHED_DWRR_MODE1` | `0x00343000` | dynamic / ets-mapped (subset) | DWRR mode bank1 (`tbl id 0xe8`), used by current ETS/mqprio scheduler path. | Medium |
@@ -379,6 +379,7 @@ Use these for full procedure, A/B deltas, and raw captures.
 - Stock QoS reverse mapping:
   - `docs/yt921x/live/yt_stock_qos_driver_map_2026-03-30.md`
   - `docs/yt921x/live/yt_stock_mirror_remark_field_usage_2026-03-31.md`
+  - `docs/yt921x/live/yt_acl_flowstat_and_qos_unknown_live_probe_2026-06-14.md`
 - Gated windows and gate-candidate sweeps:
   - `docs/yt921x/live/yt_gated_stock_map_probe_20260319_063619.txt`
   - `docs/yt921x/live/yt_gate_candidate_18028c_1803cc_probe_summary_2026-03-24.md`
