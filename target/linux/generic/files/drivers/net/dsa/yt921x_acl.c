@@ -282,6 +282,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	bool have_ports_range;
 	bool have_vlan;
 	bool have_cvlan;
+	bool have_num_of_vlans;
 	bool have_meta;
 	bool have_eth;
 	bool have_ctrl;
@@ -314,6 +315,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	have_ports_range = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS_RANGE);
 	have_vlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN);
 	have_cvlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CVLAN);
+	have_num_of_vlans = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_NUM_OF_VLANS);
 	have_meta = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_META);
 	have_eth = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS);
 	have_ctrl = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL);
@@ -341,10 +343,13 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	      BIT_ULL(FLOW_DISSECTOR_KEY_PORTS_RANGE) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_VLAN) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_CVLAN) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_NUM_OF_VLANS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_META) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_TCP))) {
-		NL_SET_ERR_MSG_MOD(extack, "Unsupported keys used");
+		NL_SET_ERR_MSG_FMT_MOD(extack,
+				       "Unsupported keys used: 0x%016llx",
+				       dissector->used_keys);
 		return 0;
 	}
 
@@ -495,6 +500,35 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		}
 	}
 meta_done:
+
+	if (have_num_of_vlans) {
+		const struct flow_match *m = &rule->match;
+		struct flow_dissector *d = m->dissector;
+		const struct flow_dissector_key_num_of_vlans *key, *mask;
+
+		key = skb_flow_dissector_target(d, FLOW_DISSECTOR_KEY_NUM_OF_VLANS,
+						m->key);
+		mask = skb_flow_dissector_target(d, FLOW_DISSECTOR_KEY_NUM_OF_VLANS,
+						 m->mask);
+
+		if (mask->num_of_vlans != 0xff) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact num_of_vlans is supported");
+			return 0;
+		}
+
+		if (have_cvlan) {
+			if (!have_vlan || key->num_of_vlans != 2) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Inner VLAN match requires exact num_of_vlans 2");
+				return 0;
+			}
+		} else if (!have_vlan || key->num_of_vlans != 1) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only single outer VLAN match is supported");
+			return 0;
+		}
+	}
 
 #define entry_prepare() \
 	if (size >= YT921X_ACL_ENT_PER_BLK) { \
@@ -745,9 +779,9 @@ meta_done:
 		__be16 vlan_tpid = 0, vlan_tpid_mask = 0;
 		bool is_stag;
 
-		if (!have_vlan) {
+		if (!have_num_of_vlans) {
 			NL_SET_ERR_MSG_MOD(extack,
-					   "Inner VLAN match requires outer VLAN match");
+					   "Inner VLAN match requires exact num_of_vlans 2");
 			return 0;
 		}
 
