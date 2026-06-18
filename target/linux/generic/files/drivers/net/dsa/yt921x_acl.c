@@ -388,13 +388,8 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		return 0;
 	}
 
-	if (have_ports_range) {
-		NL_SET_ERR_MSG_MOD(extack,
-				   "L4 port-range offload is not supported");
-		return 0;
-	}
-
-	if ((have_ipv4 || have_ipv6 || have_ip || have_ports || want_tcp_flags) &&
+	if ((have_ipv4 || have_ipv6 || have_ip || have_ports ||
+	     have_ports_range || want_tcp_flags) &&
 	    !want_n_proto) {
 		NL_SET_ERR_MSG_MOD(extack,
 				   "IP/L4 matches require exact protocol ip or ipv6");
@@ -413,7 +408,13 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		return 0;
 	}
 
-	if (have_ports || want_tcp_flags) {
+	if (have_ports && have_ports_range) {
+		NL_SET_ERR_MSG_MOD(extack,
+				   "Simultaneous exact and ranged L4 keys are not supported");
+		return 0;
+	}
+
+	if (have_ports || have_ports_range || want_tcp_flags) {
 		if (!want_ip_proto) {
 			NL_SET_ERR_MSG_MOD(extack,
 					   "L4 keys require exact ip_proto");
@@ -543,6 +544,39 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_L4);
 		entry->mask[0] = (ntohs(match.mask->dst) << 16) |
 				 ntohs(match.mask->src);
+	}
+
+	if (have_ports_range) {
+		struct flow_match_ports_range match;
+		u16 src_min, src_max, dst_min, dst_max;
+
+		flow_rule_match_ports_range(rule, &match);
+		src_min = ntohs(match.key->tp_min.src);
+		src_max = ntohs(match.key->tp_max.src);
+		dst_min = ntohs(match.key->tp_min.dst);
+		dst_max = ntohs(match.key->tp_max.dst);
+
+		if ((!src_min && src_max) || (!dst_min && dst_max) ||
+		    src_min > src_max || dst_min > dst_max) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Invalid L4 port range");
+			return 0;
+		}
+
+		if (!src_min && !src_max && !dst_min && !dst_max) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "L4 port range requires src_port or dst_port");
+			return 0;
+		}
+
+		entry_prepare();
+		entry->key[0] = (dst_min << 16) | src_min;
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_L4);
+		entry->mask[0] = (dst_max << 16) | src_max;
+		if (dst_min != dst_max)
+			entry->key[1] |= YT921X_ACL_KEYb_L4_DPORT_RANGE_EN;
+		if (src_min != src_max)
+			entry->key[1] |= YT921X_ACL_KEYb_L4_SPORT_RANGE_EN;
 	}
 
 	if (have_ip) {
