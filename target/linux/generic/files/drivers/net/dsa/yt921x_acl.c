@@ -10,6 +10,9 @@
 
 #define YT921X_ACL_METER_ID_INVALID	U8_MAX
 #define YT921X_ACL_FLOW_STATS_ID_INVALID	U8_MAX
+#define YT921X_ACL_TAG_FMT_UNTAGGED	0
+#define YT921X_ACL_TAG_FMT_PRIO_TAGGED	1
+#define YT921X_ACL_TAG_FMT_TAGGED	2
 
 static int yt921x_acl_meter_alloc(struct yt921x_priv *priv, u32 *meter_idp)
 {
@@ -277,6 +280,9 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	bool have_ipv6;
 	bool have_ports;
 	bool have_ports_range;
+	bool have_vlan;
+	bool have_cvlan;
+	bool have_meta;
 	bool have_eth;
 	bool have_ctrl;
 	bool have_tcp;
@@ -306,6 +312,9 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	have_ipv6 = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_IPV6_ADDRS);
 	have_ports = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS);
 	have_ports_range = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS_RANGE);
+	have_vlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN);
+	have_cvlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CVLAN);
+	have_meta = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_META);
 	have_eth = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS);
 	have_ctrl = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL);
 	have_tcp = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_TCP);
@@ -330,6 +339,9 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	      BIT_ULL(FLOW_DISSECTOR_KEY_IPV6_ADDRS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_PORTS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_PORTS_RANGE) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_VLAN) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_CVLAN) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_META) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_TCP))) {
 		NL_SET_ERR_MSG_MOD(extack, "Unsupported keys used");
@@ -434,6 +446,55 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 			return 0;
 		}
 	}
+
+	if (have_meta) {
+		struct flow_match_meta match;
+		struct dsa_port *dp;
+		int port;
+
+		flow_rule_match_meta(rule, &match);
+
+		if (match.mask->l2_miss) {
+			NL_SET_ERR_MSG_MOD(extack, "l2_miss match is not supported");
+			return 0;
+		}
+
+		if (match.mask->ingress_iftype) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ingress_iftype match is not supported");
+			return 0;
+		}
+
+		if (!match.mask->ingress_ifindex)
+			goto meta_done;
+
+		if (match.mask->ingress_ifindex != 0xffffffff) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact ingress_ifindex mask is supported");
+			return 0;
+		}
+
+		port = ports_mask ? __ffs(ports_mask) : -1;
+		if (port < 0) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ingress_ifindex match requires a bound user port");
+			return 0;
+		}
+
+		dp = dsa_to_port(&priv->ds, port);
+		if (!dp || !dp->user) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ingress_ifindex match requires a user port netdev");
+			return 0;
+		}
+
+		if (match.key->ingress_ifindex != dp->user->ifindex) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "ingress_ifindex must match the bound user port");
+			return 0;
+		}
+	}
+meta_done:
 
 #define entry_prepare() \
 	if (size >= YT921X_ACL_ENT_PER_BLK) { \
@@ -577,6 +638,198 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 			entry->key[1] |= YT921X_ACL_KEYb_L4_DPORT_RANGE_EN;
 		if (src_min != src_max)
 			entry->key[1] |= YT921X_ACL_KEYb_L4_SPORT_RANGE_EN;
+	}
+
+	if (have_vlan) {
+		struct flow_match_vlan match;
+		u16 vlan_id_mask, vlan_id;
+		u8 vlan_prio_mask, vlan_prio;
+		__be16 vlan_tpid = 0, vlan_tpid_mask = 0;
+		u32 tag_fmt;
+		bool is_stag;
+
+		flow_rule_match_vlan(rule, &match);
+		vlan_id_mask = match.mask->vlan_id;
+		vlan_prio_mask = match.mask->vlan_priority;
+		vlan_tpid = match.key->vlan_tpid;
+		vlan_tpid_mask = match.mask->vlan_tpid;
+
+		if (match.mask->vlan_dei) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "vlan_dei match is not supported");
+			return 0;
+		}
+
+		if (match.mask->vlan_eth_type) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "vlan_eth_type match is not supported");
+			return 0;
+		}
+
+		if (vlan_id_mask && vlan_id_mask != VLAN_VID_MASK) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact vlan_id mask is supported");
+			return 0;
+		}
+
+		if (vlan_prio_mask && vlan_prio_mask != 0x7) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact vlan_prio mask is supported");
+			return 0;
+		}
+
+		if (vlan_tpid_mask && vlan_tpid_mask != htons(0xffff)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact vlan_tpid mask is supported");
+			return 0;
+		}
+
+		if (!vlan_id_mask && !vlan_prio_mask) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "FLOW_DISSECTOR_KEY_VLAN requires vlan_id or vlan_prio");
+			return 0;
+		}
+
+		if (!vlan_id_mask && vlan_prio_mask) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "vlan_prio match requires exact vlan_id");
+			return 0;
+		}
+
+		if (!vlan_tpid_mask) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Outer VLAN match requires exact vlan_tpid");
+			return 0;
+		}
+
+		if (vlan_tpid != htons(ETH_P_8021Q) &&
+		    vlan_tpid != htons(ETH_P_8021AD)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only 802.1Q and 802.1AD VLAN TPIDs are supported");
+			return 0;
+		}
+
+		vlan_id = match.key->vlan_id;
+		vlan_prio = match.key->vlan_priority;
+		is_stag = vlan_tpid == htons(ETH_P_8021AD);
+		tag_fmt = vlan_id ? YT921X_ACL_TAG_FMT_TAGGED :
+				    YT921X_ACL_TAG_FMT_PRIO_TAGGED;
+
+		entry_prepare();
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_VLAN);
+		if (is_stag) {
+			entry->key[0] = YT921X_ACL_BINa_VLAN_STAG_FMT(tag_fmt) |
+					YT921X_ACL_BINa_VLAN_SVID(vlan_id);
+			entry->mask[0] = YT921X_ACL_BINa_VLAN_STAG_FMT(0x3) |
+					 YT921X_ACL_BINa_VLAN_SVID(vlan_id_mask);
+			if (vlan_prio_mask) {
+				entry->key[0] |= YT921X_ACL_BINa_VLAN_SPRI(vlan_prio);
+				entry->mask[0] |= YT921X_ACL_BINa_VLAN_SPRI(vlan_prio_mask);
+			}
+		} else {
+			entry->key[0] = YT921X_ACL_BINa_VLAN_CTAG_FMT(tag_fmt) |
+					YT921X_ACL_BINa_VLAN_CVID(vlan_id);
+			entry->mask[0] = YT921X_ACL_BINa_VLAN_CTAG_FMT(0x3) |
+					 YT921X_ACL_BINa_VLAN_CVID(vlan_id_mask);
+			if (vlan_prio_mask) {
+				entry->key[1] |= YT921X_ACL_BINb_VLAN_CPRI(vlan_prio);
+				entry->mask[1] |= YT921X_ACL_BINb_VLAN_CPRI(vlan_prio_mask);
+			}
+		}
+	}
+
+	if (have_cvlan) {
+		struct flow_match_vlan match;
+		u16 vlan_id_mask, vlan_id;
+		u8 vlan_prio_mask, vlan_prio;
+		__be16 vlan_tpid = 0, vlan_tpid_mask = 0;
+		bool is_stag;
+
+		if (!have_vlan) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Inner VLAN match requires outer VLAN match");
+			return 0;
+		}
+
+		flow_rule_match_cvlan(rule, &match);
+		vlan_id_mask = match.mask->vlan_id;
+		vlan_prio_mask = match.mask->vlan_priority;
+		vlan_tpid = match.key->vlan_tpid;
+		vlan_tpid_mask = match.mask->vlan_tpid;
+
+		if (match.mask->vlan_dei) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "cvlan_dei match is not supported");
+			return 0;
+		}
+
+		if (match.mask->vlan_eth_type) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "cvlan_eth_type match is not supported");
+			return 0;
+		}
+
+		if (vlan_id_mask && vlan_id_mask != VLAN_VID_MASK) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact cvlan_id mask is supported");
+			return 0;
+		}
+
+		if (vlan_prio_mask && vlan_prio_mask != 0x7) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact cvlan_prio mask is supported");
+			return 0;
+		}
+
+		if (vlan_tpid_mask && vlan_tpid_mask != htons(0xffff)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact cvlan_tpid mask is supported");
+			return 0;
+		}
+
+		if (!vlan_id_mask && !vlan_prio_mask) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "FLOW_DISSECTOR_KEY_CVLAN requires cvlan_id or cvlan_prio");
+			return 0;
+		}
+
+		if (!vlan_id_mask && vlan_prio_mask) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "cvlan_prio match requires exact cvlan_id");
+			return 0;
+		}
+
+		if (!vlan_tpid_mask) {
+			/* tc flower's CVLAN key does not provide an inner TPID. */
+			vlan_tpid = htons(ETH_P_8021Q);
+		} else if (vlan_tpid != htons(ETH_P_8021Q) &&
+			   vlan_tpid != htons(ETH_P_8021AD)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only 802.1Q and 802.1AD inner VLAN TPIDs are supported");
+			return 0;
+		}
+
+		vlan_id = match.key->vlan_id;
+		vlan_prio = match.key->vlan_priority;
+		is_stag = vlan_tpid == htons(ETH_P_8021AD);
+
+		entry_prepare();
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_VTAG);
+		if (is_stag) {
+			entry->key[0] = YT921X_ACL_BINa_VTAG_SVID(vlan_id);
+			entry->mask[0] = YT921X_ACL_BINa_VTAG_SVID(vlan_id_mask);
+			if (vlan_prio_mask) {
+				entry->key[0] |= YT921X_ACL_BINa_VTAG_SPRI(vlan_prio);
+				entry->mask[0] |= YT921X_ACL_BINa_VTAG_SPRI(vlan_prio_mask);
+			}
+		} else {
+			entry->key[0] = YT921X_ACL_BINa_VTAG_CVID(vlan_id);
+			entry->mask[0] = YT921X_ACL_BINa_VTAG_CVID(vlan_id_mask);
+			if (vlan_prio_mask) {
+				entry->key[0] |= YT921X_ACL_BINa_VTAG_CPRI(vlan_prio);
+				entry->mask[0] |= YT921X_ACL_BINa_VTAG_CPRI(vlan_prio_mask);
+			}
+		}
 	}
 
 	if (have_ip) {
