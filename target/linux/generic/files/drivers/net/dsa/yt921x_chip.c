@@ -1429,6 +1429,57 @@ static int __maybe_unused yt921x_chip_setup_qos(struct yt921x_priv *priv)
 	return 0;
 }
 
+static int yt921x_chip_setup_yt9215s_buffers(struct yt921x_priv *priv)
+{
+	int res, i, f;
+
+	if (strcmp(priv->info->name, "YT9215S") != 0)
+		return 0;
+
+	res = yt921x_reg_write(priv, 0x2801D0, 0xC8);
+	if (res)
+		return res;
+
+	for (i = 0; i < 10; i++) {
+		if (i == 4) {
+			res = yt921x_reg_write(priv, 0x281000 + i * 0x8, 0x80402850);
+			if (res)
+				return res;
+			res = yt921x_reg_write(priv, 0x281000 + 0x4 + i * 0x8, 0x26765);
+			if (res)
+				return res;
+		} else {
+			res = yt921x_reg_write(priv, 0x281000 + i * 0x8, 0x80402850);
+			if (res)
+				return res;
+			res = yt921x_reg_write(priv, 0x281000 + 0x4 + i * 0x8, 0x26f1b);
+			if (res)
+				return res;
+		}
+
+		for (f = 0; f < 8; f++) {
+			res = yt921x_reg_write(priv, 0x301000 + i * 0x40 + f * 0x8, 0x40020);
+			if (res)
+				return res;
+			res = yt921x_reg_write(priv, 0x301000 + 0x4 + i * 0x40 + f * 0x8, 0x0);
+			if (res)
+				return res;
+		}
+
+		if (i < 4) {
+			res = yt921x_reg_write(priv, 0x303000 + i * 0x4, 0x78);
+			if (res)
+				return res;
+		} else if (i == 5) {
+			res = yt921x_reg_write(priv, 0x303000 + 0x20, 0x78);
+			if (res)
+				return res;
+		}
+	}
+
+	return 0;
+}
+
 int yt921x_chip_setup(struct yt921x_priv *priv)
 {
 	u32 ctrl;
@@ -1452,6 +1503,10 @@ int yt921x_chip_setup(struct yt921x_priv *priv)
 		return res;
 
 	res = yt921x_chip_setup_qos(priv);
+	if (res)
+		return res;
+
+	res = yt921x_chip_setup_yt9215s_buffers(priv);
 	if (res)
 		return res;
 
