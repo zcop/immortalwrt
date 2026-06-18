@@ -76,6 +76,10 @@ yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
 		return skb;
 	}
 
+	/* Resolve hardware checksum offload in software before tagging */
+	if (skb->ip_summed == CHECKSUM_PARTIAL && skb_checksum_help(skb))
+		return NULL;
+
 	if (unlikely(skb_cow_head(skb, YT921X_TAG_LEN) < 0))
 		return NULL;
 
