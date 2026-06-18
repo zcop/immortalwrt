@@ -206,6 +206,7 @@ void yt921x_phylink_mac_config(struct phylink_config *config, unsigned int mode,
 
 int yt921x_chip_reset(struct yt921x_priv *priv);
 int yt921x_chip_setup(struct yt921x_priv *priv);
+bool yt921x_flow_stats_pkt_mode(void);
 int yt921x_qos_remark_dscp_set(struct yt921x_priv *priv, u8 prio, u8 dp, u8 dscp);
 
 void yt921x_dsa_get_strings(struct dsa_switch *ds, int port, u32 stringset, u8 *data);

@@ -41,31 +41,6 @@ static int yt921x_acl_meter_clear_hw(struct yt921x_priv *priv, u32 meter_id)
 }
 
 static int
-yt921x_acl_flow_stats_alloc(struct yt921x_priv *priv, u8 *flow_stats_idp)
-{
-	unsigned long flow_stats_id;
-
-	flow_stats_id = find_first_zero_bit(priv->flow_stats_map,
-					    YT921X_FLOWSTAT_NUM);
-	if (flow_stats_id >= (unsigned long)YT921X_FLOWSTAT_NUM)
-		return -ENOSPC;
-
-	__set_bit(flow_stats_id, priv->flow_stats_map);
-	*flow_stats_idp = flow_stats_id;
-
-	return 0;
-}
-
-static void
-yt921x_acl_flow_stats_free(struct yt921x_priv *priv, u8 flow_stats_id)
-{
-	if (flow_stats_id >= YT921X_FLOWSTAT_NUM)
-		return;
-
-	__clear_bit(flow_stats_id, priv->flow_stats_map);
-}
-
-static int
 yt921x_acl_flow_stats_clear_hw(struct yt921x_priv *priv, u8 flow_stats_id)
 {
 	int res;
@@ -1327,7 +1302,6 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 	    flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
 		int clear_res = yt921x_acl_flow_stats_clear_hw(priv, flow_stats_id);
 
-		yt921x_acl_flow_stats_free(priv, flow_stats_id);
 		if (clear_res)
 			YT921X_RECORD_ERR(priv, acl_commit_errors,
 					  YT921X_TELEM_STAGE_ACL_COMMIT,
@@ -1446,6 +1420,9 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 		u32 ctrl = YT921X_FLOWSTAT_CTRL_EN |
 			   YT921X_FLOWSTAT_CTRL_TYPE_FLOW;
 
+		if (yt921x_flow_stats_pkt_mode())
+			ctrl |= YT921X_FLOWSTAT_CTRL_PKT_MODE;
+
 		res = yt921x_reg_write(priv, YT921X_FLOWSTATn_CTRL(flow_stats_id),
 				       ctrl);
 		if (res)
@@ -1498,10 +1475,8 @@ err_flow_stats:
 	if (priv->acl.useds[blkid] >= hweight8(ents_mask))
 		priv->acl.useds[blkid] -= hweight8(ents_mask);
 	yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
-	if (group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
+	if (group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID)
 		yt921x_acl_flow_stats_clear_hw(priv, group[0].flow_stats_id);
-		yt921x_acl_flow_stats_free(priv, group[0].flow_stats_id);
-	}
 	return res;
 }
 
@@ -1550,8 +1525,12 @@ yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
 	delta = counter >= entry->flow_stats_last ?
 		counter - entry->flow_stats_last : counter;
 	entry->flow_stats_last = counter;
-	flow_stats_update(&cls->stats, delta, 0, 0, lastused,
-			  FLOW_ACTION_HW_STATS_IMMEDIATE);
+	if (yt921x_flow_stats_pkt_mode())
+		flow_stats_update(&cls->stats, 0, delta, 0, lastused,
+				  FLOW_ACTION_HW_STATS_IMMEDIATE);
+	else
+		flow_stats_update(&cls->stats, delta, 0, 0, lastused,
+				  FLOW_ACTION_HW_STATS_IMMEDIATE);
 	res = 0;
 
 out_unlock:
@@ -1693,8 +1672,6 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		yt921x_acl_mirror_put(priv, group[0].mirror_to_port);
 out_unlock:
 	mutex_unlock(&priv->reg_lock);
-	if (res && group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID)
-		yt921x_acl_flow_stats_free(priv, group[0].flow_stats_id);
 
 	return res;
 }

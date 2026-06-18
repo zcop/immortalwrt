@@ -241,6 +241,21 @@ module_param_named(ctrlpkt_lldp_act, yt921x_ctrlpkt_lldp_act, int, 0644);
 MODULE_PARM_DESC(ctrlpkt_lldp_act,
 		 "Port mask for LLDP control packets (tbl 0x77), -1 keeps stock");
 
+/* FLOWSTAT mode is selected at boot and stays fixed for the lifetime of the
+ * driver instance. Byte mode is the default because switching semantics at
+ * runtime would confuse tc stats consumers.
+ */
+static bool yt921x_flow_stats_pkt_mode_param;
+module_param_named(flow_stats_pkt_mode, yt921x_flow_stats_pkt_mode_param, bool, 0644);
+MODULE_PARM_DESC(flow_stats_pkt_mode,
+		 "Use packet mode for ACL FLOWSTAT counters. Default 0 keeps byte mode. "
+		 "Changing this requires reboot or driver reprobe.");
+
+bool yt921x_flow_stats_pkt_mode(void)
+{
+	return yt921x_flow_stats_pkt_mode_param;
+}
+
 /* Optional ingress VLAN translation mode overrides.
  * -1 keeps stock behavior for each mode bit.
  */
