@@ -26,6 +26,15 @@ static int yt921x_port_setup(struct yt921x_priv *priv, int port)
 		return res;
 
 	if (dsa_is_cpu_port(ds, port)) {
+		/* Enable learning on CPU ports so the switch learns the CPU's
+		 * MAC address and forwards local unicast traffic correctly.
+		 */
+		dev_info(yt921x_dev(priv), "Enabling learning on CPU port %d\n", port);
+		res = yt921x_reg_clear_bits(priv, YT921X_PORTn_LEARN(port),
+					    YT921X_PORT_LEARN_DIS);
+		if (res)
+			return res;
+
 		if (yt921x_is_primary_cpu_port(priv, port)) {
 			/* Primary conduit uses the YT921X tag format, so keep
 			 * untagged egress from this CPU port blocked.
@@ -1156,7 +1165,7 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	 * keep only internal MCU (port 10) blocked, allow CPU/LAN/WAN delivery.
 	 * 0x7ff blackholes unknown unicast destined for router MAC on this board.
 	 */
-	ctrl = BIT(10);
+	ctrl = BIT(10) | priv->cpu_ports_mask;
 	res = yt921x_reg_write(priv, YT921X_FILTER_UNK_UCAST, ctrl);
 	if (res)
 		return res;
@@ -1166,8 +1175,8 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	/* Keep stock-safe defaults for flood filters until semantics are fully
 	 * mapped on YT9215.
 	 */
-	priv->flood_unk_ucast_base_mask = BIT(10);
-	priv->flood_mcast_base_mask = BIT(10);
+	priv->flood_unk_ucast_base_mask = BIT(10) | priv->cpu_ports_mask;
+	priv->flood_mcast_base_mask = BIT(10) | priv->cpu_ports_mask;
 	priv->flood_bcast_base_mask = BIT(10);
 	priv->flood_storm_mask = 0;
 	res = yt921x_apply_flood_filters_locked(priv);

@@ -1433,8 +1433,8 @@ static int yt921x_sync_mrouter_masks_locked(struct yt921x_priv *priv)
 	 * So router ports must have their user bit cleared.
 	 */
 	return yt921x_reg_update_bits(priv, YT921X_FILTER_UNK_MCAST,
-				      user_mask | BIT(10),
-				      ((~router_mask) & user_mask) | BIT(10));
+				      user_mask | priv->cpu_ports_mask | BIT(10),
+				      ((~router_mask) & (user_mask | priv->cpu_ports_mask)) | BIT(10));
 }
 
 static int

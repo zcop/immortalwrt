@@ -188,7 +188,7 @@ yt921x_dsa_port_stp_state_set(struct dsa_switch *ds, int port, u8 state)
 	}
 
 	learning = (state == BR_STATE_LEARNING || state == BR_STATE_FORWARDING) &&
-		   dp && dp->learning;
+		   dp && (dp->learning || dsa_is_cpu_port(ds, port));
 
 	mutex_lock(&priv->reg_lock);
 	do {
