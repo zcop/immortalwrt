@@ -305,6 +305,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	bool have_eth;
 	bool have_ctrl;
 	bool have_tcp;
+	bool want_tcp_flags = false;
 	bool n_proto_is_ipv4 = false;
 	bool n_proto_is_ipv6 = false;
 	bool want_n_proto = false;
@@ -337,6 +338,13 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	if (have_ctrl) {
 		flow_rule_match_control(rule, &ctrl_match);
 		addr_type = ctrl_match.key->addr_type;
+	}
+
+	if (have_tcp) {
+		struct flow_match_tcp match;
+
+		flow_rule_match_tcp(rule, &match);
+		want_tcp_flags = !!match.mask->flags;
 	}
 
 	if (dissector->used_keys &
@@ -411,7 +419,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		return 0;
 	}
 
-	if ((have_ipv4 || have_ipv6 || have_ip || have_ports || have_tcp) &&
+	if ((have_ipv4 || have_ipv6 || have_ip || have_ports || want_tcp_flags) &&
 	    !want_n_proto) {
 		NL_SET_ERR_MSG_MOD(extack,
 				   "IP/L4 matches require exact protocol ip or ipv6");
@@ -430,14 +438,14 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 		return 0;
 	}
 
-	if (have_ports || have_tcp) {
+	if (have_ports || want_tcp_flags) {
 		if (!want_ip_proto) {
 			NL_SET_ERR_MSG_MOD(extack,
 					   "L4 keys require exact ip_proto");
 			return 0;
 		}
 
-		if (have_tcp && ip_proto != IPPROTO_TCP) {
+		if (want_tcp_flags && ip_proto != IPPROTO_TCP) {
 			NL_SET_ERR_MSG_MOD(extack,
 					   "tcp_flags match requires ip_proto tcp");
 			return 0;
@@ -691,7 +699,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 			goto too_complex;
 	}
 
-	if (have_tcp) {
+	if (want_tcp_flags) {
 		struct flow_match_tcp match;
 
 		entry = yt921x_acl_find_misc(group, size);

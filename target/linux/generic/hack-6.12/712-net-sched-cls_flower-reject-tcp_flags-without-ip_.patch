@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Thu, 18 Jun 2026 16:20:00 +0700
+Subject: [PATCH] net/sched: cls_flower: reject tcp_flags without ip_proto tcp
+
+`tc flower` can currently accept a rule like:
+
+  protocol ip flower tcp_flags 0x02/0x02 action drop
+
+The classifier only copies `TCA_FLOWER_KEY_TCP_FLAGS` into the flow key when
+`ip_proto` resolves to TCP, but it does not reject the malformed combination
+when TCP was not selected. The result is a silently broadened IPv4 drop rule,
+which is especially dangerous on hardware-offloaded paths because the rule can
+still install in hardware with the TCP flags match lost.
+
+Reject the malformed rule early with a clear extack so userspace and hardware
+drivers both see an explicit failure instead of a widened match.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+ net/sched/cls_flower.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+--- a/net/sched/cls_flower.c
++++ b/net/sched/cls_flower.c
+@@ -1927,6 +1927,16 @@
+ 		fl_set_key_val(tb, &key->basic.ip_proto, TCA_FLOWER_KEY_IP_PROTO,
+ 			       &mask->basic.ip_proto, TCA_FLOWER_UNSPEC,
+ 			       sizeof(key->basic.ip_proto));
++
++		if ((tb[TCA_FLOWER_KEY_TCP_FLAGS] ||
++		     tb[TCA_FLOWER_KEY_TCP_FLAGS_MASK]) &&
++		    key->basic.ip_proto != IPPROTO_TCP) {
++			NL_SET_ERR_MSG_ATTR(extack,
++					    tb[TCA_FLOWER_KEY_TCP_FLAGS] ?: tb[TCA_FLOWER_KEY_TCP_FLAGS_MASK],
++					    "tcp_flags match requires ip_proto tcp");
++			return -EINVAL;
++		}
++
+ 		fl_set_key_ip(tb, false, &key->ip, &mask->ip);
+ 	}
+ 
