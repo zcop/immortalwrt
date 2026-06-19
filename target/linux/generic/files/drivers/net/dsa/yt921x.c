@@ -11,6 +11,96 @@
 
 #include "yt921x_internal.h"
 
+static int yt921x_hwmon_read_temp(struct yt921x_priv *priv, long *temp)
+{
+	u32 reg;
+	u32 raw;
+	u16 abs_centi;
+	int ret;
+
+	mutex_lock(&priv->reg_lock);
+	ret = yt921x_reg_read(priv, YT921X_TEMP, &reg);
+	mutex_unlock(&priv->reg_lock);
+	if (ret)
+		return ret;
+
+	raw = reg & GENMASK(15, 0);
+	if (raw & BIT(15)) {
+		abs_centi = 51200 - raw * 100 / 128;
+		*temp = -(long)abs_centi * 10;
+	} else {
+		*temp = (long)(raw * 100 / 128) * 10;
+	}
+
+	return 0;
+}
+
+static umode_t
+yt921x_hwmon_is_visible(const void *data, enum hwmon_sensor_types type,
+			u32 attr, int channel)
+{
+	(void)data;
+
+	if (type != hwmon_temp || channel != 0)
+		return 0;
+
+	switch (attr) {
+	case hwmon_temp_input:
+		return 0444;
+	default:
+		return 0;
+	}
+}
+
+static int
+yt921x_hwmon_read(struct device *dev, enum hwmon_sensor_types type, u32 attr,
+		  int channel, long *val)
+{
+	struct yt921x_priv *priv = dev_get_drvdata(dev);
+
+	if (type != hwmon_temp || channel != 0)
+		return -EOPNOTSUPP;
+
+	switch (attr) {
+	case hwmon_temp_input:
+		return yt921x_hwmon_read_temp(priv, val);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static const struct hwmon_channel_info * const yt921x_hwmon_info[] = {
+	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT),
+	NULL
+};
+
+static const struct hwmon_ops yt921x_hwmon_ops = {
+	.is_visible = yt921x_hwmon_is_visible,
+	.read = yt921x_hwmon_read,
+};
+
+static const struct hwmon_chip_info yt921x_hwmon_chip_info = {
+	.ops = &yt921x_hwmon_ops,
+	.info = yt921x_hwmon_info,
+};
+
+static void yt921x_hwmon_register(struct mdio_device *mdiodev,
+				  struct yt921x_priv *priv)
+{
+	struct device *hwmon;
+
+	if (!priv->dt_temp_sensor_supported || !IS_REACHABLE(CONFIG_HWMON))
+		return;
+
+	hwmon = devm_hwmon_device_register_with_info(&mdiodev->dev, "yt921x",
+						     priv,
+						     &yt921x_hwmon_chip_info,
+						     NULL);
+	if (IS_ERR(hwmon))
+		dev_warn(&mdiodev->dev, "failed to register hwmon: %ld\n",
+			 PTR_ERR(hwmon));
+}
+
 static int yt921x_dsa_setup(struct dsa_switch *ds)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
@@ -364,9 +454,12 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 	if (res) {
 		yt921x_proc_exit(priv);
 		mutex_destroy(&priv->reg_lock);
+		return res;
 	}
 
-	return res;
+	yt921x_hwmon_register(mdiodev, priv);
+
+	return 0;
 }
 
 static const struct of_device_id yt921x_of_match[] = {

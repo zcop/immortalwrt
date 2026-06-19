@@ -13,6 +13,7 @@
 #include <linux/debugfs.h>
 #include <linux/etherdevice.h>
 #include <linux/fs.h>
+#include <linux/hwmon.h>
 #include <linux/if_bridge.h>
 #include <linux/if_hsr.h>
 #include <linux/if_vlan.h>

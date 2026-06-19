@@ -363,6 +363,7 @@
 			motorcomm,rma-slow-action = <2>;
 			motorcomm,ctrlpkt-lldp-act = <0x400>;
 			motorcomm,ctrlpkt-lldp-eee-act = <0x400>;
+			motorcomm,temp-sensor-supported;
 			/* Constrain secondary conduit destination set at init.
 			 * Bitmask is over user ports (BIT(port@N reg value)):
 			 * here allow only WAN user port@3 to use secondary-conduit.
