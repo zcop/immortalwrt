@@ -292,6 +292,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	bool n_proto_is_ipv6 = false;
 	bool want_n_proto = false;
 	bool want_ip_proto = false;
+	u8 num_of_vlans = 0;
 	u16 addr_type = 0;
 	__be16 n_proto = 0;
 	__be16 n_proto_mask = 0;
@@ -517,19 +518,21 @@ meta_done:
 			return 0;
 		}
 
+		num_of_vlans = key->num_of_vlans;
+
 		if (have_cvlan) {
-			if (!have_vlan || key->num_of_vlans != 2) {
+			if (!have_vlan || num_of_vlans != 2) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Inner VLAN match requires exact num_of_vlans 2");
 				return 0;
 			}
 		} else if (have_vlan) {
-			if (key->num_of_vlans != 1) {
+			if (num_of_vlans != 1) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Only single outer VLAN match is supported");
 				return 0;
 			}
-		} else if (key->num_of_vlans != 0) {
+		} else if (num_of_vlans != 0) {
 			NL_SET_ERR_MSG_MOD(extack,
 					   "Only exact num_of_vlans 0 is supported without VLAN keys");
 			return 0;
@@ -762,6 +765,8 @@ meta_done:
 					YT921X_ACL_BINa_VLAN_SVID(vlan_id);
 			entry->mask[0] = YT921X_ACL_BINa_VLAN_STAG_FMT(0x3) |
 					 YT921X_ACL_BINa_VLAN_SVID(vlan_id_mask);
+			if (have_num_of_vlans)
+				entry->mask[0] |= YT921X_ACL_BINa_VLAN_CTAG_FMT(0x3);
 			if (vlan_prio_mask) {
 				entry->key[0] |= YT921X_ACL_BINa_VLAN_SPRI(vlan_prio);
 				entry->mask[0] |= YT921X_ACL_BINa_VLAN_SPRI(vlan_prio_mask);
@@ -771,6 +776,8 @@ meta_done:
 					YT921X_ACL_BINa_VLAN_CVID(vlan_id);
 			entry->mask[0] = YT921X_ACL_BINa_VLAN_CTAG_FMT(0x3) |
 					 YT921X_ACL_BINa_VLAN_CVID(vlan_id_mask);
+			if (have_num_of_vlans)
+				entry->mask[0] |= YT921X_ACL_BINa_VLAN_STAG_FMT(0x3);
 			if (vlan_prio_mask) {
 				entry->key[1] |= YT921X_ACL_BINb_VLAN_CPRI(vlan_prio);
 				entry->mask[1] |= YT921X_ACL_BINb_VLAN_CPRI(vlan_prio_mask);
@@ -870,6 +877,15 @@ meta_done:
 				entry->mask[0] |= YT921X_ACL_BINa_VTAG_CPRI(vlan_prio_mask);
 			}
 		}
+	}
+
+	if (have_num_of_vlans && !have_vlan && !have_cvlan) {
+		entry_prepare();
+		entry->key[0] = YT921X_ACL_BINa_VLAN_CTAG_FMT(YT921X_ACL_TAG_FMT_UNTAGGED) |
+				YT921X_ACL_BINa_VLAN_STAG_FMT(YT921X_ACL_TAG_FMT_UNTAGGED);
+		entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_VLAN);
+		entry->mask[0] = YT921X_ACL_BINa_VLAN_CTAG_FMT(0x3) |
+				 YT921X_ACL_BINa_VLAN_STAG_FMT(0x3);
 	}
 
 	if (have_ip) {
