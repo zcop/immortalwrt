@@ -1178,6 +1178,7 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 	bool dscp_ipv4_seen = false;
 	bool dscp_ipv6_seen = false;
 	bool csum_seen = false;
+	bool vlan_act_seen = false;
 	u32 *action = group[0].action;
 	int i;
 
@@ -1342,6 +1343,123 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			else
 				dscp_ipv6_seen = true;
 			dscp_seen = true;
+			break;
+		}
+		case FLOW_ACTION_VLAN_POP: {
+			bool is_stag = false;
+
+			if (vlan_act_seen) {
+				NL_SET_ERR_MSG_MOD(extack, "Multiple VLAN actions are not supported");
+				return -EOPNOTSUPP;
+			}
+			vlan_act_seen = true;
+
+			if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
+				struct flow_match_vlan match;
+
+				flow_rule_match_vlan(rule, &match);
+				if (match.key->vlan_tpid == htons(ETH_P_8021AD))
+					is_stag = true;
+			}
+
+			if (is_stag) {
+				action[2] &= ~YT921X_ACL_ACTc_STAG_M;
+				action[2] |= YT921X_ACL_ACTc_STAG_UNTAG;
+			} else {
+				action[2] &= ~YT921X_ACL_ACTc_CTAG_M;
+				action[2] |= YT921X_ACL_ACTc_CTAG_UNTAG;
+			}
+			break;
+		}
+		case FLOW_ACTION_VLAN_PUSH: {
+			u16 vid = act->vlan.vid;
+			u8 prio = act->vlan.prio;
+
+			if (vlan_act_seen) {
+				NL_SET_ERR_MSG_MOD(extack, "Multiple VLAN actions are not supported");
+				return -EOPNOTSUPP;
+			}
+			vlan_act_seen = true;
+
+			if (act->vlan.proto != htons(ETH_P_8021Q) &&
+			    act->vlan.proto != htons(ETH_P_8021AD)) {
+				NL_SET_ERR_MSG_MOD(extack, "Unsupported VLAN protocol for push action");
+				return -EOPNOTSUPP;
+			}
+
+			if (act->vlan.proto == htons(ETH_P_8021AD)) {
+				action[2] &= ~YT921X_ACL_ACTc_STAG_M;
+				action[2] |= YT921X_ACL_ACTc_STAG_TAG;
+
+				action[1] |= YT921X_ACL_ACTb_SVID_REPLACE;
+				action[1] &= ~((u32)0x1ff << 23);
+				action[1] |= (vid & 0x1ff) << 23;
+				action[2] &= ~0x7;
+				action[2] |= (vid >> 9) & 0x7;
+
+				action[2] |= YT921X_ACL_ACTc_SPRI_REPLACE;
+				action[2] &= ~YT921X_ACL_ACTc_SPRI_M;
+				action[2] |= FIELD_PREP(YT921X_ACL_ACTc_SPRI_M, prio);
+			} else {
+				action[2] &= ~YT921X_ACL_ACTc_CTAG_M;
+				action[2] |= YT921X_ACL_ACTc_CTAG_TAG;
+
+				action[1] |= YT921X_ACL_ACTb_CVID_REPLACE;
+				action[1] &= ~YT921X_ACL_ACTb_CVID_M;
+				action[1] |= FIELD_PREP(YT921X_ACL_ACTb_CVID_M, vid);
+
+				action[1] |= YT921X_ACL_ACTb_CPRI_REPLACE;
+				action[1] &= ~YT921X_ACL_ACTb_CPRI_M;
+				action[1] |= FIELD_PREP(YT921X_ACL_ACTb_CPRI_M, prio);
+			}
+			break;
+		}
+		case FLOW_ACTION_VLAN_MANGLE: {
+			u16 vid = act->vlan.vid;
+			u8 prio = act->vlan.prio;
+			bool is_stag = false;
+
+			if (vlan_act_seen) {
+				NL_SET_ERR_MSG_MOD(extack, "Multiple VLAN actions are not supported");
+				return -EOPNOTSUPP;
+			}
+			vlan_act_seen = true;
+
+			if (act->vlan.proto) {
+				if (act->vlan.proto != htons(ETH_P_8021Q) &&
+				    act->vlan.proto != htons(ETH_P_8021AD)) {
+					NL_SET_ERR_MSG_MOD(extack, "Unsupported VLAN protocol for mangle action");
+					return -EOPNOTSUPP;
+				}
+				if (act->vlan.proto == htons(ETH_P_8021AD))
+					is_stag = true;
+			} else if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
+				struct flow_match_vlan match;
+
+				flow_rule_match_vlan(rule, &match);
+				if (match.key->vlan_tpid == htons(ETH_P_8021AD))
+					is_stag = true;
+			}
+
+			if (is_stag) {
+				action[1] |= YT921X_ACL_ACTb_SVID_REPLACE;
+				action[1] &= ~((u32)0x1ff << 23);
+				action[1] |= (vid & 0x1ff) << 23;
+				action[2] &= ~0x7;
+				action[2] |= (vid >> 9) & 0x7;
+
+				action[2] |= YT921X_ACL_ACTc_SPRI_REPLACE;
+				action[2] &= ~YT921X_ACL_ACTc_SPRI_M;
+				action[2] |= FIELD_PREP(YT921X_ACL_ACTc_SPRI_M, prio);
+			} else {
+				action[1] |= YT921X_ACL_ACTb_CVID_REPLACE;
+				action[1] &= ~YT921X_ACL_ACTb_CVID_M;
+				action[1] |= FIELD_PREP(YT921X_ACL_ACTb_CVID_M, vid);
+
+				action[1] |= YT921X_ACL_ACTb_CPRI_REPLACE;
+				action[1] &= ~YT921X_ACL_ACTb_CPRI_M;
+				action[1] |= FIELD_PREP(YT921X_ACL_ACTb_CPRI_M, prio);
+			}
 			break;
 		}
 		case FLOW_ACTION_CSUM:
