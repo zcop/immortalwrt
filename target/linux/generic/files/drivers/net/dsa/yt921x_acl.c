@@ -535,18 +535,24 @@ meta_done:
 		if (have_cvlan) {
 			if (!have_vlan || num_of_vlans != 2) {
 				NL_SET_ERR_MSG_MOD(extack,
-						   "Inner VLAN match requires exact num_of_vlans 2");
+						   "Inner VLAN match requires exact outer VLAN plus exact num_of_vlans 2");
 				return 0;
 			}
 		} else if (have_vlan) {
+			if (num_of_vlans == 2) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "num_of_vlans 2 requires exact inner VLAN keys");
+				return 0;
+			}
+
 			if (num_of_vlans != 1) {
 				NL_SET_ERR_MSG_MOD(extack,
-						   "Only single outer VLAN match is supported");
+						   "Outer VLAN match supports only exact num_of_vlans 1");
 				return 0;
 			}
 		} else if (num_of_vlans != 0) {
 			NL_SET_ERR_MSG_MOD(extack,
-					   "Only exact num_of_vlans 0 is supported without VLAN keys");
+					   "Standalone num_of_vlans 1/2 is not exact without VLAN keys");
 			return 0;
 		}
 	}
