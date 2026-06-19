@@ -296,6 +296,8 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	u8 num_of_vlans = 0;
 	u16 addr_type = 0;
 	__be16 cls_protocol = cls->common.protocol;
+	__be16 inner_vlan_tpid = 0;
+	bool inner_vlan_tpid_valid = false;
 	__be16 n_proto = 0;
 	__be16 n_proto_mask = 0;
 	u8 ip_proto = 0;
@@ -737,6 +739,7 @@ meta_done:
 		u16 vlan_id_mask, vlan_id;
 		u8 vlan_prio_mask, vlan_prio;
 		__be16 vlan_tpid = 0, vlan_tpid_mask = 0;
+		__be16 vlan_eth_type = 0, vlan_eth_type_mask = 0;
 		u32 tag_fmt;
 		bool is_stag;
 
@@ -745,6 +748,8 @@ meta_done:
 		vlan_prio_mask = match.mask->vlan_priority;
 		vlan_tpid = match.key->vlan_tpid;
 		vlan_tpid_mask = match.mask->vlan_tpid;
+		vlan_eth_type = match.key->vlan_eth_type;
+		vlan_eth_type_mask = match.mask->vlan_eth_type;
 
 		if (match.mask->vlan_dei) {
 			NL_SET_ERR_MSG_MOD(extack,
@@ -752,10 +757,28 @@ meta_done:
 			return 0;
 		}
 
-		if (match.mask->vlan_eth_type) {
-			NL_SET_ERR_MSG_MOD(extack,
-					   "vlan_eth_type match is not supported");
-			return 0;
+		if (vlan_eth_type_mask) {
+			if (!have_cvlan) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "vlan_eth_type match is supported only with inner VLAN keys");
+				return 0;
+			}
+
+			if (vlan_eth_type_mask != htons(0xffff)) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Only exact vlan_eth_type mask is supported");
+				return 0;
+			}
+
+			if (vlan_eth_type != htons(ETH_P_8021Q) &&
+			    vlan_eth_type != htons(ETH_P_8021AD)) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Only 802.1Q and 802.1AD inner VLAN ethertypes are supported");
+				return 0;
+			}
+
+			inner_vlan_tpid = vlan_eth_type;
+			inner_vlan_tpid_valid = true;
 		}
 
 		if (vlan_id_mask && vlan_id_mask != VLAN_VID_MASK) {
@@ -896,8 +919,15 @@ meta_done:
 		}
 
 		if (!vlan_tpid_mask) {
-			/* tc flower's CVLAN key does not provide an inner TPID. */
-			vlan_tpid = htons(ETH_P_8021Q);
+			/* tc flower may carry the inner tag protocol through the
+			 * outer VLAN key's vlan_eth_type field for double-tagged
+			 * rules. Fall back to 802.1Q only when no such exact
+			 * outer indication exists.
+			 */
+			if (inner_vlan_tpid_valid)
+				vlan_tpid = inner_vlan_tpid;
+			else
+				vlan_tpid = htons(ETH_P_8021Q);
 		} else if (vlan_tpid != htons(ETH_P_8021Q) &&
 			   vlan_tpid != htons(ETH_P_8021AD)) {
 			NL_SET_ERR_MSG_MOD(extack,
