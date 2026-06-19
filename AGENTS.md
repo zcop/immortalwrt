@@ -23,13 +23,6 @@ the question is usually:
 ## Vendor features with no meaningful Linux counterpart yet
 
 ### Vendor features with no meaningful Linux counterpart yet
-- `dot1x`
-  Vendor surface:
-  `yt_dot1x.h`
-  Current Linux state:
-  only internal/devlink/debug hooks around DOT1X registers; no comparable
-  public feature surface.
-
 - `gpio`
   Vendor surface:
   `yt_gpio.h`
@@ -88,6 +81,13 @@ the question is usually:
   bridge MDB/mrouter/snooping basics exist, but not the full vendor control
   surface.
 
+- `dot1x`
+  Vendor surface:
+  `yt_dot1x.h`
+  Current Linux state:
+  partial runtime exposure exists through devlink/debug hooks, but not the
+  full vendor 802.1X control surface.
+
 - `storm_ctrl`
   Vendor surface:
   `yt_storm_ctrl.h`
@@ -111,6 +111,10 @@ the question is usually:
   `ctrlpkt_nd_act_mask`,
   `ctrlpkt_lldp_eee_act_mask`,
   `ctrlpkt_lldp_act_mask`.
+  Live status:
+  register/API programming is confirmed on CR881x, but packet-fate validation
+  is still open. We do not yet know, from live traffic, which frames are
+  forwarded, trapped, copied, or dropped after each setting.
   Full vendor runtime coverage is still not present.
 
 ## Practical reading
@@ -127,6 +131,7 @@ The largest non-ACL gaps are:
 
 The largest partial areas are:
 - `igmp_mld` / `multicast`
+- `dot1x`
 - `storm_ctrl`
 - `led`
 - `ctrlpkt` / `rma`

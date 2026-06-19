@@ -355,6 +355,9 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_TAGGED_MASK,
 	YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_UNTAGGED_MASK,
 	YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
+	YT921X_DEVLINK_PARAM_ID_DOT1X_PORT_BASED_MASK,
+	YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK,
+	YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK,
 	YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
@@ -573,6 +576,81 @@ static int yt921x_dot1x_mac_based_set_locked(struct yt921x_priv *priv, u32 req_m
 	return yt921x_reg_write(priv, YT921X_DOT1X_BYPASS_CTRL, dot1x_ctrl2);
 }
 
+static int yt921x_dot1x_raw_mask_get_locked(struct yt921x_priv *priv, u32 id,
+					    u32 *mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	u32 raw;
+	int res;
+
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_DOT1X_PORT_BASED_MASK:
+		res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASED, &raw);
+		if (res)
+			return res;
+		*mask = raw & yt921x_user_ports_mask(ds);
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK:
+	case YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK:
+		res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRL, &raw);
+		if (res)
+			return res;
+		if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK)
+			*mask = FIELD_GET(YT921X_DOT1X_CTRL2_RX_PERMIT_MASK_M, raw);
+		else
+			*mask = FIELD_GET(YT921X_DOT1X_CTRL2_TX_PERMIT_MASK_M, raw);
+		*mask &= yt921x_user_ports_mask(ds);
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int yt921x_dot1x_raw_mask_set_locked(struct yt921x_priv *priv, u32 id,
+					    u32 req_mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	u32 allowed_mask = yt921x_user_ports_mask(ds);
+	u32 raw;
+	int res;
+
+	if (req_mask & ~allowed_mask)
+		return -EINVAL;
+
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_DOT1X_PORT_BASED_MASK:
+		res = yt921x_reg_read(priv, YT921X_DOT1X_PORT_BASED, &raw);
+		if (res)
+			return res;
+		raw &= ~allowed_mask;
+		raw |= req_mask;
+		return yt921x_reg_write(priv, YT921X_DOT1X_PORT_BASED, raw);
+	case YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK:
+	case YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK:
+		res = yt921x_reg_read(priv, YT921X_DOT1X_BYPASS_CTRL, &raw);
+		if (res)
+			return res;
+		if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK) {
+			u32 cur = FIELD_GET(YT921X_DOT1X_CTRL2_RX_PERMIT_MASK_M, raw);
+
+			cur &= ~allowed_mask;
+			cur |= req_mask;
+			raw &= ~YT921X_DOT1X_CTRL2_RX_PERMIT_MASK_M;
+			raw |= YT921X_DOT1X_CTRL2_RX_PERMIT_MASK(cur);
+		} else {
+			u32 cur = FIELD_GET(YT921X_DOT1X_CTRL2_TX_PERMIT_MASK_M, raw);
+
+			cur &= ~allowed_mask;
+			cur |= req_mask;
+			raw &= ~YT921X_DOT1X_CTRL2_TX_PERMIT_MASK_M;
+			raw |= YT921X_DOT1X_CTRL2_TX_PERMIT_MASK(cur);
+		}
+		return yt921x_reg_write(priv, YT921X_DOT1X_BYPASS_CTRL, raw);
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static int yt921x_rma_slow_action_get_locked(struct yt921x_priv *priv, u32 *action)
 {
 	u32 ctrl;
@@ -641,6 +719,19 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_dot1x_mac_based_get_locked(priv, &dot1x_mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = dot1x_mask;
+		return 0;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_PORT_BASED_MASK ||
+	    id == YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK ||
+	    id == YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_dot1x_raw_mask_get_locked(priv, id, &dot1x_mask);
 		mutex_unlock(&priv->reg_lock);
 		if (res)
 			return res;
@@ -724,6 +815,15 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_dot1x_mac_based_set_locked(priv, ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_PORT_BASED_MASK ||
+	    id == YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK ||
+	    id == YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_dot1x_raw_mask_set_locked(priv, id, ctx->val.vu32);
 		mutex_unlock(&priv->reg_lock);
 		return res;
 	}
@@ -814,6 +914,15 @@ static const struct devlink_param yt921x_devlink_params[] = {
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
 				 "dot1x_mac_based_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_PORT_BASED_MASK,
+				 "dot1x_port_based_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK,
+				 "dot1x_rx_permit_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK,
+				 "dot1x_tx_permit_mask", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
 				 "rma_slow_action", DEVLINK_PARAM_TYPE_U32,
