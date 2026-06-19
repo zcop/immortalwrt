@@ -523,9 +523,15 @@ meta_done:
 						   "Inner VLAN match requires exact num_of_vlans 2");
 				return 0;
 			}
-		} else if (!have_vlan || key->num_of_vlans != 1) {
+		} else if (have_vlan) {
+			if (key->num_of_vlans != 1) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "Only single outer VLAN match is supported");
+				return 0;
+			}
+		} else if (key->num_of_vlans != 0) {
 			NL_SET_ERR_MSG_MOD(extack,
-					   "Only single outer VLAN match is supported");
+					   "Only exact num_of_vlans 0 is supported without VLAN keys");
 			return 0;
 		}
 	}
@@ -1169,6 +1175,7 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 {
 	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
 	struct netlink_ext_ack *extack = cls->common.extack;
+	const struct flow_match *match = &rule->match;
 	const struct flow_action_entry *act;
 	struct dsa_port *to_dp;
 	bool mirror_seen = false;
@@ -1179,8 +1186,29 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 	bool dscp_ipv6_seen = false;
 	bool csum_seen = false;
 	bool vlan_act_seen = false;
+	bool have_vlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN);
+	bool have_cvlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CVLAN);
+	bool have_num_of_vlans = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_NUM_OF_VLANS);
+	u8 num_of_vlans = 0;
 	u32 *action = group[0].action;
 	int i;
+
+	if (have_num_of_vlans) {
+		struct flow_dissector *d = match->dissector;
+		const struct flow_dissector_key_num_of_vlans *key, *mask;
+
+		key = skb_flow_dissector_target(d, FLOW_DISSECTOR_KEY_NUM_OF_VLANS,
+						match->key);
+		mask = skb_flow_dissector_target(d, FLOW_DISSECTOR_KEY_NUM_OF_VLANS,
+						 match->mask);
+		if (mask->num_of_vlans != 0xff) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact num_of_vlans is supported");
+			return -EOPNOTSUPP;
+		}
+
+		num_of_vlans = key->num_of_vlans;
+	}
 
 	memset(action, 0, sizeof(group[0].action));
 	group[0].meter_id = YT921X_ACL_METER_ID_INVALID;
@@ -1346,7 +1374,8 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			break;
 		}
 		case FLOW_ACTION_VLAN_POP: {
-			bool is_stag = false;
+			struct flow_match_vlan match;
+			bool is_stag;
 
 			if (vlan_act_seen) {
 				NL_SET_ERR_MSG_MOD(extack, "Multiple VLAN actions are not supported");
@@ -1354,13 +1383,15 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			}
 			vlan_act_seen = true;
 
-			if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
-				struct flow_match_vlan match;
-
-				flow_rule_match_vlan(rule, &match);
-				if (match.key->vlan_tpid == htons(ETH_P_8021AD))
-					is_stag = true;
+			if (!have_vlan || have_cvlan || !have_num_of_vlans ||
+			    num_of_vlans != 1) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "VLAN pop requires exact single outer VLAN match");
+				return -EOPNOTSUPP;
 			}
+
+			flow_rule_match_vlan(rule, &match);
+			is_stag = match.key->vlan_tpid == htons(ETH_P_8021AD);
 
 			if (is_stag) {
 				action[2] &= ~YT921X_ACL_ACTc_STAG_M;
@@ -1380,6 +1411,13 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 				return -EOPNOTSUPP;
 			}
 			vlan_act_seen = true;
+
+			if (have_vlan || have_cvlan || !have_num_of_vlans ||
+			    num_of_vlans != 0) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "VLAN push requires exact num_of_vlans 0");
+				return -EOPNOTSUPP;
+			}
 
 			if (act->vlan.proto != htons(ETH_P_8021Q) &&
 			    act->vlan.proto != htons(ETH_P_8021AD)) {
@@ -1417,7 +1455,8 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 		case FLOW_ACTION_VLAN_MANGLE: {
 			u16 vid = act->vlan.vid;
 			u8 prio = act->vlan.prio;
-			bool is_stag = false;
+			struct flow_match_vlan match;
+			bool match_is_stag, is_stag;
 
 			if (vlan_act_seen) {
 				NL_SET_ERR_MSG_MOD(extack, "Multiple VLAN actions are not supported");
@@ -1425,20 +1464,29 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			}
 			vlan_act_seen = true;
 
+			if (!have_vlan || have_cvlan || !have_num_of_vlans ||
+			    num_of_vlans != 1) {
+				NL_SET_ERR_MSG_MOD(extack,
+						   "VLAN modify requires exact single outer VLAN match");
+				return -EOPNOTSUPP;
+			}
+
+			flow_rule_match_vlan(rule, &match);
+			match_is_stag = match.key->vlan_tpid == htons(ETH_P_8021AD);
+			is_stag = match_is_stag;
+
 			if (act->vlan.proto) {
 				if (act->vlan.proto != htons(ETH_P_8021Q) &&
 				    act->vlan.proto != htons(ETH_P_8021AD)) {
 					NL_SET_ERR_MSG_MOD(extack, "Unsupported VLAN protocol for mangle action");
 					return -EOPNOTSUPP;
 				}
-				if (act->vlan.proto == htons(ETH_P_8021AD))
-					is_stag = true;
-			} else if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN)) {
-				struct flow_match_vlan match;
 
-				flow_rule_match_vlan(rule, &match);
-				if (match.key->vlan_tpid == htons(ETH_P_8021AD))
-					is_stag = true;
+				if ((act->vlan.proto == htons(ETH_P_8021AD)) != match_is_stag) {
+					NL_SET_ERR_MSG_MOD(extack,
+							   "VLAN modify protocol must match the outer VLAN TPID");
+					return -EOPNOTSUPP;
+				}
 			}
 
 			if (is_stag) {
