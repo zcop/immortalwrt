@@ -222,6 +222,11 @@ enum yt921x_rma_action {
 	YT921X_RMA_ACT_DROP = 3,
 };
 
+static int
+yt921x_stock_rma_ctrl_set(struct yt921x_priv *priv, u8 index,
+			  enum yt921x_rma_action action,
+			  bool bypass_port_isolation, bool bypass_vlan_filter);
+
 /* Release-facing optional policy overrides.
  * -1 keeps the stock default behavior.
  */
@@ -350,6 +355,11 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_TAGGED_MASK,
 	YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_UNTAGGED_MASK,
 	YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
+	YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
+	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK,
+	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
+	YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_EEE_ACT_MASK,
+	YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_ACT_MASK,
 };
 
 static int yt921x_devlink_param_to_vlan_mask(u32 id, u32 *mask)
@@ -389,6 +399,26 @@ static int yt921x_devlink_param_to_vlan_ctrl1_mask(u32 id, u32 *mask)
 		return 0;
 	case YT921X_DEVLINK_PARAM_ID_VLAN_SVLAN_DROP_UNTAGGED_MASK:
 		*mask = YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int yt921x_devlink_param_to_ctrlpkt_reg(u32 id, u32 *reg)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK:
+		*reg = YT921X_CTRLPKT_ARP_ACT;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK:
+		*reg = YT921X_CTRLPKT_ND_ACT;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_EEE_ACT_MASK:
+		*reg = YT921X_CTRLPKT_LLDP_EEE_ACT;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_ACT_MASK:
+		*reg = YT921X_CTRLPKT_LLDP_ACT;
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -543,10 +573,64 @@ static int yt921x_dot1x_mac_based_set_locked(struct yt921x_priv *priv, u32 req_m
 	return yt921x_reg_write(priv, YT921X_DOT1X_BYPASS_CTRL, dot1x_ctrl2);
 }
 
+static int yt921x_rma_slow_action_get_locked(struct yt921x_priv *priv, u32 *action)
+{
+	u32 ctrl;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_RMA_CTRLn(0x02), &ctrl);
+	if (res)
+		return res;
+
+	*action = YT921X_RMA_ACT_FORWARD;
+	if ((ctrl & (YT921X_RMA_CTRL_F3 | YT921X_RMA_CTRL_F4)) ==
+	    (YT921X_RMA_CTRL_F3 | YT921X_RMA_CTRL_F4))
+		*action = YT921X_RMA_ACT_TRAP_TO_CPU;
+	else if ((ctrl & (YT921X_RMA_CTRL_F3 | YT921X_RMA_CTRL_F4)) ==
+		 YT921X_RMA_CTRL_F4)
+		*action = YT921X_RMA_ACT_COPY_TO_CPU;
+	else if (ctrl & YT921X_RMA_CTRL_F3)
+		*action = YT921X_RMA_ACT_DROP;
+
+	return 0;
+}
+
+static int yt921x_rma_slow_action_set_locked(struct yt921x_priv *priv, u32 req_action)
+{
+	if (req_action > YT921X_RMA_ACT_DROP)
+		return -EINVAL;
+
+	return yt921x_stock_rma_ctrl_set(priv, 0x02, req_action, true, true);
+}
+
+static int yt921x_ctrlpkt_act_mask_get_locked(struct yt921x_priv *priv, u32 reg,
+					      u32 *mask)
+{
+	int res;
+
+	res = yt921x_reg_read(priv, reg, mask);
+	if (res)
+		return res;
+
+	*mask &= YT921X_FILTER_PORTS_M;
+
+	return 0;
+}
+
+static int yt921x_ctrlpkt_act_mask_set_locked(struct yt921x_priv *priv, u32 reg,
+					      u32 req_mask)
+{
+	if (req_mask & ~YT921X_FILTER_PORTS_M)
+		return -EINVAL;
+
+	return yt921x_reg_write(priv, reg, req_mask);
+}
+
 int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			     struct devlink_param_gset_ctx *ctx)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 ctrlpkt_reg;
 	u32 ctrl1_mask;
 	u32 mask;
 	u32 ctrl;
@@ -574,6 +658,29 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			return res;
 
 		ctx->val.vbool = !!(ctrl & YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE_EN);
+		return 0;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_rma_slow_action_get_locked(priv, &mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = mask;
+		return 0;
+	}
+
+	res = yt921x_devlink_param_to_ctrlpkt_reg(id, &ctrlpkt_reg);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_ctrlpkt_act_mask_get_locked(priv, ctrlpkt_reg, &mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = mask;
 		return 0;
 	}
 
@@ -609,6 +716,7 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 			     struct devlink_param_gset_ctx *ctx)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 ctrlpkt_reg;
 	u32 ctrl1_mask;
 	u32 mask;
 	int res;
@@ -626,6 +734,22 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 					     YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE,
 					     YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE_EN,
 					     ctx->val.vbool);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_rma_slow_action_set_locked(priv, ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	res = yt921x_devlink_param_to_ctrlpkt_reg(id, &ctrlpkt_reg);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_ctrlpkt_act_mask_set_locked(priv, ctrlpkt_reg,
+							 ctx->val.vu32);
 		mutex_unlock(&priv->reg_lock);
 		return res;
 	}
@@ -690,6 +814,22 @@ static const struct devlink_param yt921x_devlink_params[] = {
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK,
 				 "dot1x_mac_based_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
+				 "rma_slow_action", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK,
+				 "ctrlpkt_arp_act_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
+				 "ctrlpkt_nd_act_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_EEE_ACT_MASK,
+				 "ctrlpkt_lldp_eee_act_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_ACT_MASK,
+				 "ctrlpkt_lldp_act_mask", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 };
 
