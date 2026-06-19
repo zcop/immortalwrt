@@ -283,6 +283,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	bool have_vlan;
 	bool have_cvlan;
 	bool have_num_of_vlans;
+	bool have_pppoe;
 	bool have_meta;
 	bool have_eth;
 	bool have_ctrl;
@@ -294,6 +295,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	bool want_ip_proto = false;
 	u8 num_of_vlans = 0;
 	u16 addr_type = 0;
+	__be16 cls_protocol = cls->common.protocol;
 	__be16 n_proto = 0;
 	__be16 n_proto_mask = 0;
 	u8 ip_proto = 0;
@@ -317,6 +319,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	have_vlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN);
 	have_cvlan = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CVLAN);
 	have_num_of_vlans = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_NUM_OF_VLANS);
+	have_pppoe = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PPPOE);
 	have_meta = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_META);
 	have_eth = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_ETH_ADDRS);
 	have_ctrl = flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL);
@@ -345,6 +348,7 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 	      BIT_ULL(FLOW_DISSECTOR_KEY_VLAN) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_CVLAN) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_NUM_OF_VLANS) |
+	      BIT_ULL(FLOW_DISSECTOR_KEY_PPPOE) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_META) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_ETH_ADDRS) |
 	      BIT_ULL(FLOW_DISSECTOR_KEY_TCP))) {
@@ -381,6 +385,14 @@ yt921x_acl_parse_key(struct yt921x_priv *priv,
 			want_ip_proto = true;
 			ip_proto = match.key->ip_proto;
 		}
+	}
+
+	if (!want_n_proto && cls_protocol && cls_protocol != htons(ETH_P_ALL)) {
+		want_n_proto = true;
+		n_proto = cls_protocol;
+		n_proto_mask = htons(0xffff);
+		n_proto_is_ipv4 = n_proto == htons(ETH_P_IP);
+		n_proto_is_ipv6 = n_proto == htons(ETH_P_IPV6);
 	}
 
 	/* Tiger ACL uses fixed key-template reductions, not a dynamic parser.
@@ -535,6 +547,37 @@ meta_done:
 		} else if (num_of_vlans != 0) {
 			NL_SET_ERR_MSG_MOD(extack,
 					   "Only exact num_of_vlans 0 is supported without VLAN keys");
+			return 0;
+		}
+	}
+
+	if (have_pppoe) {
+		struct flow_match_pppoe match;
+
+		flow_rule_match_pppoe(rule, &match);
+
+		if (!want_n_proto || n_proto != htons(ETH_P_PPP_SES)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "PPPoE match requires exact protocol ppp_ses");
+			return 0;
+		}
+
+		if (match.mask->type != htons(0xffff) ||
+		    match.key->type != htons(ETH_P_PPP_SES)) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Only exact PPPoE session ethertype is supported");
+			return 0;
+		}
+
+		if (match.mask->session_id) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "PPPoE session_id match is not supported");
+			return 0;
+		}
+
+		if (match.mask->ppp_proto) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "PPPoE inner PPP protocol match is not supported");
 			return 0;
 		}
 	}
@@ -962,6 +1005,16 @@ meta_done:
 			udfs_ctrl[*udfs_cntp] = udf_ctrl;
 			(*udfs_cntp)++;
 		}
+	}
+
+	if (have_pppoe) {
+		entry = yt921x_acl_find_misc(group, size);
+		if (!entry) {
+			entry_prepare();
+			entry->key[1] = YT921X_ACL_KEYb_TYPE(YT921X_ACL_TYPE_MISC);
+		}
+
+		yt921x_acl_entry_set(entry, 0, YT921X_ACL_BINa_MISC_PPPOE_FLAG);
 	}
 
 	if (have_eth) {
