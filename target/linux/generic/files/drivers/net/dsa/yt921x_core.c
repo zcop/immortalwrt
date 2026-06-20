@@ -365,7 +365,14 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_MCAST_LEAVE_ALLOW_MASK,
 	YT921X_DEVLINK_PARAM_ID_MCAST_VLAN_LEAKY_MASK,
 	YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_BYPASS_ISO_MASK,
+	YT921X_DEVLINK_PARAM_ID_MCAST_ROUTER_PORT_ONLY,
+	YT921X_DEVLINK_PARAM_ID_MCAST_ROUTER_PORT_PRIMARY,
+	YT921X_DEVLINK_PARAM_ID_MCAST_REPORT_LEAVE_FWD,
+	YT921X_DEVLINK_PARAM_ID_MCAST_DYNAMIC_ROUTERPORT_ALLOW_MASK,
 	YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK,
+	YT921X_DEVLINK_PARAM_ID_RMA_BPDU_ACTION,
+	YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_ACTION,
+	YT921X_DEVLINK_PARAM_ID_RMA_LLDP_ACTION,
 	YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
@@ -459,6 +466,43 @@ static int yt921x_devlink_param_to_mcast_port_policy_mask(u32 id, u32 *mask)
 		return 0;
 	case YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_BYPASS_ISO_MASK:
 		*mask = YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int yt921x_devlink_param_to_mcast_fwd_policy_mask(u32 id, u32 *mask)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_MCAST_ROUTER_PORT_ONLY:
+		*mask = YT921X_MCAST_FWD_POLICY_IGMP_FORCE_ROUTER_DST;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_ROUTER_PORT_PRIMARY:
+		*mask = YT921X_MCAST_FWD_POLICY_REPORT_LEAVE_ROUTER_FWD_CTRL;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_REPORT_LEAVE_FWD:
+		*mask = YT921X_MCAST_FWD_POLICY_REPORT_LEAVE_FWD;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int yt921x_devlink_param_to_rma_index(u32 id, u8 *index)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_RMA_BPDU_ACTION:
+		*index = 0x00;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION:
+		*index = 0x02;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_ACTION:
+		*index = 0x03;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_RMA_LLDP_ACTION:
+		*index = 0x0e;
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -568,6 +612,38 @@ static int yt921x_mcast_port_policy_mask_set_locked(struct yt921x_priv *priv,
 	}
 
 	return 0;
+}
+
+static int yt921x_mcast_dynamic_routerport_allow_mask_get_locked(
+	struct yt921x_priv *priv, u32 *mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	u32 raw;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_MCAST_DYNAMIC_ROUTER_PORT, &raw);
+	if (res)
+		return res;
+
+	*mask = FIELD_GET(YT921X_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M, raw);
+	*mask &= yt921x_user_ports_mask(ds);
+
+	return 0;
+}
+
+static int yt921x_mcast_dynamic_routerport_allow_mask_set_locked(
+	struct yt921x_priv *priv, u32 req_mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	u32 allowed_mask;
+
+	allowed_mask = yt921x_user_ports_mask(ds);
+	if (req_mask & ~allowed_mask)
+		return -EINVAL;
+
+	return yt921x_reg_update_bits(priv, YT921X_MCAST_DYNAMIC_ROUTER_PORT,
+				      YT921X_MCAST_DYNAMIC_ROUTER_PORT_ALLOW_M,
+				      YT921X_MCAST_DYNAMIC_ROUTER_PORT_ALLOW(req_mask));
 }
 
 static int yt921x_dot1x_mac_based_get_locked(struct yt921x_priv *priv, u32 *mask)
@@ -736,12 +812,13 @@ static int yt921x_dot1x_raw_mask_set_locked(struct yt921x_priv *priv, u32 id,
 	}
 }
 
-static int yt921x_rma_slow_action_get_locked(struct yt921x_priv *priv, u32 *action)
+static int yt921x_rma_action_get_locked(struct yt921x_priv *priv, u8 index,
+					u32 *action)
 {
 	u32 ctrl;
 	int res;
 
-	res = yt921x_reg_read(priv, YT921X_RMA_CTRLn(0x02), &ctrl);
+	res = yt921x_reg_read(priv, YT921X_RMA_CTRLn(index), &ctrl);
 	if (res)
 		return res;
 
@@ -758,12 +835,13 @@ static int yt921x_rma_slow_action_get_locked(struct yt921x_priv *priv, u32 *acti
 	return 0;
 }
 
-static int yt921x_rma_slow_action_set_locked(struct yt921x_priv *priv, u32 req_action)
+static int yt921x_rma_action_set_locked(struct yt921x_priv *priv, u8 index,
+					u32 req_action)
 {
 	if (req_action > YT921X_RMA_ACT_DROP)
 		return -EINVAL;
 
-	return yt921x_stock_rma_ctrl_set(priv, 0x02, req_action, true, true);
+	return yt921x_stock_rma_ctrl_set(priv, index, req_action, true, true);
 }
 
 static int yt921x_ctrlpkt_act_mask_get_locked(struct yt921x_priv *priv, u32 reg,
@@ -787,6 +865,39 @@ static int yt921x_ctrlpkt_act_mask_set_locked(struct yt921x_priv *priv, u32 reg,
 		return -EINVAL;
 
 	return yt921x_reg_write(priv, reg, req_mask);
+}
+
+static int yt921x_mcast_fwd_policy_flag_get_locked(struct yt921x_priv *priv, u32 id,
+						   bool *enabled)
+{
+	u32 policy_mask;
+	u32 policy;
+	int res;
+
+	res = yt921x_devlink_param_to_mcast_fwd_policy_mask(id, &policy_mask);
+	if (res)
+		return res;
+
+	res = yt921x_reg_read(priv, YT921X_MCAST_FWD_POLICY, &policy);
+	if (res)
+		return res;
+
+	*enabled = !!(policy & policy_mask);
+	return 0;
+}
+
+static int yt921x_mcast_fwd_policy_flag_set_locked(struct yt921x_priv *priv, u32 id,
+						   bool enabled)
+{
+	u32 policy_mask;
+	int res;
+
+	res = yt921x_devlink_param_to_mcast_fwd_policy_mask(id, &policy_mask);
+	if (res)
+		return res;
+
+	return yt921x_reg_toggle_bits(priv, YT921X_MCAST_FWD_POLICY, policy_mask,
+				      enabled);
 }
 
 static int yt921x_mcast_opmode_get_locked(struct yt921x_priv *priv, u32 id,
@@ -956,10 +1067,13 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 	u32 ctrlpkt_reg;
 	u32 ctrl1_mask;
 	u32 mask;
+	u8 rma_index;
+	u32 mcast_fwd_policy_mask;
 	u32 mcast_policy_mask;
 	u32 ctrl;
 	u32 dot1x_mask;
 	u32 port_mask;
+	bool enabled;
 	int res;
 
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -1010,6 +1124,18 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 		return 0;
 	}
 
+	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_DYNAMIC_ROUTERPORT_ALLOW_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_dynamic_routerport_allow_mask_get_locked(priv,
+									    &mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = mask;
+		return 0;
+	}
+
 	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK) {
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_mcast_bypass_grouprange_mask_get_locked(priv, &mask);
@@ -1033,9 +1159,10 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 		return 0;
 	}
 
-	if (id == YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION) {
+	res = yt921x_devlink_param_to_rma_index(id, &rma_index);
+	if (!res) {
 		mutex_lock(&priv->reg_lock);
-		res = yt921x_rma_slow_action_get_locked(priv, &mask);
+		res = yt921x_rma_action_get_locked(priv, rma_index, &mask);
 		mutex_unlock(&priv->reg_lock);
 		if (res)
 			return res;
@@ -1053,6 +1180,19 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			return res;
 
 		ctx->val.vu32 = mask;
+		return 0;
+	}
+
+	res = yt921x_devlink_param_to_mcast_fwd_policy_mask(id,
+							      &mcast_fwd_policy_mask);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_fwd_policy_flag_get_locked(priv, id, &enabled);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vbool = enabled;
 		return 0;
 	}
 
@@ -1105,6 +1245,8 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 	u32 ctrlpkt_reg;
 	u32 ctrl1_mask;
 	u32 mask;
+	u8 rma_index;
+	u32 mcast_fwd_policy_mask;
 	u32 mcast_policy_mask;
 	int res;
 
@@ -1156,6 +1298,14 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 		return res;
 	}
 
+	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_DYNAMIC_ROUTERPORT_ALLOW_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_dynamic_routerport_allow_mask_set_locked(priv,
+									    ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
 	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK) {
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_mcast_bypass_grouprange_mask_set_locked(priv,
@@ -1174,9 +1324,10 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 		return res;
 	}
 
-	if (id == YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION) {
+	res = yt921x_devlink_param_to_rma_index(id, &rma_index);
+	if (!res) {
 		mutex_lock(&priv->reg_lock);
-		res = yt921x_rma_slow_action_set_locked(priv, ctx->val.vu32);
+		res = yt921x_rma_action_set_locked(priv, rma_index, ctx->val.vu32);
 		mutex_unlock(&priv->reg_lock);
 		return res;
 	}
@@ -1186,6 +1337,16 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_ctrlpkt_act_mask_set_locked(priv, ctrlpkt_reg,
 							 ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	res = yt921x_devlink_param_to_mcast_fwd_policy_mask(id,
+							      &mcast_fwd_policy_mask);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_fwd_policy_flag_set_locked(priv, id,
+							      ctx->val.vbool);
 		mutex_unlock(&priv->reg_lock);
 		return res;
 	}
@@ -1296,9 +1457,34 @@ static const struct devlink_param yt921x_devlink_params[] = {
 				 "mcast_igmp_bypass_iso_mask",
 				 DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_ROUTER_PORT_ONLY,
+				 "mcast_router_port_only",
+				 DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_ROUTER_PORT_PRIMARY,
+				 "mcast_router_port_primary",
+				 DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_REPORT_LEAVE_FWD,
+				 "mcast_report_leave_fwd",
+				 DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_DYNAMIC_ROUTERPORT_ALLOW_MASK,
+				 "mcast_dynamic_routerport_allow_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK,
 				 "mcast_bypass_grouprange_mask",
 				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_BPDU_ACTION,
+				 "rma_bpdu_action", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_ACTION,
+				 "rma_eapol_action", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_LLDP_ACTION,
+				 "rma_lldp_action", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
 				 "rma_slow_action", DEVLINK_PARAM_TYPE_U32,
