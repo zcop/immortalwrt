@@ -363,6 +363,12 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_EEE_ACT_MASK,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_ACT_MASK,
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE,
+	YT921X_DEVLINK_PARAM_ID_STORM_GUARD_PPS,
+	YT921X_DEVLINK_PARAM_ID_STORM_GUARD_HOLD_MS,
+	YT921X_DEVLINK_PARAM_ID_STORM_GUARD_INTERVAL_MS,
+#endif
 };
 
 static int yt921x_devlink_param_to_vlan_mask(u32 id, u32 *mask)
@@ -704,6 +710,64 @@ static int yt921x_ctrlpkt_act_mask_set_locked(struct yt921x_priv *priv, u32 reg,
 	return yt921x_reg_write(priv, reg, req_mask);
 }
 
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+static int
+yt921x_storm_guard_param_get_locked(struct yt921x_priv *priv, u32 id,
+				    struct devlink_param_gset_ctx *ctx)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE:
+		ctx->val.vbool = priv->storm_guard_enabled;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_PPS:
+		ctx->val.vu32 = priv->storm_guard_pps;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_HOLD_MS:
+		ctx->val.vu32 = priv->storm_guard_hold_ms;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_INTERVAL_MS:
+		ctx->val.vu32 = priv->storm_guard_interval_ms;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int
+yt921x_storm_guard_param_set_locked(struct yt921x_priv *priv, u32 id,
+				    struct devlink_param_gset_ctx *ctx,
+				    bool *restart)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE:
+		priv->storm_guard_enabled = ctx->val.vbool;
+		*restart = ctx->val.vbool;
+		break;
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_PPS:
+		priv->storm_guard_pps = max_t(u32, ctx->val.vu32, 1);
+		*restart = priv->storm_guard_enabled;
+		break;
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_HOLD_MS:
+		priv->storm_guard_hold_ms = max_t(u32, ctx->val.vu32, 100);
+		*restart = priv->storm_guard_enabled;
+		break;
+	case YT921X_DEVLINK_PARAM_ID_STORM_GUARD_INTERVAL_MS:
+		priv->storm_guard_interval_ms = max_t(u32, ctx->val.vu32, 100);
+		*restart = priv->storm_guard_enabled;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	memset(priv->storm_guard_block_until, 0,
+	       sizeof(priv->storm_guard_block_until));
+	priv->storm_guard_primed = false;
+	priv->flood_storm_mask = 0;
+
+	return yt921x_apply_flood_filters_locked(priv);
+}
+#endif
+
 int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			     struct devlink_param_gset_ctx *ctx)
 {
@@ -715,6 +779,18 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 	u32 dot1x_mask;
 	u32 port_mask;
 	int res;
+
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	if (id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE ||
+	    id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_PPS ||
+	    id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_HOLD_MS ||
+	    id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_INTERVAL_MS) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_storm_guard_param_get_locked(priv, id, ctx);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+#endif
 
 	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
 		mutex_lock(&priv->reg_lock);
@@ -811,6 +887,30 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 	u32 ctrl1_mask;
 	u32 mask;
 	int res;
+
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	if (id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE ||
+	    id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_PPS ||
+	    id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_HOLD_MS ||
+	    id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_INTERVAL_MS) {
+		bool restart = false;
+
+		if (id == YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE &&
+		    !ctx->val.vbool)
+			cancel_delayed_work_sync(&priv->storm_guard_work);
+
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_storm_guard_param_set_locked(priv, id, ctx, &restart);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		if (restart)
+			mod_delayed_work(system_wq, &priv->storm_guard_work, 0);
+
+		return 0;
+	}
+#endif
 
 	if (id == YT921X_DEVLINK_PARAM_ID_DOT1X_MAC_BASED_MASK) {
 		mutex_lock(&priv->reg_lock);
@@ -940,6 +1040,21 @@ static const struct devlink_param yt921x_devlink_params[] = {
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_ACT_MASK,
 				 "ctrlpkt_lldp_act_mask", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE,
+				 "storm_guard_enable", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_STORM_GUARD_PPS,
+				 "storm_guard_pps", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_STORM_GUARD_HOLD_MS,
+				 "storm_guard_hold_ms", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_STORM_GUARD_INTERVAL_MS,
+				 "storm_guard_interval_ms",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+#endif
 };
 
 int yt921x_devlink_params_register(struct dsa_switch *ds)
