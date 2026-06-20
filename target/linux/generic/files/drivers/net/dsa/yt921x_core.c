@@ -358,6 +358,14 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_DOT1X_PORT_BASED_MASK,
 	YT921X_DEVLINK_PARAM_ID_DOT1X_RX_PERMIT_MASK,
 	YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK,
+	YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_OPMODE,
+	YT921X_DEVLINK_PARAM_ID_MCAST_MLD_OPMODE,
+	YT921X_DEVLINK_PARAM_ID_MCAST_REPORT_ALLOW_MASK,
+	YT921X_DEVLINK_PARAM_ID_MCAST_QUERY_ALLOW_MASK,
+	YT921X_DEVLINK_PARAM_ID_MCAST_LEAVE_ALLOW_MASK,
+	YT921X_DEVLINK_PARAM_ID_MCAST_VLAN_LEAKY_MASK,
+	YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_BYPASS_ISO_MASK,
+	YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK,
 	YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
@@ -434,6 +442,29 @@ static int yt921x_devlink_param_to_ctrlpkt_reg(u32 id, u32 *reg)
 	}
 }
 
+static int yt921x_devlink_param_to_mcast_port_policy_mask(u32 id, u32 *mask)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_MCAST_REPORT_ALLOW_MASK:
+		*mask = YT921X_MCAST_PORT_POLICY_REPORT_ALLOW;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_QUERY_ALLOW_MASK:
+		*mask = YT921X_MCAST_PORT_POLICY_QUERY_ALLOW;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_LEAVE_ALLOW_MASK:
+		*mask = YT921X_MCAST_PORT_POLICY_LEAVE_ALLOW;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_VLAN_LEAKY_MASK:
+		*mask = YT921X_MCAST_PORT_POLICY_VLAN_LEAKY;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_BYPASS_ISO_MASK:
+		*mask = YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static u32 yt921x_user_ports_mask(struct dsa_switch *ds)
 {
 	struct dsa_port *dp;
@@ -483,6 +514,54 @@ static int yt921x_vlan_ctrl1_port_mask_set_locked(struct yt921x_priv *priv,
 		res = yt921x_reg_toggle_bits(priv,
 					     YT921X_PORTn_VLAN_CTRL1(dp->index),
 					     ctrl1_mask,
+					     !!(req_mask & BIT(dp->index)));
+		if (res)
+			return res;
+	}
+
+	return 0;
+}
+
+static int yt921x_mcast_port_policy_mask_get_locked(struct yt921x_priv *priv,
+						    u32 policy_mask,
+						    u32 *mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	u32 policy;
+	int res;
+
+	*mask = 0;
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_reg_read(priv, YT921X_MCAST_PORT_POLICYn(dp->index),
+				      &policy);
+		if (res)
+			return res;
+		if (policy & policy_mask)
+			*mask |= BIT(dp->index);
+	}
+
+	return 0;
+}
+
+static int yt921x_mcast_port_policy_mask_set_locked(struct yt921x_priv *priv,
+						    u32 policy_mask,
+						    u32 req_mask)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	u32 allowed_mask;
+	int res;
+
+	allowed_mask = yt921x_user_ports_mask(ds);
+	if (req_mask & ~allowed_mask)
+		return -EINVAL;
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_reg_toggle_bits(priv,
+					     YT921X_MCAST_PORT_POLICYn(dp->index),
+					     policy_mask,
 					     !!(req_mask & BIT(dp->index)));
 		if (res)
 			return res;
@@ -710,6 +789,108 @@ static int yt921x_ctrlpkt_act_mask_set_locked(struct yt921x_priv *priv, u32 reg,
 	return yt921x_reg_write(priv, reg, req_mask);
 }
 
+static int yt921x_mcast_opmode_get_locked(struct yt921x_priv *priv, u32 id,
+					  u32 *opmode)
+{
+	u32 policy;
+	u32 field;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_MCAST_FWD_POLICY, &policy);
+	if (res)
+		return res;
+
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_OPMODE:
+		field = FIELD_GET(YT921X_MCAST_FWD_POLICY_IGMP_OPMODE_M, policy);
+		break;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_MLD_OPMODE:
+		field = FIELD_GET(YT921X_MCAST_FWD_POLICY_MLD_OPMODE_M, policy);
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	*opmode = field;
+	return 0;
+}
+
+static int yt921x_mcast_opmode_set_locked(struct yt921x_priv *priv, u32 id,
+					  u32 req_opmode)
+{
+	u32 mask;
+	u32 val;
+
+	if (req_opmode > 3)
+		return -EINVAL;
+
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_OPMODE:
+		mask = YT921X_MCAST_FWD_POLICY_IGMP_OPMODE_M;
+		val = YT921X_MCAST_FWD_POLICY_IGMP_OPMODE(req_opmode);
+		break;
+	case YT921X_DEVLINK_PARAM_ID_MCAST_MLD_OPMODE:
+		mask = YT921X_MCAST_FWD_POLICY_MLD_OPMODE_M;
+		val = YT921X_MCAST_FWD_POLICY_MLD_OPMODE(req_opmode);
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return yt921x_reg_update_bits(priv, YT921X_MCAST_FWD_POLICY, mask, val);
+}
+
+static int
+yt921x_mcast_bypass_grouprange_mask_get_locked(struct yt921x_priv *priv,
+					       u32 *mask)
+{
+	u32 policy;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_MCAST_FWD_POLICY, &policy);
+	if (res)
+		return res;
+
+	*mask = 0;
+	if (policy & YT921X_MCAST_FWD_POLICY_BYPASS_239_255_255_X)
+		*mask |= BIT(0);
+	if (policy & YT921X_MCAST_FWD_POLICY_BYPASS_224_0_1_X)
+		*mask |= BIT(1);
+	if (policy & YT921X_MCAST_FWD_POLICY_BYPASS_224_0_0_X)
+		*mask |= BIT(2);
+	if (policy & YT921X_MCAST_FWD_POLICY_BYPASS_IPV6_00XX)
+		*mask |= BIT(3);
+
+	return 0;
+}
+
+static int
+yt921x_mcast_bypass_grouprange_mask_set_locked(struct yt921x_priv *priv,
+					       u32 req_mask)
+{
+	u32 mask;
+	u32 val = 0;
+
+	if (req_mask & ~GENMASK(3, 0))
+		return -EINVAL;
+
+	mask = YT921X_MCAST_FWD_POLICY_BYPASS_239_255_255_X |
+	       YT921X_MCAST_FWD_POLICY_BYPASS_224_0_1_X |
+	       YT921X_MCAST_FWD_POLICY_BYPASS_224_0_0_X |
+	       YT921X_MCAST_FWD_POLICY_BYPASS_IPV6_00XX;
+
+	if (req_mask & BIT(0))
+		val |= YT921X_MCAST_FWD_POLICY_BYPASS_239_255_255_X;
+	if (req_mask & BIT(1))
+		val |= YT921X_MCAST_FWD_POLICY_BYPASS_224_0_1_X;
+	if (req_mask & BIT(2))
+		val |= YT921X_MCAST_FWD_POLICY_BYPASS_224_0_0_X;
+	if (req_mask & BIT(3))
+		val |= YT921X_MCAST_FWD_POLICY_BYPASS_IPV6_00XX;
+
+	return yt921x_reg_update_bits(priv, YT921X_MCAST_FWD_POLICY, mask, val);
+}
+
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 static int
 yt921x_storm_guard_param_get_locked(struct yt921x_priv *priv, u32 id,
@@ -775,6 +956,7 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 	u32 ctrlpkt_reg;
 	u32 ctrl1_mask;
 	u32 mask;
+	u32 mcast_policy_mask;
 	u32 ctrl;
 	u32 dot1x_mask;
 	u32 port_mask;
@@ -816,6 +998,29 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 		return 0;
 	}
 
+	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_OPMODE ||
+	    id == YT921X_DEVLINK_PARAM_ID_MCAST_MLD_OPMODE) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_opmode_get_locked(priv, id, &mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = mask;
+		return 0;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_bypass_grouprange_mask_get_locked(priv, &mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = mask;
+		return 0;
+	}
+
 	if (id == YT921X_DEVLINK_PARAM_ID_VLAN_UNTAG_PVID_IGNORE) {
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_reg_read(priv, YT921X_VLAN_TRANS_UNTAG_PVID_IGNORE,
@@ -848,6 +1053,20 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 			return res;
 
 		ctx->val.vu32 = mask;
+		return 0;
+	}
+
+	res = yt921x_devlink_param_to_mcast_port_policy_mask(id, &mcast_policy_mask);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_port_policy_mask_get_locked(priv,
+							       mcast_policy_mask,
+							       &port_mask);
+		mutex_unlock(&priv->reg_lock);
+		if (res)
+			return res;
+
+		ctx->val.vu32 = port_mask;
 		return 0;
 	}
 
@@ -886,6 +1105,7 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 	u32 ctrlpkt_reg;
 	u32 ctrl1_mask;
 	u32 mask;
+	u32 mcast_policy_mask;
 	int res;
 
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -928,6 +1148,22 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 		return res;
 	}
 
+	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_OPMODE ||
+	    id == YT921X_DEVLINK_PARAM_ID_MCAST_MLD_OPMODE) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_opmode_set_locked(priv, id, ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	if (id == YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_bypass_grouprange_mask_set_locked(priv,
+								     ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
 	if (id == YT921X_DEVLINK_PARAM_ID_VLAN_UNTAG_PVID_IGNORE) {
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_reg_toggle_bits(priv,
@@ -950,6 +1186,16 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_ctrlpkt_act_mask_set_locked(priv, ctrlpkt_reg,
 							 ctx->val.vu32);
+		mutex_unlock(&priv->reg_lock);
+		return res;
+	}
+
+	res = yt921x_devlink_param_to_mcast_port_policy_mask(id, &mcast_policy_mask);
+	if (!res) {
+		mutex_lock(&priv->reg_lock);
+		res = yt921x_mcast_port_policy_mask_set_locked(priv,
+							       mcast_policy_mask,
+							       ctx->val.vu32);
 		mutex_unlock(&priv->reg_lock);
 		return res;
 	}
@@ -1023,6 +1269,36 @@ static const struct devlink_param yt921x_devlink_params[] = {
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_DOT1X_TX_PERMIT_MASK,
 				 "dot1x_tx_permit_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_OPMODE,
+				 "mcast_igmp_opmode", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_MLD_OPMODE,
+				 "mcast_mld_opmode", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_REPORT_ALLOW_MASK,
+				 "mcast_report_allow_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_QUERY_ALLOW_MASK,
+				 "mcast_query_allow_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_LEAVE_ALLOW_MASK,
+				 "mcast_leave_allow_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_VLAN_LEAKY_MASK,
+				 "mcast_vlan_leaky_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_IGMP_BYPASS_ISO_MASK,
+				 "mcast_igmp_bypass_iso_mask",
+				 DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK,
+				 "mcast_bypass_grouprange_mask",
+				 DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
 				 "rma_slow_action", DEVLINK_PARAM_TYPE_U32,
