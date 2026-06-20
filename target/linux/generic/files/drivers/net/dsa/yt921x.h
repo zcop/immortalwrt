@@ -1369,6 +1369,7 @@ struct yt921x_priv {
 	u16 acl_mirror_count;
 	int acl_mirror_to_port;
 	unsigned long acl_meter_map[BITS_TO_LONGS(YT921X_METER_NUM)];
+	unsigned long acl_flow_stats_map[BITS_TO_LONGS(YT921X_FLOWSTAT_NUM)];
 	u32 udfs_ctrl[YT921X_UDF_NUM];
 	u16 udfs_refcnt[YT921X_UDF_NUM];
 	u16 policer_ports;

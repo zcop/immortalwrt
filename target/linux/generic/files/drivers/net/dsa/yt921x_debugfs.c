@@ -9,13 +9,6 @@
 #include "yt921x_internal.h"
 
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
-enum yt921x_rma_action {
-	YT921X_RMA_ACT_FORWARD = 0,
-	YT921X_RMA_ACT_TRAP_TO_CPU = 1,
-	YT921X_RMA_ACT_COPY_TO_CPU = 2,
-	YT921X_RMA_ACT_DROP = 3,
-};
-
 static int yt921x_rma_ctrl_action_set(u32 *ctrl,
 				      enum yt921x_rma_action action)
 {

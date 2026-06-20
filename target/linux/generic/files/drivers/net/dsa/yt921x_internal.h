@@ -74,6 +74,13 @@ struct yt921x_meter {
 	int unit;
 };
 
+enum yt921x_rma_action {
+	YT921X_RMA_ACT_FORWARD = 0,
+	YT921X_RMA_ACT_TRAP_TO_CPU = 1,
+	YT921X_RMA_ACT_COPY_TO_CPU = 2,
+	YT921X_RMA_ACT_DROP = 3,
+};
+
 static inline void
 yt921x_record_err(struct yt921x_priv *priv, atomic64_t *counter,
 		  enum yt921x_telemetry_stage stage, int err, int port,

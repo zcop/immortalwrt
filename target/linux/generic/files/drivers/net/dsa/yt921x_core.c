@@ -215,13 +215,6 @@ yt921x_reg_toggle_bits(struct yt921x_priv *priv, u32 reg, u32 mask, bool set)
 	return yt921x_reg_update_bits(priv, reg, mask, !set ? 0 : mask);
 }
 
-enum yt921x_rma_action {
-	YT921X_RMA_ACT_FORWARD = 0,
-	YT921X_RMA_ACT_TRAP_TO_CPU = 1,
-	YT921X_RMA_ACT_COPY_TO_CPU = 2,
-	YT921X_RMA_ACT_DROP = 3,
-};
-
 static int
 yt921x_stock_rma_ctrl_set(struct yt921x_priv *priv, u8 index,
 			  enum yt921x_rma_action action,

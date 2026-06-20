@@ -44,6 +44,31 @@ static int yt921x_acl_meter_clear_hw(struct yt921x_priv *priv, u32 meter_id)
 }
 
 static int
+yt921x_acl_flow_stats_alloc(struct yt921x_priv *priv, u32 *flow_stats_idp)
+{
+	unsigned long flow_stats_id;
+
+	flow_stats_id = find_first_zero_bit(priv->acl_flow_stats_map,
+					     YT921X_FLOWSTAT_NUM);
+	if (flow_stats_id >= (unsigned long)YT921X_FLOWSTAT_NUM)
+		return -ENOSPC;
+
+	__set_bit(flow_stats_id, priv->acl_flow_stats_map);
+	*flow_stats_idp = flow_stats_id;
+
+	return 0;
+}
+
+static void
+yt921x_acl_flow_stats_free(struct yt921x_priv *priv, u32 flow_stats_id)
+{
+	if (flow_stats_id >= YT921X_FLOWSTAT_NUM)
+		return;
+
+	__clear_bit(flow_stats_id, priv->acl_flow_stats_map);
+}
+
+static int
 yt921x_acl_flow_stats_clear_hw(struct yt921x_priv *priv, u8 flow_stats_id)
 {
 	int res;
@@ -1894,6 +1919,7 @@ yt921x_acl_del(struct yt921x_priv *priv, unsigned long cookie,
 	    flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
 		int clear_res = yt921x_acl_flow_stats_clear_hw(priv, flow_stats_id);
 
+		yt921x_acl_flow_stats_free(priv, flow_stats_id);
 		if (clear_res)
 			YT921X_RECORD_ERR(priv, acl_commit_errors,
 					  YT921X_TELEM_STAGE_ACL_COMMIT,
@@ -2067,8 +2093,10 @@ err_flow_stats:
 	if (priv->acl.useds[blkid] >= hweight8(ents_mask))
 		priv->acl.useds[blkid] -= hweight8(ents_mask);
 	yt921x_acl_commit(priv, blkid, ents_mask, BIT(offset));
-	if (group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID)
+	if (group[0].flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
 		yt921x_acl_flow_stats_clear_hw(priv, group[0].flow_stats_id);
+		yt921x_acl_flow_stats_free(priv, group[0].flow_stats_id);
+	}
 	return res;
 }
 
@@ -2165,6 +2193,7 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
 	const struct flow_action_entry *act;
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u32 flow_stats_id = YT921X_ACL_FLOW_STATS_ID_INVALID;
 	unsigned int udfs_cnt = 0;
 	u32 meter_id = YT921X_ACL_METER_ID_INVALID;
 	bool mirror_prepared = false;
@@ -2195,9 +2224,15 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		goto out_unlock;
 	}
 
-	yt921x_reg_write(priv, YT921X_FLOWSTATn_CTRL(0), 0x8);
+	res = yt921x_acl_flow_stats_alloc(priv, &flow_stats_id);
+	if (res) {
+		NL_SET_ERR_MSG_MOD(cls->common.extack,
+				   "No ACL flow stats slot available");
+		goto out_unlock;
+	}
 
-	group[0].flow_stats_id = 0;
+	group[0].flow_stats_id = flow_stats_id;
+	group[0].flow_stats_last = 0;
 	group[0].action[0] |= YT921X_ACL_ACTa_FLOW_STATS_EN;
 	group[0].action[0] &= ~YT921X_ACL_ACTa_FLOW_STATS_PTR;
 	group[0].action[0] |= FIELD_PREP(YT921X_ACL_ACTa_FLOW_STATS_PTR,
@@ -2214,7 +2249,7 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 			NL_SET_ERR_MSG_MOD(cls->common.extack,
 					   "Multiple police actions are not supported");
 			res = -EOPNOTSUPP;
-			goto out_unlock;
+			goto out_cleanup;
 		}
 
 		res = yt921x_acl_meter_alloc(priv, &meter_id);
@@ -2222,7 +2257,7 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 			NL_SET_ERR_MSG_MOD(cls->common.extack,
 					   "No ACL meter profile available");
 			res = -ENOSPC;
-			goto out_unlock;
+			goto out_cleanup;
 		}
 
 		res = yt921x_acl_meter_apply(priv, port, meter_id,
@@ -2230,7 +2265,7 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		if (res) {
 			yt921x_acl_meter_free(priv, meter_id);
 			meter_id = YT921X_ACL_METER_ID_INVALID;
-			goto out_unlock;
+			goto out_cleanup;
 		}
 
 		group[0].action[0] &= ~YT921X_ACL_ACTa_METER_ID_M;
@@ -2243,13 +2278,8 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 	if (group[0].mirror_en) {
 		res = yt921x_acl_mirror_get(priv, group[0].mirror_to_port,
 					    cls->common.extack);
-		if (res) {
-			if (meter_id != YT921X_ACL_METER_ID_INVALID) {
-				yt921x_acl_meter_clear_hw(priv, meter_id);
-				yt921x_acl_meter_free(priv, meter_id);
-			}
-			goto out_unlock;
-		}
+		if (res)
+			goto out_cleanup;
 
 		mirror_prepared = true;
 	}
@@ -2259,6 +2289,25 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 	if (res && meter_id != YT921X_ACL_METER_ID_INVALID) {
 		yt921x_acl_meter_clear_hw(priv, meter_id);
 		yt921x_acl_meter_free(priv, meter_id);
+		meter_id = YT921X_ACL_METER_ID_INVALID;
+	}
+	if (res && flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
+		yt921x_acl_flow_stats_clear_hw(priv, flow_stats_id);
+		yt921x_acl_flow_stats_free(priv, flow_stats_id);
+		flow_stats_id = YT921X_ACL_FLOW_STATS_ID_INVALID;
+	}
+	if (res && mirror_prepared)
+		yt921x_acl_mirror_put(priv, group[0].mirror_to_port);
+	goto out_unlock;
+
+out_cleanup:
+	if (res && meter_id != YT921X_ACL_METER_ID_INVALID) {
+		yt921x_acl_meter_clear_hw(priv, meter_id);
+		yt921x_acl_meter_free(priv, meter_id);
+	}
+	if (res && flow_stats_id != YT921X_ACL_FLOW_STATS_ID_INVALID) {
+		yt921x_acl_flow_stats_clear_hw(priv, flow_stats_id);
+		yt921x_acl_flow_stats_free(priv, flow_stats_id);
 	}
 	if (res && mirror_prepared)
 		yt921x_acl_mirror_put(priv, group[0].mirror_to_port);
