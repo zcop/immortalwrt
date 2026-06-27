@@ -364,9 +364,17 @@ enum yt921x_devlink_param_id {
 	YT921X_DEVLINK_PARAM_ID_MCAST_DYNAMIC_ROUTERPORT_ALLOW_MASK,
 	YT921X_DEVLINK_PARAM_ID_MCAST_BYPASS_GROUPRANGE_MASK,
 	YT921X_DEVLINK_PARAM_ID_RMA_BPDU_ACTION,
+	YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_ISO,
+	YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_VLAN,
 	YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_ACTION,
+	YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_ISO,
+	YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_VLAN,
 	YT921X_DEVLINK_PARAM_ID_RMA_LLDP_ACTION,
+	YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_ISO,
+	YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_VLAN,
 	YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
+	YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_ISO,
+	YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_VLAN,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
 	YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_EEE_ACT_MASK,
@@ -486,16 +494,44 @@ static int yt921x_devlink_param_to_rma_index(u32 id, u8 *index)
 {
 	switch (id) {
 	case YT921X_DEVLINK_PARAM_ID_RMA_BPDU_ACTION:
+	case YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_ISO:
+	case YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_VLAN:
 		*index = 0x00;
 		return 0;
 	case YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION:
+	case YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_ISO:
+	case YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_VLAN:
 		*index = 0x02;
 		return 0;
 	case YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_ACTION:
+	case YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_ISO:
+	case YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_VLAN:
 		*index = 0x03;
 		return 0;
 	case YT921X_DEVLINK_PARAM_ID_RMA_LLDP_ACTION:
+	case YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_ISO:
+	case YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_VLAN:
 		*index = 0x0e;
+		return 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int yt921x_devlink_param_to_rma_flag(u32 id, u32 *flag)
+{
+	switch (id) {
+	case YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_ISO:
+	case YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_ISO:
+	case YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_ISO:
+	case YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_ISO:
+		*flag = YT921X_RMA_CTRL_F6;
+		return 0;
+	case YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_VLAN:
+	case YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_VLAN:
+	case YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_VLAN:
+	case YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_VLAN:
+		*flag = YT921X_RMA_CTRL_F5;
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -831,10 +867,45 @@ static int yt921x_rma_action_get_locked(struct yt921x_priv *priv, u8 index,
 static int yt921x_rma_action_set_locked(struct yt921x_priv *priv, u8 index,
 					u32 req_action)
 {
+	u32 ctrl;
+	bool bypass_iso;
+	bool bypass_vlan;
+	int res;
+
 	if (req_action > YT921X_RMA_ACT_DROP)
 		return -EINVAL;
 
-	return yt921x_stock_rma_ctrl_set(priv, index, req_action, true, true);
+	res = yt921x_reg_read(priv, YT921X_RMA_CTRLn(index), &ctrl);
+	if (res)
+		return res;
+
+	bypass_iso = !!(ctrl & YT921X_RMA_CTRL_F6);
+	bypass_vlan = !!(ctrl & YT921X_RMA_CTRL_F5);
+
+	return yt921x_stock_rma_ctrl_set(priv, index, req_action,
+					 bypass_iso, bypass_vlan);
+}
+
+static int yt921x_rma_flag_get_locked(struct yt921x_priv *priv, u8 index,
+				      u32 flag, bool *enabled)
+{
+	u32 ctrl;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_RMA_CTRLn(index), &ctrl);
+	if (res)
+		return res;
+
+	*enabled = !!(ctrl & flag);
+
+	return 0;
+}
+
+static int yt921x_rma_flag_set_locked(struct yt921x_priv *priv, u8 index,
+				      u32 flag, bool enabled)
+{
+	return yt921x_reg_toggle_bits(priv, YT921X_RMA_CTRLn(index), flag,
+				      enabled);
 }
 
 static int yt921x_ctrlpkt_act_mask_get_locked(struct yt921x_priv *priv, u32 reg,
@@ -1061,6 +1132,7 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 	u32 ctrl1_mask;
 	u32 mask;
 	u8 rma_index;
+	u32 rma_flag;
 	u32 mcast_fwd_policy_mask;
 	u32 mcast_policy_mask;
 	u32 ctrl;
@@ -1154,6 +1226,19 @@ int yt921x_devlink_param_get(struct dsa_switch *ds, u32 id,
 
 	res = yt921x_devlink_param_to_rma_index(id, &rma_index);
 	if (!res) {
+		res = yt921x_devlink_param_to_rma_flag(id, &rma_flag);
+		if (!res) {
+			mutex_lock(&priv->reg_lock);
+			res = yt921x_rma_flag_get_locked(priv, rma_index, rma_flag,
+							 &enabled);
+			mutex_unlock(&priv->reg_lock);
+			if (res)
+				return res;
+
+			ctx->val.vbool = enabled;
+			return 0;
+		}
+
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_rma_action_get_locked(priv, rma_index, &mask);
 		mutex_unlock(&priv->reg_lock);
@@ -1239,6 +1324,7 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 	u32 ctrl1_mask;
 	u32 mask;
 	u8 rma_index;
+	u32 rma_flag;
 	u32 mcast_fwd_policy_mask;
 	u32 mcast_policy_mask;
 	int res;
@@ -1319,6 +1405,15 @@ int yt921x_devlink_param_set(struct dsa_switch *ds, u32 id,
 
 	res = yt921x_devlink_param_to_rma_index(id, &rma_index);
 	if (!res) {
+		res = yt921x_devlink_param_to_rma_flag(id, &rma_flag);
+		if (!res) {
+			mutex_lock(&priv->reg_lock);
+			res = yt921x_rma_flag_set_locked(priv, rma_index, rma_flag,
+							 ctx->val.vbool);
+			mutex_unlock(&priv->reg_lock);
+			return res;
+		}
+
 		mutex_lock(&priv->reg_lock);
 		res = yt921x_rma_action_set_locked(priv, rma_index, ctx->val.vu32);
 		mutex_unlock(&priv->reg_lock);
@@ -1473,20 +1568,45 @@ static const struct devlink_param yt921x_devlink_params[] = {
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_BPDU_ACTION,
 				 "rma_bpdu_action", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_ISO,
+				 "rma_bpdu_bypass_iso", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_BPDU_BYPASS_VLAN,
+				 "rma_bpdu_bypass_vlan", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_ACTION,
 				 "rma_eapol_action", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
-	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_LLDP_ACTION,
-				 "rma_lldp_action", DEVLINK_PARAM_TYPE_U32,
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_ISO,
+				 "rma_eapol_bypass_iso", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_EAPOL_BYPASS_VLAN,
+				 "rma_eapol_bypass_vlan", DEVLINK_PARAM_TYPE_BOOL,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_SLOW_ACTION,
 				 "rma_slow_action", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_ISO,
+				 "rma_slow_bypass_iso", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_SLOW_BYPASS_VLAN,
+				 "rma_slow_bypass_vlan", DEVLINK_PARAM_TYPE_BOOL,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_ARP_ACT_MASK,
 				 "ctrlpkt_arp_act_mask", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_ND_ACT_MASK,
 				 "ctrlpkt_nd_act_mask", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_LLDP_ACTION,
+				 "rma_lldp_action", DEVLINK_PARAM_TYPE_U32,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_ISO,
+				 "rma_lldp_bypass_iso", DEVLINK_PARAM_TYPE_BOOL,
+				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
+	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_RMA_LLDP_BYPASS_VLAN,
+				 "rma_lldp_bypass_vlan", DEVLINK_PARAM_TYPE_BOOL,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_EEE_ACT_MASK,
 				 "ctrlpkt_lldp_eee_act_mask",
@@ -1495,7 +1615,6 @@ static const struct devlink_param yt921x_devlink_params[] = {
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_CTRLPKT_LLDP_ACT_MASK,
 				 "ctrlpkt_lldp_act_mask", DEVLINK_PARAM_TYPE_U32,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
-#if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	DSA_DEVLINK_PARAM_DRIVER(YT921X_DEVLINK_PARAM_ID_STORM_GUARD_ENABLE,
 				 "storm_guard_enable", DEVLINK_PARAM_TYPE_BOOL,
 				 BIT(DEVLINK_PARAM_CMODE_RUNTIME)),
