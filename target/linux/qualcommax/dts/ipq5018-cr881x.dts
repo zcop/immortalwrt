@@ -92,6 +92,13 @@
 		};
 	};
 
+	switch_reset_pins: switch-reset-state {
+		pins = "gpio39";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-down;
+	};
+
 	leds_pins: leds_pins {
 		led_system_blue {
 			pins = "gpio24";
@@ -351,9 +358,12 @@
 };
 
 &mdio1 {
-	pinctrl-0 = <&mdio1_pins>;
+	pinctrl-0 = <&mdio1_pins>, <&switch_reset_pins>;
 	pinctrl-names = "default";
 	status = "okay";
+	reset-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
+	reset-assert-us = <10000>; /* 10ms */
+	reset-deassert-us = <50000>; /* 50ms */
 
 	// Motorcomm YT9215
 		ethernet-switch@1d {
@@ -371,10 +381,6 @@
 			 * base-files/etc/board.d/02_network.
 			 */
 			motorcomm,secondary-conduit-user-mask = <0x8>;
-
-			reset-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
-			reset-assert-us = <10000>; /* 10ms */
-		reset-deassert-us = <50000>; /* 50ms */
 
 		mdio {
 			#address-cells = <1>;
