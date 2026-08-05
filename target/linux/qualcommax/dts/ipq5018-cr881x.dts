@@ -5,7 +5,6 @@
 #include "ipq5018.dtsi"
 #include "ipq5018-ess.dtsi"
 #include "ipq5018-qcn6122.dtsi"
-#include <dt-bindings/net/qcom-ipq-ess.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 
@@ -16,10 +15,10 @@
 	aliases {
 		serial0 = &blsp1_uart1;
 
-		label-mac-device = &dp1;
+		label-mac-device = &gmac0;
 
-		ethernet0 = &dp1;
-		ethernet1 = &dp2;
+		ethernet0 = &gmac0;
+		ethernet1 = &gmac1;
 
 		led-boot = &led_system_blue;
 		led-failsafe = &led_system_red;
@@ -291,39 +290,14 @@
 	};
 };
 
-&switch {
+&uniphy0 {
 	status = "okay";
 
-	// Keep both CPU uplinks on 1G SGMII for compatibility/stability.
-	switch_mac_mode = <MAC_MODE_SGMII_CHANNEL0>;
-	switch_mac_mode1 = <MAC_MODE_SGMII_CHANNEL1>;
-	switch_mac_mode2 = <MAC_MODE_DISABLED>;
-
-	// ESS port bitmaps (match MAC0/MAC1 usage in qcom,port_phyinfo)
-	switch_cpu_bmp = <ESS_PORT0>;
-	switch_wan_bmp = <ESS_PORT1>;
-	switch_lan_bmp = <ESS_PORT2>;
-	switch_inner_bmp = <ESS_PORT7>;
-
-	qcom,port_phyinfo {
-		// MAC0 -> GE Phy --- YT9215 Phy4
-		port@1 {
-			port_id = <1>;
-			mdiobus = <&mdio0>;
-			phy_address = <7>;
-			phy_dac = <0x10 0x10>;
-		};
-
-		// MAC1 -> Uniphy --- SGMII --- YT9215 Phy8
-		port@2 {
-			port_id = <2>;
-			forced-speed = <1000>;
-			forced-duplex = <1>;
-		};
-	};
+	assigned-clocks = <&uniphy0 UNIPHY_CLK_REF>;
+	assigned-clock-rates = <UNIPHY_REFCLK_50MHZ>;
 };
 
-&dp1 {
+&gmac0 {
 	status = "okay";
 	phy-mode = "internal";
 	phy-handle = <&ge_phy>;
@@ -332,7 +306,7 @@
 	nvmem-cell-names = "mac-address";
 };
 
-&dp2 {
+&gmac1 {
 	status = "okay";
 	phy-mode = "sgmii";
 
@@ -464,7 +438,7 @@
 				label = "cpu";
 				phy-mode = "internal";
 				motorcomm,conduit-role = "secondary-conduit";
-				ethernet = <&dp1>;
+				ethernet = <&gmac0>;
 				fixed-link {
 					speed = <1000>;
 					full-duplex;
@@ -487,7 +461,7 @@
 				phy-mode = "sgmii";
 				motorcomm,serdes-revsgmii;
 				motorcomm,conduit-role = "primary-conduit";
-				ethernet = <&dp2>;
+				ethernet = <&gmac1>;
 				fixed-link {
 					speed = <1000>;
 					full-duplex;
