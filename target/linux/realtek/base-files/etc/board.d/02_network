@@ -53,6 +53,7 @@ realtek_setup_macs()
 
 	case $board in
 	datto,l8|\
+	edgecore,ecs2100-52t|\
 	edgecore,ecs4100-12ph|\
 	linksys,lgs310c|\
 	linksys,lgs328c|\
@@ -101,8 +102,11 @@ realtek_setup_macs()
 		;;
 	hasivo,f1100w-4sx-4xgt|\
 	hasivo,f1100w-4sx-4xgt-512mb|\
+	hasivo,f1100wp-4sx-4xgt|\
+	hasivo,f1100wp-4sx-4xgt-512mb|\
 	hasivo,f5800w-12s-plus|\
 	hasivo,s1300wp-8xgt-4s-plus|\
+	hasivo,s600wp-5gt-2s-plus|\
 	tplink,tl-st1008f-v2|\
 	zyxel,xgs1010-12-a1|\
 	zyxel,xgs1010-12-b1)

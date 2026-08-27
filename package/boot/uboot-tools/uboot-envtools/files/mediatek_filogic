@@ -42,6 +42,7 @@ h3c,magic-nx30-pro|\
 imou,hx21|\
 jcg,q30-pro|\
 livinet,zr-3020-ubootmod|\
+mercusys,mr85x-ubi|\
 mercusys,mr90x-v1-ubi|\
 netcore,n60|\
 netcore,n60-pro|\
@@ -57,6 +58,7 @@ qihoo,360t7-ubi|\
 routerich,ax3000-ubootmod|\
 routerich,be7200|\
 snr,snr-cpe-ax2|\
+teralink,tl3020-256mb|\
 tplink,be450-ubi|\
 tplink,tl-7dr7230-v1|\
 tplink,tl-7dr7230-v2|\
@@ -102,6 +104,7 @@ bananapi,bpi-r3-mini|\
 bananapi,bpi-r4|\
 bananapi,bpi-r4-lite|\
 bananapi,bpi-r4-poe|\
+bananapi,bpi-r4-pro-8x|\
 cmcc,rax3000m|\
 cmcc,rax3000me|\
 jdcloud,re-cp-03|\
@@ -138,6 +141,10 @@ wavlink,wl-wn536ax6-a)
 comfast,cf-e393ax|\
 iptime,ax3000m)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x80000"
+	;;
+comfast,cf-wa933|\
+comfast,cf-wa933-128m)
+	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x20000" "0x20000"
 	;;
 dlink,aquila-pro-ai-e30-a1|\
 dlink,aquila-pro-ai-m30-a1|\

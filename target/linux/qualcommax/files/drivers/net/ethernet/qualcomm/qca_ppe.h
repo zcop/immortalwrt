@@ -7,6 +7,7 @@
 #include <linux/bitmap.h>
 #include <linux/regmap.h>
 #include <linux/spinlock.h>
+#include <linux/workqueue.h>
 #include <linux/types.h>
 #include <linux/io.h>
 #include <net/dsa.h>
@@ -122,6 +123,12 @@
 /* --- XGMAC (base 0x003000) --- */
 #define PPE_MAC_XGMAC_CSR_BASE		0x003000
 
+/* MMC block: transmit counters from 0x800, receive from 0x900. Which offset
+ * answers for which GMAC counter is in the MIB table in qca_ppe_main.c.
+ */
+#define PPE_XGMAC_MIB(xgmac, off)	(PPE_MAC_XGMAC_CSR_BASE + \
+					 (xgmac) * 0x4000 + (off))
+
 #define PPE_XGMAC_TX_CONF(xgmac)	(PPE_MAC_XGMAC_CSR_BASE + (xgmac) * 0x4000)
 #define   PPE_XGMAC_TX_ENABLE		BIT(0)
 #define   PPE_XGMAC_JABBER_DISABLE	BIT(16) /* Called JD */
@@ -138,6 +145,7 @@
 #define   PPE_XGMAC_CRC_STRIP_TYPE	BIT(2) /* Called CST */
 #define   PPE_XGMAC_GMII_MPLS_LAYER_CK	BIT(6) /* Called GMPSLCE */
 #define   PPE_XGMAC_WATCHDOG_DISABLE	BIT(7) /* Called WD */
+#define   PPE_XGMAC_LOOPBACK		BIT(10) /* Called LM */
 
 #define PPE_XGMAC_PACKET_FILTER(xgmac)	(PPE_MAC_XGMAC_CSR_BASE + (xgmac) * 0x4000 + 0x8)
 #define   PPE_XGMAC_PROMISCUOUS		BIT(0) /* Called PR */
@@ -262,6 +270,7 @@
 #define   PPE_PORT_BRIDGE_CTRL_TXMAC_EN	BIT(16)
 
 #define PPE_MC_MTU_CTRL(port)		(PPE_L2_BASE + 0xa00 + (port) * 0x4)
+#define   PPE_MC_MTU_CTRL_MTU		GENMASK(13, 0)
 #define   PPE_MC_MTU_CTRL_TX_CNT_EN	BIT(16)
 
 #define PPE_RFDB_TBL(idx)		(PPE_L2_BASE + 0x1000 + (idx) * 0x8)
@@ -276,7 +285,9 @@
 #define   PPE_VSI_TBL_NEW_ADDR_LRN_EN	BIT(0)
 #define   PPE_VSI_TBL_STA_MOVE_LRN_EN	BIT(3)
 
-#define PPE_MRU_MTU_CTRL(port)		(PPE_L2_BASE + 0x3000 + (port) * 0x10)
+#define PPE_MRU_MTU_CTRL(port, stride)	(PPE_L2_BASE + 0x3000 + (port) * (stride))
+#define   PPE_MRU_MTU_CTRL_MRU		GENMASK(13, 0)
+#define   PPE_MRU_MTU_CTRL_MTU		GENMASK(29, 16)
 #define   PPE_MRU_MTU_CTRL_RX_CNT_EN	BIT(0)
 #define   PPE_MRU_MTU_CTRL_TX_CNT_EN	BIT(1)
 
@@ -419,8 +430,7 @@
 #define PPE_VSI_MAX			32
 #define PPE_VSI_INVALID			U32_MAX
 #define PPE_DEFAULT_MTU			1514
-#define PPE_MTU_SHIFT			16
-#define PPE_MAX_FRAME_SIZE		0x3000
+#define PPE_MAX_FRAME_SIZE		12288
 #define PPE_AGE_UNIT_MS			8000
 
 #define PPE_FDB_TBL_NUM			2048
@@ -468,6 +478,7 @@ struct ppe_data {
 	enum ppe_type type;
 	u8 num_ports;
 	u8 num_gmacs;
+	u8 mru_mtu_ctrl_stride;
 	u8 loopback_port;
 	u8 bm_phy_end;
 	u8 bm_internal_start;
@@ -496,6 +507,9 @@ struct qca_ppe_vlan_entry {
 	int xlt_pvid_idx;
 };
 
+/* Defined beside the MIB table that dimensions it. */
+struct qca_ppe_mib_stats;
+
 struct qca_ppe_priv {
 	struct dsa_switch ds;
 	struct regmap *regmap;
@@ -513,6 +527,15 @@ struct qca_ppe_priv {
 	struct clk *port_rx_clk[QCA_PPE_MAX_PORTS];
 	struct clk *port_tx_clk[QCA_PPE_MAX_PORTS];
 	struct reset_control *port_rst[QCA_PPE_MAX_PORTS];
+	bool port_xgmac[QCA_PPE_MAX_PORTS];
+	bool mib_xgmac[QCA_PPE_MAX_PORTS];
+	bool mib_rebase[QCA_PPE_MAX_PORTS];
+	struct qca_ppe_mib_stats *port_mib;
+	/* Guards port_mib, port_xgmac, mib_xgmac and mib_rebase; get_stats64
+	 * takes it in atomic context, so it is never a mutex.
+	 */
+	spinlock_t mib_lock;
+	struct delayed_work mib_work;
 };
 
 extern const struct psch_tdm_data cppe_psch_tdm_data;

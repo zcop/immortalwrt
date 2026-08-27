@@ -12,8 +12,16 @@
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/if_bridge.h>
+#include <linux/if_vlan.h>
+#include <linux/version.h>
 
 #include "qca_ppe.h"
+
+/* A port carrying nothing but minimum-sized frames at 10G wraps a packet
+ * counter in under five minutes, and a total only stays monotonic for as long
+ * as no counter wraps twice unobserved between folds.
+ */
+#define PPE_MIB_FOLD_INTERVAL	(30 * HZ)
 
 static void ppe_port_gmac_set(struct qca_ppe_priv *priv, int port,
 			     bool tx_en, bool rx_en)
@@ -150,7 +158,9 @@ static void ppe_xgmac_link_up(struct qca_ppe_priv *priv, int port,
 
 static void ppe_port_cnt_enable(struct qca_ppe_priv *priv, int port)
 {
-	regmap_update_bits(priv->regmap, PPE_MRU_MTU_CTRL(port) + 4,
+	regmap_update_bits(priv->regmap,
+			   PPE_MRU_MTU_CTRL(port,
+					    priv->data->mru_mtu_ctrl_stride) + 4,
 			   PPE_MRU_MTU_CTRL_RX_CNT_EN | PPE_MRU_MTU_CTRL_TX_CNT_EN,
 			   PPE_MRU_MTU_CTRL_RX_CNT_EN | PPE_MRU_MTU_CTRL_TX_CNT_EN);
 
@@ -431,11 +441,13 @@ static int qca_ppe_setup(struct dsa_switch *ds)
 {
 	struct qca_ppe_priv *priv = ds_to_priv(ds);
 	int num_ports = ds->num_ports;
+	u32 frame_size;
 	u32 port_mask;
 	u32 val;
 	int i;
 
 	port_mask = BIT(num_ports) - 1;
+	frame_size = PPE_DEFAULT_MTU + 2 * VLAN_HLEN;
 
 	for (i = 0; i < num_ports; i++)
 		priv->port_vsi[i] = PPE_VSI_INVALID;
@@ -445,8 +457,16 @@ static int qca_ppe_setup(struct dsa_switch *ds)
 	for (i = 0; i < num_ports; i++) {
 		regmap_write(priv->regmap, PPE_CST_STATE(i), PPE_STP_FORWARDING);
 
-		regmap_write(priv->regmap, PPE_MRU_MTU_CTRL(i),
-			     PPE_DEFAULT_MTU | (PPE_DEFAULT_MTU << PPE_MTU_SHIFT));
+		regmap_write(priv->regmap,
+			     PPE_MRU_MTU_CTRL(i,
+					      priv->data->mru_mtu_ctrl_stride),
+			     FIELD_PREP(PPE_MRU_MTU_CTRL_MRU, frame_size) |
+			     FIELD_PREP(PPE_MRU_MTU_CTRL_MTU, frame_size));
+
+		regmap_update_bits(priv->regmap, PPE_MC_MTU_CTRL(i),
+				   PPE_MC_MTU_CTRL_MTU,
+				   FIELD_PREP(PPE_MC_MTU_CTRL_MTU,
+					      frame_size));
 
 		if (i >= 1)
 			regmap_write(priv->regmap, PPE_GMAC_MIB_CTRL(i - 1),
@@ -493,6 +513,8 @@ static int qca_ppe_setup(struct dsa_switch *ds)
 		(u64)PPE_AGE_UNIT_MS * PPE_AGE_TIMER_MASK, U32_MAX);
 	ds->assisted_learning_on_cpu_port = true;
 
+	schedule_delayed_work(&priv->mib_work, PPE_MIB_FOLD_INTERVAL);
+
 	return 0;
 }
 
@@ -507,12 +529,45 @@ static int qca_ppe_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 	return 0;
 }
 
+static int qca_ppe_port_change_mtu(struct dsa_switch *ds, int port,
+				   int new_mtu)
+{
+	struct qca_ppe_priv *priv = ds_to_priv(ds);
+	u32 frame_size = new_mtu + ETH_HLEN + 2 * VLAN_HLEN;
+	int ret;
+
+	ret = regmap_update_bits(priv->regmap,
+				 PPE_MRU_MTU_CTRL(port,
+						  priv->data->mru_mtu_ctrl_stride),
+				 PPE_MRU_MTU_CTRL_MRU | PPE_MRU_MTU_CTRL_MTU,
+				 FIELD_PREP(PPE_MRU_MTU_CTRL_MRU, frame_size) |
+				 FIELD_PREP(PPE_MRU_MTU_CTRL_MTU, frame_size));
+	if (ret)
+		return ret;
+
+	return regmap_update_bits(priv->regmap, PPE_MC_MTU_CTRL(port),
+				  PPE_MC_MTU_CTRL_MTU,
+				  FIELD_PREP(PPE_MC_MTU_CTRL_MTU, frame_size));
+}
+
+static int qca_ppe_port_max_mtu(struct dsa_switch *ds, int port)
+{
+	return PPE_MAX_FRAME_SIZE - ETH_HLEN - ETH_FCS_LEN -
+	       2 * VLAN_HLEN;
+}
+
 static int qca_ppe_port_enable(struct dsa_switch *ds, int port,
 				   struct phy_device *phy)
 {
 	struct qca_ppe_priv *priv = ds_to_priv(ds);
 
-	ppe_port_bridge_txmac_set(priv, port, true);
+	/* A user port's gate is opened by qca_ppe_mac_link_up() once its MAC
+	 * is up. DSA calls this before phylink_start(), so opening it here
+	 * would aim the fabric at a MAC that is still down and about to be
+	 * re-clocked. The CPU port has no MAC of ours to wait for.
+	 */
+	if (dsa_is_cpu_port(ds, port))
+		ppe_port_bridge_txmac_set(priv, port, true);
 
 	return 0;
 }
@@ -954,6 +1009,12 @@ static void qca_ppe_xgmac_config(struct qca_ppe_priv *priv, int port)
 			   FIELD_PREP(PPE_XGMAC_PAUSE_TIME, 0xffff));
 }
 
+/* Defined with the MIB table it walks; the port reset and the bank change
+ * below have to bank the counters before the MIB they read stops being the
+ * one they were counted in.
+ */
+static void ppe_mib_fold(struct qca_ppe_priv *priv, int port);
+
 static void qca_ppe_mac_config(struct phylink_config *config,
 				    unsigned int mode,
 				    const struct phylink_link_state *state)
@@ -962,16 +1023,57 @@ static void qca_ppe_mac_config(struct phylink_config *config,
 	struct qca_ppe_priv *priv = ds_to_priv(dp->ds);
 	int port = dp->index;
 
-	if (state->interface == PHY_INTERFACE_MODE_USXGMII ||
+	if ((state->interface == PHY_INTERFACE_MODE_2500BASEX &&
+	     phylink_autoneg_inband(mode)) ||
+	    state->interface == PHY_INTERFACE_MODE_USXGMII ||
 	    state->interface == PHY_INTERFACE_MODE_10GBASER) {
 		qca_ppe_xgmac_config(priv, port);
 	}
 
 	if (priv->port_rst[port]) {
+		/* The reset clears the MIB, so bank what it has counted and
+		 * hold the rebase across the reset: a fold racing the window
+		 * below would otherwise consume it while the counters are
+		 * still running, and leave the drop to zero to be read as a
+		 * wrap. The baseline is taken here rather than left to the
+		 * periodic fold, so that nothing the port counts from
+		 * link-up is discarded.
+		 */
+		spin_lock_bh(&priv->mib_lock);
+		ppe_mib_fold(priv, port);
+		priv->mib_rebase[port] = true;
+		spin_unlock_bh(&priv->mib_lock);
+
 		reset_control_assert(priv->port_rst[port]);
 		msleep(150);
 		reset_control_deassert(priv->port_rst[port]);
+
+		spin_lock_bh(&priv->mib_lock);
+		ppe_mib_fold(priv, port);
+		priv->mib_rebase[port] = false;
+		spin_unlock_bh(&priv->mib_lock);
 	}
+}
+
+/* Release what is still in an XGMAC port's egress path by looping the
+ * transmitter back into it, as qca-ssdk does on link-down ("release ppe port
+ * egress packets when link down"). RX goes down in the same write: only the
+ * transmitter has to drain, and the loop would otherwise learn the hosts
+ * behind the other ports onto this one.
+ */
+static void ppe_port_xgmac_loopback_pulse(struct qca_ppe_priv *priv, int port)
+{
+	int xgmac = port - 5;
+
+	if (port < 5 || port >= priv->data->num_ports)
+		return;
+
+	regmap_update_bits(priv->regmap, PPE_XGMAC_RX_CONF(xgmac),
+			   PPE_XGMAC_LOOPBACK | PPE_XGMAC_RX_ENABLE,
+			   PPE_XGMAC_LOOPBACK);
+	usleep_range(1000, 2000);
+	regmap_clear_bits(priv->regmap, PPE_XGMAC_RX_CONF(xgmac),
+			  PPE_XGMAC_LOOPBACK);
 }
 
 static void qca_ppe_mac_link_down(struct phylink_config *config,
@@ -982,6 +1084,26 @@ static void qca_ppe_mac_link_down(struct phylink_config *config,
 	struct qca_ppe_priv *priv = ds_to_priv(dp->ds);
 	int port = dp->index;
 
+	/* The CPU port is INTERNAL: it falls through the switch below
+	 * without its MAC being touched, and qca_ppe_mac_link_up() would not
+	 * re-open its gate. Leave it alone.
+	 */
+	if (dsa_is_cpu_port(dp->ds, port))
+		return;
+
+	/* Gate the fabric before the MAC is torn down; qca_ppe_mac_link_up()
+	 * turns it back on once the MAC is up. Left on across a flap, the
+	 * fabric dequeues into a MAC that is still being re-clocked and
+	 * latches the port's egress scheduler in a state only a reboot clears.
+	 */
+	ppe_port_bridge_txmac_set(priv, port, false);
+
+	/* Let the egress path drain before the MAC goes: packets stranded
+	 * there when the link drops wedge the queue manager for good. Same
+	 * 10ms as qca-ssdk.
+	 */
+	msleep(10);
+
 	switch (interface) {
 	case PHY_INTERFACE_MODE_SGMII:
 	case PHY_INTERFACE_MODE_QSGMII:
@@ -990,13 +1112,16 @@ static void qca_ppe_mac_link_down(struct phylink_config *config,
 		ppe_port_gmac_set(priv, port, false, false);
 		break;
 	case PHY_INTERFACE_MODE_2500BASEX:
-		if (!phylink_autoneg_inband(mode))
+		if (!phylink_autoneg_inband(mode)) {
 			ppe_port_gmac_set(priv, port, false, false);
-		else
+		} else {
+			ppe_port_xgmac_loopback_pulse(priv, port);
 			ppe_port_xgmac_set(priv, port, false, false);
+		}
 		break;
 	case PHY_INTERFACE_MODE_10GBASER:
 	case PHY_INTERFACE_MODE_USXGMII:
+		ppe_port_xgmac_loopback_pulse(priv, port);
 		ppe_port_xgmac_set(priv, port, false, false);
 		break;
 	default:
@@ -1004,6 +1129,19 @@ static void qca_ppe_mac_link_down(struct phylink_config *config,
 	}
 
 	return;
+}
+
+static bool qca_ppe_port_uses_xgmac(unsigned int mode, phy_interface_t interface)
+{
+	switch (interface) {
+	case PHY_INTERFACE_MODE_2500BASEX:
+		return phylink_autoneg_inband(mode);
+	case PHY_INTERFACE_MODE_USXGMII:
+	case PHY_INTERFACE_MODE_10GBASER:
+		return true;
+	default:
+		return false;
+	}
 }
 
 static void qca_ppe_mac_link_up(struct phylink_config *config,
@@ -1024,6 +1162,17 @@ static void qca_ppe_mac_link_up(struct phylink_config *config,
 	     interface == PHY_INTERFACE_MODE_10GBASER) &&
 	     port < 5)
 		return;
+
+	/* Bank what the MAC the port is leaving has counted, then baseline
+	 * the one it arrives on: a rebase left to the periodic fold would
+	 * discard everything the new MAC counted in the meantime. Where the
+	 * bank does not change the second fold adds nothing.
+	 */
+	spin_lock_bh(&priv->mib_lock);
+	ppe_mib_fold(priv, port);
+	priv->port_xgmac[port] = qca_ppe_port_uses_xgmac(mode, interface);
+	ppe_mib_fold(priv, port);
+	spin_unlock_bh(&priv->mib_lock);
 
 	switch (interface) {
 	case PHY_INTERFACE_MODE_SGMII:
@@ -1124,66 +1273,201 @@ static void qca_ppe_mac_link_up(struct phylink_config *config,
 	default:
 		return;
 	}
+
+	/* MAC is up, so the fabric may feed the port again. The early returns
+	 * above bring no MAC up, so they leave the gate closed on purpose.
+	 */
+	ppe_port_bridge_txmac_set(priv, port, true);
 }
+
+/* qca_ppe implements no LPI. The stubs exist only to make
+ * phylink_mac_implements_lpi() true with lpi_capabilities left at 0 -
+ * phylink's "EEE always disabled" case, where phylink_bringup_phy() calls
+ * phy_disable_eee(). Without that the PHYs negotiate 802.3az and egress into
+ * a MAC waking from LPI wedges the port. Never called; the ops are 6.14+.
+ */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+static int qca_ppe_mac_enable_tx_lpi(struct phylink_config *config, u32 timer,
+				     bool tx_clk_stop)
+{
+	return 0;
+}
+
+static void qca_ppe_mac_disable_tx_lpi(struct phylink_config *config)
+{
+}
+#endif
 
 static const struct phylink_mac_ops qca_ppe_phylink_mac_ops = {
 	.mac_prepare	= qca_ppe_mac_prepare,
 	.mac_config	= qca_ppe_mac_config,
 	.mac_link_down	= qca_ppe_mac_link_down,
 	.mac_link_up	= qca_ppe_mac_link_up,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+	.mac_enable_tx_lpi	= qca_ppe_mac_enable_tx_lpi,
+	.mac_disable_tx_lpi	= qca_ppe_mac_disable_tx_lpi,
+#endif
 };
 
 struct qca_ppe_mib_desc {
 	unsigned int offset;
 	unsigned int size;
+	unsigned int xgmac;
+	unsigned int xgmac_size;
 	const char name[ETH_GSTRING_LEN];
 };
 
-#define MIB32(_off, _name)	{ .offset = (_off), .size = 1, .name = _name }
-#define MIB64(_off, _name)	{ .offset = (_off), .size = 2, .name = _name }
+#define MIB_ROW(_off, _sz, _xoff, _xsz, _name)				\
+	{ .offset = (_off), .size = (_sz), .xgmac = (_xoff),		\
+	  .xgmac_size = (_xsz), .name = _name }
 
+/* Each counter as both MACs express it: the GMAC offset and word count, then
+ * the XGMAC MMC offset and word count, or 0 where the XGMAC has no
+ * equivalent. The XGMAC lumps 1519-and-up into its 1024-to-max bin and counts
+ * no collisions, no alignment error and no bad receive bytes.
+ */
 static const struct qca_ppe_mib_desc qca_ppe_mib[] = {
-	MIB32(PPE_MIB_RXBROAD,		"rx_broadcast"),
-	MIB32(PPE_MIB_RXPAUSE,		"rx_pause"),
-	MIB32(PPE_MIB_RXMULTI,		"rx_multicast"),
-	MIB32(PPE_MIB_RXFCSERR,		"rx_fcs_error"),
-	MIB32(PPE_MIB_RXALIGNERR,	"rx_align_error"),
-	MIB32(PPE_MIB_RXRUNT,		"rx_runt"),
-	MIB32(PPE_MIB_RXFRAG,		"rx_fragment"),
-	MIB32(PPE_MIB_RXJUMBOFCSERR,	"rx_jumbo_fcs_error"),
-	MIB32(PPE_MIB_RXJUMBOALIGNERR,	"rx_jumbo_align_error"),
-	MIB32(PPE_MIB_RXPKT64,		"rx_64byte"),
-	MIB32(PPE_MIB_RXPKT65TO127,	"rx_65_127byte"),
-	MIB32(PPE_MIB_RXPKT128TO255,	"rx_128_255byte"),
-	MIB32(PPE_MIB_RXPKT256TO511,	"rx_256_511byte"),
-	MIB32(PPE_MIB_RXPKT512TO1023,	"rx_512_1023byte"),
-	MIB32(PPE_MIB_RXPKT1024TO1518,	"rx_1024_1518byte"),
-	MIB32(PPE_MIB_RXPKT1519TOX,	"rx_1519_maxbyte"),
-	MIB32(PPE_MIB_RXTOOLONG,	"rx_too_long"),
-	MIB64(PPE_MIB_RXGOODBYTE_L,	"rx_good_bytes"),
-	MIB64(PPE_MIB_RXBADBYTE_L,	"rx_bad_bytes"),
-	MIB32(PPE_MIB_RXUNI,		"rx_unicast"),
-	MIB32(PPE_MIB_TXBROAD,		"tx_broadcast"),
-	MIB32(PPE_MIB_TXPAUSE,		"tx_pause"),
-	MIB32(PPE_MIB_TXMULTI,		"tx_multicast"),
-	MIB32(PPE_MIB_TXUNDERRUN,	"tx_underrun"),
-	MIB32(PPE_MIB_TXPKT64,		"tx_64byte"),
-	MIB32(PPE_MIB_TXPKT65TO127,	"tx_65_127byte"),
-	MIB32(PPE_MIB_TXPKT128TO255,	"tx_128_255byte"),
-	MIB32(PPE_MIB_TXPKT256TO511,	"tx_256_511byte"),
-	MIB32(PPE_MIB_TXPKT512TO1023,	"tx_512_1023byte"),
-	MIB32(PPE_MIB_TXPKT1024TO1518,	"tx_1024_1518byte"),
-	MIB32(PPE_MIB_TXPKT1519TOX,	"tx_1519_maxbyte"),
-	MIB64(PPE_MIB_TXBYTE_L,		"tx_bytes"),
-	MIB32(PPE_MIB_TXCOLLISIONS,	"tx_collisions"),
-	MIB32(PPE_MIB_TXABORTCOL,	"tx_abort_collision"),
-	MIB32(PPE_MIB_TXMULTICOL,	"tx_multi_collision"),
-	MIB32(PPE_MIB_TXSINGLECOL,	"tx_single_collision"),
-	MIB32(PPE_MIB_TXEXCESSIVEDEFER,	"tx_excessive_defer"),
-	MIB32(PPE_MIB_TXDEFER,		"tx_defer"),
-	MIB32(PPE_MIB_TXLATECOL,	"tx_late_collision"),
-	MIB32(PPE_MIB_TXUNI,		"tx_unicast"),
+	MIB_ROW(PPE_MIB_RXBROAD, 1, 0x918, 2, "rx_broadcast"),
+	MIB_ROW(PPE_MIB_RXPAUSE, 1, 0x988, 2, "rx_pause"),
+	MIB_ROW(PPE_MIB_RXMULTI, 1, 0x920, 2, "rx_multicast"),
+	MIB_ROW(PPE_MIB_RXFCSERR, 1, 0x928, 2, "rx_fcs_error"),
+	MIB_ROW(PPE_MIB_RXALIGNERR, 1, 0, 0, "rx_align_error"),
+	MIB_ROW(PPE_MIB_RXRUNT, 1, 0x938, 1, "rx_runt"),
+	MIB_ROW(PPE_MIB_RXFRAG, 1, 0x930, 1, "rx_fragment"),
+	MIB_ROW(PPE_MIB_RXJUMBOFCSERR, 1, 0x934, 1, "rx_jumbo_fcs_error"),
+	MIB_ROW(PPE_MIB_RXJUMBOALIGNERR, 1, 0, 0, "rx_jumbo_align_error"),
+	MIB_ROW(PPE_MIB_RXPKT64, 1, 0x940, 2, "rx_64byte"),
+	MIB_ROW(PPE_MIB_RXPKT65TO127, 1, 0x948, 2, "rx_65_127byte"),
+	MIB_ROW(PPE_MIB_RXPKT128TO255, 1, 0x950, 2, "rx_128_255byte"),
+	MIB_ROW(PPE_MIB_RXPKT256TO511, 1, 0x958, 2, "rx_256_511byte"),
+	MIB_ROW(PPE_MIB_RXPKT512TO1023, 1, 0x960, 2, "rx_512_1023byte"),
+	MIB_ROW(PPE_MIB_RXPKT1024TO1518, 1, 0x968, 2, "rx_1024_1518byte"),
+	MIB_ROW(PPE_MIB_RXPKT1519TOX, 1, 0, 0, "rx_1519_maxbyte"),
+	MIB_ROW(PPE_MIB_RXTOOLONG, 1, 0x93c, 1, "rx_too_long"),
+	MIB_ROW(PPE_MIB_RXGOODBYTE_L, 2, 0x910, 2, "rx_good_bytes"),
+	MIB_ROW(PPE_MIB_RXBADBYTE_L, 2, 0, 0, "rx_bad_bytes"),
+	MIB_ROW(PPE_MIB_RXUNI, 1, 0x970, 2, "rx_unicast"),
+	MIB_ROW(PPE_MIB_TXBROAD, 1, 0x874, 2, "tx_broadcast"),
+	MIB_ROW(PPE_MIB_TXPAUSE, 1, 0x894, 2, "tx_pause"),
+	MIB_ROW(PPE_MIB_TXMULTI, 1, 0x86c, 2, "tx_multicast"),
+	MIB_ROW(PPE_MIB_TXUNDERRUN, 1, 0x87c, 2, "tx_underrun"),
+	MIB_ROW(PPE_MIB_TXPKT64, 1, 0x834, 2, "tx_64byte"),
+	MIB_ROW(PPE_MIB_TXPKT65TO127, 1, 0x83c, 2, "tx_65_127byte"),
+	MIB_ROW(PPE_MIB_TXPKT128TO255, 1, 0x844, 2, "tx_128_255byte"),
+	MIB_ROW(PPE_MIB_TXPKT256TO511, 1, 0x84c, 2, "tx_256_511byte"),
+	MIB_ROW(PPE_MIB_TXPKT512TO1023, 1, 0x854, 2, "tx_512_1023byte"),
+	MIB_ROW(PPE_MIB_TXPKT1024TO1518, 1, 0x85c, 2, "tx_1024_1518byte"),
+	MIB_ROW(PPE_MIB_TXPKT1519TOX, 1, 0, 0, "tx_1519_maxbyte"),
+	MIB_ROW(PPE_MIB_TXBYTE_L, 2, 0x814, 2, "tx_bytes"),
+	MIB_ROW(PPE_MIB_TXCOLLISIONS, 1, 0, 0, "tx_collisions"),
+	MIB_ROW(PPE_MIB_TXABORTCOL, 1, 0, 0, "tx_abort_collision"),
+	MIB_ROW(PPE_MIB_TXMULTICOL, 1, 0, 0, "tx_multi_collision"),
+	MIB_ROW(PPE_MIB_TXSINGLECOL, 1, 0, 0, "tx_single_collision"),
+	MIB_ROW(PPE_MIB_TXEXCESSIVEDEFER, 1, 0, 0, "tx_excessive_defer"),
+	MIB_ROW(PPE_MIB_TXDEFER, 1, 0, 0, "tx_defer"),
+	MIB_ROW(PPE_MIB_TXLATECOL, 1, 0, 0, "tx_late_collision"),
+	MIB_ROW(PPE_MIB_TXUNI, 1, 0x864, 2, "tx_unicast"),
 };
+
+/* What a counter has reached, and the raw register value that total was last
+ * brought up to date from.
+ */
+struct qca_ppe_mib_stats {
+	u64 total;
+	u64 last;
+};
+
+static struct qca_ppe_mib_stats *ppe_port_mib(struct qca_ppe_priv *priv,
+					      int port)
+{
+	return priv->port_mib + port * ARRAY_SIZE(qca_ppe_mib);
+}
+
+/* The GMAC keeps most counters in a single 32-bit register and neither MAC
+ * ever stops counting, so the registers wrap where the totals reported to
+ * userspace must not: each total takes the difference since the last fold, at
+ * the width of the register it came from.
+ *
+ * A difference is only meaningful across a counter that kept running. Two
+ * things break that, and both take a baseline instead: a port muxed to its
+ * XGMAC starts reading a second MAC's independent counters, since the idle
+ * block reads back zero; and resetting a port zeroes the MIB it owns, which
+ * an unguarded difference would read as a wrap and add 2^32 for.
+ */
+static void ppe_mib_fold(struct qca_ppe_priv *priv, int port)
+{
+	struct qca_ppe_mib_stats *stats;
+	bool xgmac, rebase;
+	int i;
+
+	/* The CPU port owns no MAC MIB, and phylink brings its fixed link up
+	 * like any other, so the fold guards itself rather than each caller.
+	 */
+	if (port < 1)
+		return;
+
+	stats = ppe_port_mib(priv, port);
+	xgmac = priv->port_xgmac[port];
+	rebase = priv->mib_rebase[port] || xgmac != priv->mib_xgmac[port];
+
+	for (i = 0; i < ARRAY_SIZE(qca_ppe_mib); i++) {
+		const struct qca_ppe_mib_desc *mib = &qca_ppe_mib[i];
+		unsigned int reg, size;
+		u32 lo, hi = 0;
+		u64 cur;
+
+		if (xgmac) {
+			reg = PPE_XGMAC_MIB(port - 5, mib->xgmac);
+			size = mib->xgmac_size;
+		} else {
+			reg = PPE_GMAC_MIB(port - 1, mib->offset);
+			size = mib->size;
+		}
+
+		if (!size)
+			continue;
+
+		regmap_read(priv->regmap, reg, &lo);
+		if (size > 1)
+			regmap_read(priv->regmap, reg + 4, &hi);
+		cur = (u64)hi << 32 | lo;
+
+		if (!rebase)
+			stats[i].total += size > 1 ? cur - stats[i].last :
+					  (u32)(cur - stats[i].last);
+		stats[i].last = cur;
+	}
+
+	priv->mib_xgmac[port] = xgmac;
+}
+
+static u64 ppe_mib_total(const struct qca_ppe_mib_stats *stats,
+			 unsigned int offset)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(qca_ppe_mib); i++)
+		if (qca_ppe_mib[i].offset == offset)
+			return stats[i].total;
+
+	return 0;
+}
+
+static void ppe_mib_work(struct work_struct *work)
+{
+	struct qca_ppe_priv *priv = container_of(to_delayed_work(work),
+						 struct qca_ppe_priv,
+						 mib_work);
+	struct dsa_port *dp;
+
+	dsa_switch_for_each_user_port(dp, &priv->ds) {
+		spin_lock_bh(&priv->mib_lock);
+		ppe_mib_fold(priv, dp->index);
+		spin_unlock_bh(&priv->mib_lock);
+	}
+
+	schedule_delayed_work(&priv->mib_work, PPE_MIB_FOLD_INTERVAL);
+}
 
 static void qca_ppe_get_strings(struct dsa_switch *ds, int port,
 				    u32 stringset, uint8_t *data)
@@ -1210,7 +1494,7 @@ static void qca_ppe_get_ethtool_stats(struct dsa_switch *ds, int port,
 					  uint64_t *data)
 {
 	struct qca_ppe_priv *priv = ds_to_priv(ds);
-	int gmac = port - 1;
+	struct qca_ppe_mib_stats *stats;
 	int i;
 
 	if (port < 1 || port >= ds->num_ports) {
@@ -1218,19 +1502,66 @@ static void qca_ppe_get_ethtool_stats(struct dsa_switch *ds, int port,
 		return;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(qca_ppe_mib); i++) {
-		const struct qca_ppe_mib_desc *mib = &qca_ppe_mib[i];
-		u32 val, hi;
+	stats = ppe_port_mib(priv, port);
 
-		regmap_read(priv->regmap, PPE_GMAC_MIB(gmac, mib->offset), &val);
-		if (mib->size == 2)
-			regmap_read(priv->regmap,
-				    PPE_GMAC_MIB(gmac, mib->offset + 4), &hi);
+	spin_lock_bh(&priv->mib_lock);
+	ppe_mib_fold(priv, port);
 
-		data[i] = val;
-		if (mib->size == 2)
-			data[i] |= (u64)hi << 32;
-	}
+	for (i = 0; i < ARRAY_SIZE(qca_ppe_mib); i++)
+		data[i] = stats[i].total;
+
+	spin_unlock_bh(&priv->mib_lock);
+}
+
+/* Shorthand for the reader below, which holds the port's counters under that
+ * name.
+ */
+#define MIB(_c)		ppe_mib_total(stats, PPE_MIB_ ## _c)
+
+static void qca_ppe_get_stats64(struct dsa_switch *ds, int port,
+				struct rtnl_link_stats64 *s)
+{
+	struct qca_ppe_priv *priv = ds_to_priv(ds);
+	struct qca_ppe_mib_stats *stats;
+
+	if (port < 1 || port >= ds->num_ports)
+		return;
+
+	stats = ppe_port_mib(priv, port);
+
+	spin_lock_bh(&priv->mib_lock);
+	ppe_mib_fold(priv, port);
+
+	s->rx_packets = MIB(RXUNI) + MIB(RXMULTI) + MIB(RXBROAD);
+	s->tx_packets = MIB(TXUNI) + MIB(TXMULTI) + MIB(TXBROAD);
+	s->rx_bytes = MIB(RXGOODBYTE_L);
+	s->tx_bytes = MIB(TXBYTE_L);
+	s->multicast = MIB(RXMULTI);
+
+	s->rx_crc_errors = MIB(RXFCSERR) + MIB(RXJUMBOFCSERR);
+	s->rx_frame_errors = MIB(RXALIGNERR) + MIB(RXJUMBOALIGNERR);
+	s->rx_length_errors = MIB(RXRUNT) + MIB(RXFRAG) + MIB(RXTOOLONG);
+	s->rx_errors = s->rx_crc_errors + s->rx_frame_errors +
+		       s->rx_length_errors;
+
+	s->tx_fifo_errors = MIB(TXUNDERRUN);
+	s->tx_aborted_errors = MIB(TXABORTCOL);
+	s->tx_window_errors = MIB(TXLATECOL);
+	s->tx_errors = s->tx_fifo_errors + s->tx_aborted_errors +
+		       s->tx_window_errors;
+
+	s->collisions = MIB(TXCOLLISIONS);
+
+	spin_unlock_bh(&priv->mib_lock);
+}
+
+#undef MIB
+
+static void qca_ppe_teardown(struct dsa_switch *ds)
+{
+	struct qca_ppe_priv *priv = ds_to_priv(ds);
+
+	cancel_delayed_work_sync(&priv->mib_work);
 }
 
 static void qca_ppe_port_stp_state_set(struct dsa_switch *ds, int port,
@@ -1263,7 +1594,10 @@ static void qca_ppe_port_stp_state_set(struct dsa_switch *ds, int port,
 static const struct dsa_switch_ops qca_ppe_ops = {
 	.get_tag_protocol	= qca_ppe_get_tag_protocol,
 	.setup			= qca_ppe_setup,
+	.teardown		= qca_ppe_teardown,
 	.set_ageing_time	= qca_ppe_set_ageing_time,
+	.port_change_mtu	= qca_ppe_port_change_mtu,
+	.port_max_mtu		= qca_ppe_port_max_mtu,
 	.port_enable		= qca_ppe_port_enable,
 	.port_disable		= qca_ppe_port_disable,
 	.port_stp_state_set	= qca_ppe_port_stp_state_set,
@@ -1281,6 +1615,7 @@ static const struct dsa_switch_ops qca_ppe_ops = {
 	.get_strings		= qca_ppe_get_strings,
 	.get_sset_count		= qca_ppe_get_sset_count,
 	.get_ethtool_stats	= qca_ppe_get_ethtool_stats,
+	.get_stats64		= qca_ppe_get_stats64,
 };
 
 static void ppe_vsi_init(struct qca_ppe_priv *priv)
@@ -1445,6 +1780,16 @@ static int qca_ppe_probe(struct platform_device *pdev)
 	msleep(100);
 
 	spin_lock_init(&priv->fdb_lock);
+	spin_lock_init(&priv->mib_lock);
+	INIT_DELAYED_WORK(&priv->mib_work, ppe_mib_work);
+
+	priv->port_mib = devm_kcalloc(&pdev->dev,
+				      data->num_ports * ARRAY_SIZE(qca_ppe_mib),
+				      sizeof(*priv->port_mib), GFP_KERNEL);
+	if (!priv->port_mib) {
+		ret = -ENOMEM;
+		goto err_clk;
+	}
 
 	ds = &priv->ds;
 	ds->dev = &pdev->dev;
@@ -1518,6 +1863,7 @@ static const struct ppe_data ipq6018_ppe_data = {
 	.type			= PPE_TYPE_IPQ6018,
 	.num_ports		= 7,
 	.num_gmacs		= 5,
+	.mru_mtu_ctrl_stride	= 0x10,
 	.loopback_port		= 6,
 	.bm_phy_end		= 12,
 	.bm_internal_start	= 13,
@@ -1534,6 +1880,7 @@ static const struct ppe_data ipq8074_ppe_data = {
 	.type			= PPE_TYPE_IPQ8074,
 	.num_ports		= 8,
 	.num_gmacs		= 6,
+	.mru_mtu_ctrl_stride	= 0x8,
 	.loopback_port		= 7,
 	.bm_phy_end		= 13,
 	.bm_internal_start	= 14,
