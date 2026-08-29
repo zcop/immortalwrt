@@ -13,7 +13,8 @@
 	};
 
 	chosen {
-		bootargs-append = " ignore_loglevel loglevel=8";
+		/* Override Xiaomi U-Boot's root=mtd:ubi_rootfs argument. */
+		bootargs-append = " root=/dev/ubiblock0_1 ignore_loglevel loglevel=8";
 		stdout-path = "serial0:115200n8";
 	};
 };
@@ -34,6 +35,29 @@
 };
 
 &tlmm {
+	qpic_pins: qpic-state {
+		clock-pins {
+			pins = "gpio9";
+			function = "qspi_clk";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		cs-pins {
+			pins = "gpio8";
+			function = "qspi_cs";
+			drive-strength = <8>;
+			bias-disable;
+		};
+
+		data-pins {
+			pins = "gpio4", "gpio5", "gpio6", "gpio7";
+			function = "qspi_data";
+			drive-strength = <8>;
+			bias-disable;
+		};
+	};
+
 	serial_0_pins: uart0-state {
 		pins = "gpio20", "gpio21";
 		function = "blsp0_uart0";
@@ -47,4 +71,26 @@
 
 	pinctrl-0 = <&serial_0_pins>;
 	pinctrl-names = "default";
+};
+
+&qpic_bam {
+	status = "okay";
+};
+
+&qpic_nand {
+	pinctrl-0 = <&qpic_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	nand@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+
+		nand-ecc-engine = <&qpic_nand>;
+		nand-bus-width = <8>;
+
+		partitions {
+			compatible = "qcom,smem-part";
+		};
+	};
 };
