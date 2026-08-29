@@ -3,6 +3,8 @@
 /dts-v1/;
 
 #include "ipq5018.dtsi"
+#include "ipq5018-ess.dtsi"
+#include <dt-bindings/gpio/gpio.h>
 
 / {
 	model = "Xiaomi CR881x (minimal Linux 6.18 boot test)";
@@ -10,6 +12,9 @@
 
 	aliases {
 		serial0 = &blsp1_uart1;
+		label-mac-device = &gmac0;
+		ethernet0 = &gmac0;
+		ethernet1 = &gmac1;
 	};
 
 	chosen {
@@ -35,6 +40,22 @@
 };
 
 &tlmm {
+	mdio1_pins: mdio-state {
+		mdc-pins {
+			pins = "gpio36";
+			function = "mdc";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+
+		mdio-pins {
+			pins = "gpio37";
+			function = "mdio";
+			drive-strength = <8>;
+			bias-pull-up;
+		};
+	};
+
 	qpic_pins: qpic-state {
 		clock-pins {
 			pins = "gpio9";
@@ -56,6 +77,13 @@
 			drive-strength = <8>;
 			bias-disable;
 		};
+	};
+
+	switch_reset_pins: switch-reset-state {
+		pins = "gpio39";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-down;
 	};
 
 	serial_0_pins: uart0-state {
@@ -91,6 +119,168 @@
 
 		partitions {
 			compatible = "qcom,smem-part";
+
+			partition-0-art {
+				label = "0:art";
+				read-only;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					mac_addr_dp1: macaddr@0 {
+						compatible = "mac-base";
+						#nvmem-cell-cells = <1>;
+						reg = <0x0 0x6>;
+					};
+
+					mac_addr_dp2: macaddr@6 {
+						compatible = "mac-base";
+						#nvmem-cell-cells = <1>;
+						reg = <0x6 0x6>;
+					};
+				};
+			};
+		};
+	};
+};
+
+&uniphy0 {
+	status = "okay";
+
+	assigned-clocks = <&uniphy0 UNIPHY_CLK_REF>;
+	assigned-clock-rates = <UNIPHY_REFCLK_50MHZ>;
+};
+
+&gmac0 {
+	status = "okay";
+	phy-mode = "internal";
+	phy-handle = <&ge_phy>;
+
+	nvmem-cells = <&mac_addr_dp1 0>;
+	nvmem-cell-names = "mac-address";
+};
+
+&gmac1 {
+	status = "okay";
+	phy-mode = "sgmii";
+
+	nvmem-cells = <&mac_addr_dp2 0>;
+	nvmem-cell-names = "mac-address";
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+		pause;
+		asym-pause;
+	};
+};
+
+&mdio0 {
+	status = "okay";
+};
+
+&ge_phy {
+	qcom,dac-preset-short-cable;
+};
+
+&mdio1 {
+	status = "okay";
+
+	pinctrl-0 = <&mdio1_pins>, <&switch_reset_pins>;
+	pinctrl-names = "default";
+	reset-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
+	reset-assert-us = <10000>;
+	reset-deassert-us = <50000>;
+
+	ethernet-switch@1d {
+		compatible = "motorcomm,yt9215";
+		reg = <0x1d>;
+
+		motorcomm,rma-slow-action = <2>;
+		motorcomm,ctrlpkt-lldp-act = <0x400>;
+		motorcomm,ctrlpkt-lldp-eee-act = <0x400>;
+		motorcomm,temp-sensor-supported;
+		motorcomm,secondary-conduit-user-mask = <0x8>;
+
+		mdio {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			sw_phy0: phy@0 { reg = <0>; };
+			sw_phy1: phy@1 { reg = <1>; };
+			sw_phy2: phy@2 { reg = <2>; };
+			sw_phy3: phy@3 { reg = <3>; };
+			sw_phy4: phy@4 { reg = <4>; };
+		};
+
+		mdio-external {
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				label = "lan1";
+				phy-mode = "internal";
+				phy-handle = <&sw_phy0>;
+			};
+
+			port@1 {
+				reg = <1>;
+				label = "lan2";
+				phy-mode = "internal";
+				phy-handle = <&sw_phy1>;
+			};
+
+			port@2 {
+				reg = <2>;
+				label = "lan3";
+				phy-mode = "internal";
+				phy-handle = <&sw_phy2>;
+			};
+
+			port@3 {
+				reg = <3>;
+				label = "wan";
+				phy-mode = "internal";
+				phy-handle = <&sw_phy3>;
+			};
+
+			port@4 {
+				reg = <4>;
+				label = "cpu";
+				phy-mode = "internal";
+				motorcomm,conduit-role = "secondary-conduit";
+				ethernet = <&gmac0>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+					pause;
+					asym-pause;
+				};
+			};
+
+			port@8 {
+				reg = <8>;
+				phy-mode = "sgmii";
+				motorcomm,serdes-revsgmii;
+				motorcomm,conduit-role = "primary-conduit";
+				ethernet = <&gmac1>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+					pause;
+					asym-pause;
+				};
+			};
 		};
 	};
 };
