@@ -4,6 +4,7 @@
 
 #include "ipq5018.dtsi"
 #include "ipq5018-ess.dtsi"
+#include "ipq5018-qcn6122.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 
 / {
@@ -293,4 +294,31 @@
 			};
 		};
 	};
+};
+
+&q6v5_wcss {
+	status = "okay";
+
+	qcom,bootargs_smem = <507>;
+	boot-args = <0x2 4 2 18 0 0>;
+};
+
+&wifi {
+	status = "okay";
+
+	qcom,rproc = <&q6_wcss_pd1>;
+	qcom,board_id = <0x23>;
+	qcom,ath11k-fw-memory-mode = <1>;
+	qcom,bdf-addr = <0x4c400000>;
+};
+
+&wifi1 {
+	status = "okay";
+
+	qcom,rproc = <&q6_wcss_pd2>;
+	qcom,userpd-subsys-name = "q6v5_wcss_userpd2";
+	qcom,board_id = <0x60>;
+	qcom,ath11k-fw-memory-mode = <1>;
+	qcom,bdf-addr = <0x4d100000>;
+	qcom,m3-dump-addr = <0x4df00000>;
 };
