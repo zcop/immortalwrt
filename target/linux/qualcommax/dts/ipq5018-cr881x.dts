@@ -6,6 +6,7 @@
 #include "ipq5018-ess.dtsi"
 #include "ipq5018-qcn6122.dtsi"
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 
 / {
 	model = "Xiaomi CR881x";
@@ -16,12 +17,65 @@
 		label-mac-device = &gmac0;
 		ethernet0 = &gmac0;
 		ethernet1 = &gmac1;
+		led-boot = &led_system_blue;
+		led-failsafe = &led_system_red;
+		led-running = &led_system_blue;
+		led-upgrade = &led_system_red;
 	};
 
 	chosen {
 		/* Override Xiaomi U-Boot's root=mtd:ubi_rootfs argument. */
 		bootargs-append = " root=/dev/ubiblock0_1 coherent_pool=2M";
 		stdout-path = "serial0:115200n8";
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-0 = <&leds_pins>;
+		pinctrl-names = "default";
+
+		led_system_blue: led-system-blue {
+			label = "blue:system";
+			gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		led_system_red: led-system-red {
+			label = "red:system";
+			gpios = <&tlmm 25 GPIO_ACTIVE_HIGH>;
+		};
+
+		led-internet-blue {
+			label = "blue:internet";
+			gpios = <&tlmm 26 GPIO_ACTIVE_HIGH>;
+		};
+
+		led-internet-red {
+			label = "red:internet";
+			gpios = <&tlmm 27 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&button_pins>;
+		pinctrl-names = "default";
+
+		reset {
+			label = "reset";
+			gpios = <&tlmm 38 GPIO_ACTIVE_LOW>;
+			linux,input-type = <EV_KEY>;
+			linux,code = <KEY_RESTART>;
+			debounce-interval = <60>;
+		};
+
+		mesh {
+			label = "mesh";
+			gpios = <&tlmm 28 GPIO_ACTIVE_LOW>;
+			linux,input-type = <EV_KEY>;
+			linux,code = <KEY_WPS_BUTTON>;
+			debounce-interval = <60>;
+		};
 	};
 };
 
@@ -85,6 +139,20 @@
 		function = "gpio";
 		drive-strength = <8>;
 		bias-pull-down;
+	};
+
+	leds_pins: leds-state {
+		pins = "gpio24", "gpio25", "gpio26", "gpio27";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-down;
+	};
+
+	button_pins: buttons-state {
+		pins = "gpio28", "gpio38";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
 	};
 
 	serial_0_pins: uart0-state {
