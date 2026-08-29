@@ -155,8 +155,6 @@
 
 &gmac0 {
 	status = "okay";
-	phy-mode = "internal";
-	phy-handle = <&ge_phy>;
 
 	nvmem-cells = <&mac_addr_dp1 0>;
 	nvmem-cell-names = "mac-address";
