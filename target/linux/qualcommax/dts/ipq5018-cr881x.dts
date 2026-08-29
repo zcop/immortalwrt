@@ -7,7 +7,7 @@
 #include <dt-bindings/gpio/gpio.h>
 
 / {
-	model = "Xiaomi CR881x (minimal Linux 6.18 boot test)";
+	model = "Xiaomi CR881x";
 	compatible = "xiaomi,cr881x", "qcom,ipq5018";
 
 	aliases {
@@ -19,7 +19,7 @@
 
 	chosen {
 		/* Override Xiaomi U-Boot's root=mtd:ubi_rootfs argument. */
-		bootargs-append = " root=/dev/ubiblock0_1 ignore_loglevel loglevel=8";
+		bootargs-append = " root=/dev/ubiblock0_1 coherent_pool=2M";
 		stdout-path = "serial0:115200n8";
 	};
 };
@@ -102,6 +102,18 @@
 };
 
 &qpic_bam {
+	status = "okay";
+};
+
+&prng {
+	status = "okay";
+};
+
+&qfprom {
+	status = "okay";
+};
+
+&tsens {
 	status = "okay";
 };
 
