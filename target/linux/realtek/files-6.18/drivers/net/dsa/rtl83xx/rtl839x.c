@@ -224,7 +224,7 @@ inline void rtl839x_exec_tbl2_cmd(u32 cmd)
 	do { } while (sw_r32(RTL839X_TBL_ACCESS_CTRL_2) & (1 << 9));
 }
 
-static void rtl839x_vlan_tables_read(u32 vlan, struct rtl838x_vlan_info *info)
+static void rtl839x_vlan_tables_read(u32 vlan, struct rtldsa_vlan_info *info)
 {
 	u32 u, v, w;
 	/* Read VLAN table (0) via register 0 */
@@ -254,7 +254,7 @@ static void rtl839x_vlan_tables_read(u32 vlan, struct rtl838x_vlan_info *info)
 	info->untagged_ports = (info->untagged_ports << 21) | ((v >> 11) & 0x1fffff);
 }
 
-static void rtl839x_vlan_set_tagged(u32 vlan, struct rtl838x_vlan_info *info)
+static void rtl839x_vlan_set_tagged(u32 vlan, struct rtldsa_vlan_info *info)
 {
 	u32 u, v, w;
 	/* Access VLAN table (0) via register 0 */
@@ -1383,6 +1383,15 @@ static int rtl839x_pie_verify_template(struct rtl838x_switch_priv *priv,
 	if (ether_addr_to_u64(pr->dmac) && !rtl839x_pie_templ_has(t, TEMPLATE_FIELD_DMAC0))
 		return -1;
 
+	if (pr->itag_m && !rtl839x_pie_templ_has(t, TEMPLATE_FIELD_ITAG))
+		return -1;
+
+	if (pr->sport_m && !rtl839x_pie_templ_has(t, TEMPLATE_FIELD_L4_SPORT))
+		return -1;
+
+	if (pr->dport_m && !rtl839x_pie_templ_has(t, TEMPLATE_FIELD_L4_DPORT))
+		return -1;
+
 	/* TODO: Check more */
 
 	i = find_first_zero_bit(&priv->pie_use_bm[block * 4], PIE_BLOCK_SIZE);
@@ -1417,7 +1426,7 @@ static int rtl839x_pie_rule_add(struct rtl838x_switch_priv *priv, struct pie_rul
 			break;
 	}
 
-	if (block >= priv->r->n_pie_blocks) {
+	if (block >= max_block) {
 		mutex_unlock(&priv->pie_mutex);
 		return -EOPNOTSUPP;
 	}
@@ -1522,6 +1531,13 @@ static void rtl839x_packet_cntr_clear(int counter)
 	struct table_reg *r = rtl_table_get(RTL8390_TBL_0, 4);
 
 	pr_debug("In %s, id %d\n", __func__, counter);
+
+	/*
+	 * Two counters share one LOG table entry. Read the current entry
+	 * first so clearing one half preserves the adjacent counter.
+	 */
+	rtl_table_read(r, counter / 2);
+
 	/* The table has a size of 2 registers */
 	if (counter % 2)
 		sw_w32(0, rtl_table_data(r, 0));
@@ -1673,9 +1689,9 @@ const struct rtldsa_config rtldsa_839x_cfg = {
 	.port_iso_ctrl = rtl839x_port_iso_ctrl,
 	.l2_ctrl_0 = RTL839X_L2_CTRL_0,
 	.l2_ctrl_1 = RTL839X_L2_CTRL_1,
+	.self_mac_trap_ctrl = RTL839X_SPCL_TRAP_SWITCH_MAC_CTRL,
 	.l2_port_aging_out = RTL839X_L2_PORT_AGING_OUT,
 	.set_ageing_time = rtl839x_set_ageing_time,
-	.smi_poll_ctrl = RTL839X_SMI_PORT_POLLING_CTRL,
 	.l2_tbl_flush_ctrl = RTL839X_L2_TBL_FLUSH_CTRL,
 	.isr_glb_src = RTL839X_ISR_GLB_SRC,
 	.isr_port_link_sts_chg = RTL839X_ISR_PORT_LINK_STS_CHG,
@@ -1703,9 +1719,13 @@ const struct rtldsa_config rtldsa_839x_cfg = {
 	.set_static_move_action = rtl839x_set_static_move_action,
 	.stp_get = rtldsa_839x_stp_get,
 	.stp_set = rtl839x_stp_set,
+	.mac_force_mode_mask = RTL83XX_FORCE_EN | RTL83XX_FORCE_LINK_EN,
 	.mac_force_mode_ctrl = rtl839x_mac_force_mode_ctrl,
 	.mac_link_sts = RTL839X_MAC_LINK_STS,
 	.mac_port_ctrl = rtl839x_mac_port_ctrl,
+	.mac_capabilities = MAC_ASYM_PAUSE | MAC_SYM_PAUSE | MAC_10 | MAC_100 | MAC_1000FD,
+	.mac_max_len_ctrl = RTL839X_MAC_MAX_LEN_CTRL,
+	.max_frame = RTL839X_MAX_FRAME,
 	.l2_port_new_salrn = rtl839x_l2_port_new_salrn,
 	.l2_port_new_sa_fwd = rtl839x_l2_port_new_sa_fwd,
 	.get_mirror_config = rtldsa_839x_get_mirror_config,
@@ -1733,6 +1753,8 @@ const struct rtldsa_config rtldsa_839x_cfg = {
 	.packet_cntr_read = rtl839x_packet_cntr_read,
 	.packet_cntr_clear = rtl839x_packet_cntr_clear,
 	.set_receive_management_action = rtl839x_set_receive_management_action,
+	.get_egress_rate = rtldsa_839x_get_egress_rate,
+	.set_egress_rate = rtldsa_839x_set_egress_rate,
 	.qos_init = rtldsa_839x_qos_init,
 	.lag_set_distribution_algorithm = rtldsa_839x_set_distribution_algorithm,
 	.lag_set_port_members = rtldsa_839x_lag_set_port_members,

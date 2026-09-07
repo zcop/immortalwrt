@@ -206,7 +206,7 @@ static inline int rtl838x_port_iso_ctrl(int p)
 	return RTL838X_PORT_ISO_CTRL(p);
 }
 
-static void rtl838x_vlan_tables_read(u32 vlan, struct rtl838x_vlan_info *info)
+static void rtl838x_vlan_tables_read(u32 vlan, struct rtldsa_vlan_info *info)
 {
 	u32 v;
 	/* Read VLAN table (0) via register 0 */
@@ -230,7 +230,7 @@ static void rtl838x_vlan_tables_read(u32 vlan, struct rtl838x_vlan_info *info)
 	rtl_table_release(r);
 }
 
-static void rtl838x_vlan_set_tagged(u32 vlan, struct rtl838x_vlan_info *info)
+static void rtl838x_vlan_set_tagged(u32 vlan, struct rtldsa_vlan_info *info)
 {
 	u32 v;
 	/* Access VLAN table (0) via register 0 */
@@ -1487,6 +1487,15 @@ static int rtl838x_pie_verify_template(struct rtl838x_switch_priv *priv,
 	if (ether_addr_to_u64(pr->dmac) && !rtl838x_pie_templ_has(t, TEMPLATE_FIELD_DMAC0))
 		return -1;
 
+	if (pr->itag_m && !rtl838x_pie_templ_has(t, TEMPLATE_FIELD_ITAG))
+		return -1;
+
+	if (pr->sport_m && !rtl838x_pie_templ_has(t, TEMPLATE_FIELD_L4_SPORT))
+		return -1;
+
+	if (pr->dport_m && !rtl838x_pie_templ_has(t, TEMPLATE_FIELD_L4_DPORT))
+		return -1;
+
 	/* TODO: Check more */
 
 	i = find_first_zero_bit(&priv->pie_use_bm[block * 4], PIE_BLOCK_SIZE);
@@ -1617,6 +1626,13 @@ static void rtl838x_packet_cntr_clear(int counter)
 	struct table_reg *r = rtl_table_get(RTL8380_TBL_0, 3);
 
 	pr_debug("In %s, id %d\n", __func__, counter);
+
+	/*
+	 * Two counters share one LOG table entry. Read the current entry
+	 * first so clearing one half preserves the adjacent counter.
+	 */
+	rtl_table_read(r, counter / 2);
+
 	/* The table has a size of 2 registers */
 	if (counter % 2)
 		sw_w32(0, rtl_table_data(r, 0));
@@ -1753,6 +1769,12 @@ static int rtldsa_838x_lag_set_port_members(struct rtl838x_switch_priv *priv, in
 int rtldsa_83xx_lag_setup_algomask(struct rtl838x_switch_priv *priv, int group,
 				   struct netdev_lag_upper_info *info);
 
+static void rtldsa_838x_stat_init(struct rtl838x_switch_priv *priv)
+{
+	/* Enable statistics module: all counters plus debug */
+	sw_w32_mask(0, 3, RTL838X_STAT_CTRL);
+}
+
 const struct rtldsa_config rtldsa_838x_cfg = {
 	.switch_ops = &rtldsa_83xx_switch_ops,
 	.phylink_mac_ops = &rtldsa_83xx_phylink_mac_ops,
@@ -1770,6 +1792,7 @@ const struct rtldsa_config rtldsa_838x_cfg = {
 	.get_port_reg_le = rtl838x_get_port_reg,
 	.stat_port_rst = RTL838X_STAT_PORT_RST,
 	.stat_rst = RTL838X_STAT_RST,
+	.stat_init = rtldsa_838x_stat_init,
 	.stat_port_std_mib = RTL838X_STAT_PORT_STD_MIB,
 	.mib_desc = &rtldsa_838x_mib_desc,
 	.stat_counters_lock = rtldsa_counters_lock_register,
@@ -1782,9 +1805,10 @@ const struct rtldsa_config rtldsa_838x_cfg = {
 	.traffic_set = rtl838x_traffic_set,
 	.l2_ctrl_0 = RTL838X_L2_CTRL_0,
 	.l2_ctrl_1 = RTL838X_L2_CTRL_1,
+	.high_res_l2_age = true,
+	.self_mac_trap_ctrl = RTL838X_SPCL_TRAP_SWITCH_MAC_CTRL,
 	.l2_port_aging_out = RTL838X_L2_PORT_AGING_OUT,
 	.set_ageing_time = rtl838x_set_ageing_time,
-	.smi_poll_ctrl = RTL838X_SMI_POLL_CTRL,
 	.l2_tbl_flush_ctrl = RTL838X_L2_TBL_FLUSH_CTRL,
 	.isr_glb_src = RTL838X_ISR_GLB_SRC,
 	.isr_port_link_sts_chg = RTL838X_ISR_PORT_LINK_STS_CHG,
@@ -1796,6 +1820,7 @@ const struct rtldsa_config rtldsa_838x_cfg = {
 	.vlan_tables_read = rtl838x_vlan_tables_read,
 	.vlan_set_tagged = rtl838x_vlan_set_tagged,
 	.vlan_set_untagged = rtl838x_vlan_set_untagged,
+	.mac_force_mode_mask = RTL83XX_FORCE_EN | RTL83XX_FORCE_LINK_EN,
 	.mac_force_mode_ctrl = rtl838x_mac_force_mode_ctrl,
 	.mac_link_sts = RTL838X_MAC_LINK_STS,
 	.vlan_profile_get = rtldsa_838x_vlan_profile_get,
@@ -1812,6 +1837,10 @@ const struct rtldsa_config rtldsa_838x_cfg = {
 	.stp_get = rtldsa_838x_stp_get,
 	.stp_set = rtl838x_stp_set,
 	.mac_port_ctrl = rtl838x_mac_port_ctrl,
+	.mac_capabilities = MAC_ASYM_PAUSE | MAC_SYM_PAUSE | MAC_10 | MAC_100 | MAC_1000FD,
+	.mac_max_len_ctrl = RTL838X_MAC_MAX_LEN_CTRL,
+	.mac_max_len_ctrl_dup = RTL838X_MAC_MAX_LEN_CTRL_DUP,
+	.max_frame = RTL838X_MAX_FRAME,
 	.l2_port_new_salrn = rtl838x_l2_port_new_salrn,
 	.l2_port_new_sa_fwd = rtl838x_l2_port_new_sa_fwd,
 	.get_mirror_config = rtldsa_838x_get_mirror_config,
@@ -1842,6 +1871,8 @@ const struct rtldsa_config rtldsa_838x_cfg = {
 	.packet_cntr_read = rtl838x_packet_cntr_read,
 	.packet_cntr_clear = rtl838x_packet_cntr_clear,
 	.set_receive_management_action = rtl838x_set_receive_management_action,
+	.get_egress_rate = rtldsa_838x_get_egress_rate,
+	.set_egress_rate = rtldsa_838x_set_egress_rate,
 	.qos_init = rtldsa_838x_qos_init,
 	.lag_set_distribution_algorithm = rtldsa_838x_set_distribution_algorithm,
 	.lag_set_port_members = rtldsa_838x_lag_set_port_members,

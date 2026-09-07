@@ -345,7 +345,7 @@ static inline int rtl930x_trk_mbr_ctr(int group)
 	return RTL930X_TRK_MBR_CTRL + (group << 2);
 }
 
-static void rtl930x_vlan_tables_read(u32 vlan, struct rtl838x_vlan_info *info)
+static void rtl930x_vlan_tables_read(u32 vlan, struct rtldsa_vlan_info *info)
 {
 	u32 v, w;
 	/* Read VLAN table (1) via register 0 */
@@ -372,7 +372,7 @@ static void rtl930x_vlan_tables_read(u32 vlan, struct rtl838x_vlan_info *info)
 	info->untagged_ports = v >> 3;
 }
 
-static void rtl930x_vlan_set_tagged(u32 vlan, struct rtl838x_vlan_info *info)
+static void rtl930x_vlan_set_tagged(u32 vlan, struct rtldsa_vlan_info *info)
 {
 	u32 v, w;
 	/* Access VLAN table (1) via register 0 */
@@ -687,6 +687,11 @@ static inline int rtl930x_mac_force_mode_ctrl(int p)
 static inline int rtl930x_mac_port_ctrl(int p)
 {
 	return RTL930X_MAC_L2_PORT_CTRL(p);
+}
+
+static inline int rtl930x_mac_max_len_reg(int p)
+{
+	return RTL930X_MAC_L2_PORT_MAX_LEN_CTRL(p);
 }
 
 static u64 rtl930x_l2_hash_seed(u64 mac, u32 vid)
@@ -1744,6 +1749,15 @@ static int rtl930x_pie_verify_template(struct rtl838x_switch_priv *priv,
 	if (ether_addr_to_u64(pr->dmac) && !rtl930x_pie_templ_has(t, TEMPLATE_FIELD_DMAC0))
 		return -1;
 
+	if (pr->itag_m && !rtl930x_pie_templ_has(t, TEMPLATE_FIELD_VLAN))
+		return -1;
+
+	if (pr->sport_m && !rtl930x_pie_templ_has(t, TEMPLATE_FIELD_L4_SPORT))
+		return -1;
+
+	if (pr->dport_m && !rtl930x_pie_templ_has(t, TEMPLATE_FIELD_L4_DPORT))
+		return -1;
+
 	/* TODO: Check more */
 
 	i = find_first_zero_bit(&priv->pie_use_bm[block * 4], PIE_BLOCK_SIZE);
@@ -1782,7 +1796,7 @@ static int rtl930x_pie_rule_add(struct rtl838x_switch_priv *priv, struct pie_rul
 			break;
 	}
 
-	if (block >= priv->r->n_pie_blocks) {
+	if (block >= max_block) {
 		mutex_unlock(&priv->pie_mutex);
 		return -EOPNOTSUPP;
 	}
@@ -1899,6 +1913,12 @@ static void rtl930x_packet_cntr_clear(int counter)
 	struct table_reg *r = rtl_table_get(RTL9300_TBL_0, 3);
 
 	pr_debug("In %s, id %d\n", __func__, counter);
+
+	/* Two counters share one LOG table entry. Read the current entry
+	 * first so clearing one half preserves the adjacent counter.
+	 */
+	rtl_table_read(r, counter / 2);
+
 	/* The table has a size of 2 registers */
 	if (counter % 2)
 		sw_w32(0, rtl_table_data(r, 0));
@@ -2235,7 +2255,6 @@ const struct rtldsa_config rtldsa_930x_cfg = {
 	.l2_ctrl_1 = RTL930X_L2_AGE_CTRL,
 	.l2_port_aging_out = RTL930X_L2_PORT_AGE_CTRL,
 	.set_ageing_time = rtl930x_set_ageing_time,
-	.smi_poll_ctrl = RTL930X_SMI_POLL_CTRL, /* TODO: Difference to RTL9300_SMI_PRVTE_POLLING_CTRL */
 	.l2_tbl_flush_ctrl = RTL930X_L2_TBL_FLUSH_CTRL,
 	.isr_glb_src = RTL930X_ISR_GLB,
 	.isr_port_link_sts_chg = RTL930X_ISR_PORT_LINK_STS_CHG,
@@ -2256,8 +2275,13 @@ const struct rtldsa_config rtldsa_930x_cfg = {
 	.stp_get = rtldsa_930x_stp_get,
 	.stp_set = rtl930x_stp_set,
 	.mac_link_sts = RTL930X_MAC_LINK_STS,
+	.mac_force_mode_mask = RTL930X_FORCE_EN | RTL930X_FORCE_LINK_EN,
 	.mac_force_mode_ctrl = rtl930x_mac_force_mode_ctrl,
 	.mac_port_ctrl = rtl930x_mac_port_ctrl,
+	.mac_capabilities = MAC_ASYM_PAUSE | MAC_SYM_PAUSE | MAC_10 | MAC_100 |
+			    MAC_1000FD | MAC_2500FD | MAC_5000FD | MAC_10000FD,
+	.mac_max_len_reg = rtl930x_mac_max_len_reg,
+	.max_frame = RTL930X_MAX_FRAME,
 	.l2_port_new_salrn = rtl930x_l2_port_new_salrn,
 	.l2_port_new_sa_fwd = rtl930x_l2_port_new_sa_fwd,
 	.get_mirror_config = rtldsa_930x_get_mirror_config,
