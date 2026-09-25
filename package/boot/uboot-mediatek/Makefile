@@ -2,8 +2,10 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
 PKG_VERSION:=2026.07
+PKG_RELEASE:=2
 PKG_HASH:=78e8bfc382fe388f9b55aa1daf8c563522a037779b5d4c349d1415e381f1243e
 PKG_BUILD_DEPENDS:=!(TARGET_ramips||TARGET_mediatek_mt7623):arm-trusted-firmware-tools/host
+PKG_PARALLEL_VARIANTS:=1
 
 ifdef CONFIG_TARGET_ramips
 UBOOT_USE_INTREE_DTC:=1
@@ -253,8 +255,8 @@ define U-Boot/mt7981_cetron_ct3003
   UBOOT_IMAGE:=u-boot.fip
   BL2_BOOTDEV:=spim-nand
   BL2_SOC:=mt7981
-  BL2_DDRTYPE:=ddr3
-  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr3
+  BL2_DDRTYPE:=ddr3-1866
+  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr3-1866
 endef
 
 define U-Boot/mt7981_cmcc_a10
@@ -291,6 +293,18 @@ define U-Boot/mt7981_cmcc_rax3000m-nand
   BL2_SOC:=mt7981
   BL2_DDRTYPE:=ddr4
   DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr4
+endef
+
+define U-Boot/mt7981_cmcc_rax3000m-ubi
+  NAME:=CMCC RAX3000M (UBI)
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=cmcc_rax3000m
+  UBOOT_CONFIG:=mt7981_cmcc_rax3000m-ubi
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=spim-nand-ubi
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr4
+  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ubi-ddr4
 endef
 
 define U-Boot/mt7981_cmcc_rax3000me-emmc-ddr3
@@ -339,6 +353,30 @@ define U-Boot/mt7981_cmcc_rax3000me-nand-ddr4
   BL2_SOC:=mt7981
   BL2_DDRTYPE:=ddr4
   DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr4
+endef
+
+define U-Boot/mt7981_cmcc_rax3000me-ubi-ddr3
+  NAME:=CMCC RAX3000Me (DDR3, UBI)
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=cmcc_rax3000me
+  UBOOT_CONFIG:=mt7981_cmcc_rax3000me-ubi-ddr3
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=spim-nand-ubi
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr3-1866
+  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ubi-ddr3-1866
+endef
+
+define U-Boot/mt7981_cmcc_rax3000me-ubi-ddr4
+  NAME:=CMCC RAX3000Me (DDR4, UBI)
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=cmcc_rax3000me
+  UBOOT_CONFIG:=mt7981_cmcc_rax3000me-ubi-ddr4
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=spim-nand-ubi
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr4
+  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ubi-ddr4
 endef
 
 define U-Boot/mt7981_comfast_cf-wr632ax
@@ -1499,10 +1537,13 @@ UBOOT_TARGETS := \
 	mt7981_cmcc_a10 \
 	mt7981_cmcc_rax3000m-emmc \
 	mt7981_cmcc_rax3000m-nand \
+	mt7981_cmcc_rax3000m-ubi \
 	mt7981_cmcc_rax3000me-emmc-ddr3 \
 	mt7981_cmcc_rax3000me-emmc-ddr4 \
 	mt7981_cmcc_rax3000me-nand-ddr3 \
 	mt7981_cmcc_rax3000me-nand-ddr4 \
+	mt7981_cmcc_rax3000me-ubi-ddr3 \
+	mt7981_cmcc_rax3000me-ubi-ddr4 \
 	mt7981_comfast_cf-wr632ax \
 	mt7981_comfast_cf-wr632ax-ubi \
 	mt7981_creatlentem_clt-r30b1-ubi \
@@ -1607,13 +1648,15 @@ ifdef CONFIG_TARGET_mediatek
 UBOOT_MAKE_FLAGS += $(UBOOT_IMAGE:.fip=.bin)
 endif
 
+FIP_BL31=$(STAGING_DIR_IMAGE)/$(if $(BL2_SOC),$(BL2_SOC),$(BUILD_SUBTARGET))-$(BL2_BOOTDEV)-$(if $(BL2_DDRTYPE),$(BL2_DDRTYPE)-)$(if $(BL2_DDRBLOB),$(BL2_DDRBLOB)ddr-)bl31.bin
+
 define Build/fip-image
 	$(if $(FIP_COMPRESS),\
-		xz -f -e -k -9 -C crc32 $(STAGING_DIR_IMAGE)/$(if $(BL2_SOC),$(BL2_SOC),$(BUILD_SUBTARGET))-$(BL2_BOOTDEV)-$(if $(BL2_DDRTYPE),$(BL2_DDRTYPE)-)$(if $(BL2_DDRBLOB),$(BL2_DDRBLOB)ddr-)bl31.bin ;\
+		xz -e -9 -C crc32 -c $(FIP_BL31) > $(PKG_BUILD_DIR)/bl31.bin.xz ;\
 		xz -f -e -k -9 -C crc32 $(PKG_BUILD_DIR)/u-boot.bin \
 	)
 	$(STAGING_DIR_HOST)/bin/fiptool create \
-		--soc-fw $(STAGING_DIR_IMAGE)/$(if $(BL2_SOC),$(BL2_SOC),$(BUILD_SUBTARGET))-$(BL2_BOOTDEV)-$(if $(BL2_DDRTYPE),$(BL2_DDRTYPE)-)$(if $(BL2_DDRBLOB),$(BL2_DDRBLOB)ddr-)bl31.bin$(if $(FIP_COMPRESS),.xz) \
+		--soc-fw $(if $(FIP_COMPRESS),$(PKG_BUILD_DIR)/bl31.bin.xz,$(FIP_BL31)) \
 		--nt-fw $(PKG_BUILD_DIR)/u-boot.bin$(if $(FIP_COMPRESS),.xz) \
 		$(PKG_BUILD_DIR)/u-boot.fip
 endef
@@ -1648,3 +1691,9 @@ define Build/InstallDev
 endef
 
 $(eval $(call BuildPackage/U-Boot))
+
+# The fip contains BL31 from trusted-firmware-a, so build it again if that
+# changed.
+ifeq ($(DUMP)$(UBOOT_IMAGE),u-boot.fip)
+$(STAMP_BUILT): $(wildcard $(FIP_BL31))
+endif
