@@ -87,22 +87,6 @@ endef
 $(eval $(call KernelPackage,lib-crc16))
 
 
-define KernelPackage/lib-crc32c
-  SUBMENU:=$(LIB_MENU)
-  TITLE:=CRC32 support
-  KCONFIG:=CONFIG_LIBCRC32C
-  DEPENDS:=@LINUX_6_12 +kmod-crypto-crc32c
-  FILES:=$(LINUX_DIR)/lib/libcrc32c.ko
-  AUTOLOAD:=$(call AutoProbe,libcrc32c)
-endef
-
-define KernelPackage/lib-crc32c/description
- Kernel module for CRC32 support
-endef
-
-$(eval $(call KernelPackage,lib-crc32c))
-
-
 define KernelPackage/lib-lzo
   SUBMENU:=$(LIB_MENU)
   TITLE:=LZO support
@@ -328,6 +312,22 @@ define KernelPackage/lib-cordic/description
 endef
 
 $(eval $(call KernelPackage,lib-cordic))
+
+
+define KernelPackage/lib-rational
+  SUBMENU:=$(LIB_MENU)
+  TITLE:=Rational fraction approximation
+  HIDDEN:=1
+  KCONFIG:=CONFIG_RATIONAL
+  FILES:=$(LINUX_DIR)/lib/math/rational.ko
+  AUTOLOAD:=$(call AutoProbe,rational)
+endef
+
+define KernelPackage/lib-rational/description
+ Kernel module for the best rational approximation helper
+endef
+
+$(eval $(call KernelPackage,lib-rational))
 
 
 define KernelPackage/asn1-decoder

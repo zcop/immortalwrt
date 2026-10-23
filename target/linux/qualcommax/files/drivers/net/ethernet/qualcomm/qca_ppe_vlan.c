@@ -32,8 +32,11 @@ static void ppe_xlt_rule_set(struct qca_ppe_priv *priv, int idx,
 	     FIELD_PREP(PPE_XLT_SKEY_FMT, PPE_XLT_SKEY_UNTAGGED);
 	w1 = 0;
 
+	/* The bridge classifies a priority-tagged frame by the PVID too. */
 	if (untagged) {
 		w0 |= PPE_XLT_CKEY_FMT_0;
+		w1 |= FIELD_PREP(PPE_XLT_CKEY_FMT_1,
+				  PPE_XLT_CKEY_PRIO_TAGGED >> 1);
 	} else {
 		w1 |= FIELD_PREP(PPE_XLT_CKEY_FMT_1,
 				  PPE_XLT_CKEY_TAGGED >> 1);
@@ -124,7 +127,6 @@ ppe_vlan_alloc(struct qca_ppe_priv *priv, struct net_device *br_dev,
 		entry->br_dev = br_dev;
 		entry->vid = vid;
 		entry->vsi = vsi;
-		entry->ports = 0;
 		entry->pvid_ports = 0;
 		entry->xlt_idx = -1;
 		entry->xlt_pvid_idx = -1;
@@ -146,23 +148,26 @@ static void ppe_vlan_free(struct qca_ppe_priv *priv,
 	entry->br_dev = NULL;
 }
 
-/* The ports a VLAN's rules and VSI name. A bridge that does not filter
- * classifies by its own VSI, so a VLAN it does not enforce names none of its
- * ports and none of the CPU port's injected frames; the entry stays, because
- * the bridge VLANs are not offered again when filtering comes back on.
+/* The ports a VLAN's rules name. A bridge that does not filter classifies by
+ * its own VSI, so a VLAN it does not enforce names none of its ports; the entry
+ * stays, because the bridge VLANs are not offered again when filtering comes
+ * back on. The CPU port is never a key: the host sends each frame formatted
+ * for the port it names, and a frame for a port outside the bridge that
+ * carried the VLAN's VID would be classified into a VSI that cannot reach it.
  */
 static u32 ppe_vlan_ports(struct qca_ppe_priv *priv,
 			  struct qca_ppe_vlan_entry *entry)
 {
-	u32 ports = entry->ports & priv->vlan_filtering;
-
-	return ports ? ports | BIT(QCA_PPE_CPU_PORT) : 0;
+	return entry->ports & priv->vlan_filtering;
 }
 
 static void ppe_vlan_members_update(struct qca_ppe_priv *priv,
 				    struct qca_ppe_vlan_entry *entry)
 {
-	ppe_vsi_member_set(priv, entry->vsi, ppe_vlan_ports(priv, entry));
+	u32 ports = ppe_vlan_ports(priv, entry);
+
+	ppe_vsi_member_set(priv, entry->vsi,
+			   ports ? ports | BIT(QCA_PPE_CPU_PORT) : 0);
 }
 
 static void ppe_vlan_pvid_update(struct qca_ppe_priv *priv,
@@ -188,19 +193,18 @@ int qca_ppe_vlan_setup(struct dsa_switch *ds)
 		u32 mode = dsa_is_user_port(ds, i) ?
 			   PPE_EG_UNMODIFIED : PPE_EG_UNTOUCHED;
 
+		/* VSI_TAG_EN resets set; only a filtering port takes it. */
 		regmap_update_bits(priv->regmap, PPE_PORT_EG_VLAN(i),
 				   PPE_PORT_EG_VLAN_CTAG_MODE |
-				   PPE_PORT_EG_VLAN_STAG_MODE,
+				   PPE_PORT_EG_VLAN_STAG_MODE |
+				   PPE_PORT_EG_VSI_TAG_EN,
 				   FIELD_PREP(PPE_PORT_EG_VLAN_CTAG_MODE, mode) |
 				   FIELD_PREP(PPE_PORT_EG_VLAN_STAG_MODE, mode));
 	}
 
-	for (i = 0; i < PPE_VSI_MAX; i++) {
+	for (i = 0; i < PPE_VSI_MAX; i++)
 		regmap_write(priv->regmap, PPE_EG_VSI_TAG(i),
 			     PPE_EG_VSI_TAG_UNMODIFIED);
-		priv->vlans[i].xlt_idx = -1;
-		priv->vlans[i].xlt_pvid_idx = -1;
-	}
 
 	regmap_update_bits(priv->regmap, PPE_EG_BRIDGE_CONFIG,
 			   PPE_EG_L2_EDIT_EN, PPE_EG_L2_EDIT_EN);
@@ -221,10 +225,13 @@ int qca_ppe_port_vlan_filtering(struct dsa_switch *ds, int port,
 			   PPE_PORT_EG_VSI_TAG_EN,
 			   vlan_filtering ? PPE_PORT_EG_VSI_TAG_EN : 0);
 
+	/* Every VLAN the port is a member of has a rule naming the port, and
+	 * so does its PVID, so a miss is a frame the bridge would drop.
+	 */
 	regmap_update_bits(priv->regmap, PPE_PORT_VLAN_CFG(port),
 			   PPE_VLAN_XLT_MISS_FWD,
 			   vlan_filtering ?
-			   FIELD_PREP(PPE_VLAN_XLT_MISS_FWD, PPE_XLT_MISS_RDT_TO_CPU) : 0);
+			   FIELD_PREP(PPE_VLAN_XLT_MISS_FWD, PPE_XLT_MISS_DROP) : 0);
 
 	if (vlan_filtering)
 		priv->vlan_filtering |= BIT(port);

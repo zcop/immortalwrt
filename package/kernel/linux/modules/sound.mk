@@ -41,7 +41,7 @@ SOUNDCORE_FILES += \
 define KernelPackage/sound-core
   SUBMENU:=$(SOUND_MENU)
   TITLE:=Sound support
-  DEPENDS:=@AUDIO_SUPPORT +kmod-input-core
+  DEPENDS:=audio-support +kmod-input-core
   KCONFIG:= \
 	CONFIG_SOUND \
 	CONFIG_SND \
@@ -191,7 +191,6 @@ define KernelPackage/sound-soc-core
   DEPENDS:=+kmod-regmap-core +kmod-ac97
   KCONFIG:= \
 	CONFIG_SND_SOC \
-	CONFIG_SND_SOC_ADI=n \
 	CONFIG_SND_SOC_GENERIC_DMAENGINE_PCM=y \
 	CONFIG_SND_SOC_ALL_CODECS=n
   FILES:=$(LINUX_DIR)/sound/soc/snd-soc-core.ko
@@ -643,7 +642,6 @@ define KernelPackage/sound-hda-intel
   TITLE:=HD Audio Intel Driver
   DEPENDS:=@TARGET_x86
   KCONFIG:= \
-	CONFIG_SOUND_PCI \
 	CONFIG_SND_HDA_INTEL
   FILES:= \
 	$(LINUX_DIR)/sound/pci/hda/snd-hda-intel.ko@lt6.18 \
@@ -711,3 +709,75 @@ define KernelPackage/sound-dynamic-minors/description
 endef
 
 $(eval $(call KernelPackage,sound-dynamic-minors))
+
+
+define KernelPackage/sound-soc-simple-card-utils
+  TITLE:=ASoC simple card utilities
+  HIDDEN:=1
+  KCONFIG:=CONFIG_SND_SIMPLE_CARD_UTILS
+  FILES:=$(LINUX_DIR)/sound/soc/generic/snd-soc-simple-card-utils.ko
+  DEPENDS:=+kmod-sound-soc-core
+  AUTOLOAD:=$(call AutoProbe,snd-soc-simple-card-utils)
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-simple-card-utils))
+
+
+define KernelPackage/sound-soc-simple-card
+  TITLE:=ASoC simple sound card support
+  KCONFIG:=CONFIG_SND_SIMPLE_CARD
+  FILES:=$(LINUX_DIR)/sound/soc/generic/snd-soc-simple-card.ko
+  DEPENDS:=+kmod-sound-soc-simple-card-utils
+  AUTOLOAD:=$(call AutoProbe,snd-soc-simple-card)
+  $(call AddDepends/sound)
+endef
+
+define KernelPackage/sound-soc-simple-card/description
+ Generic sound card driver described by the simple-audio-card device
+ tree binding.
+endef
+
+$(eval $(call KernelPackage,sound-soc-simple-card))
+
+
+define KernelPackage/sound-soc-audio-graph-card
+  TITLE:=ASoC audio graph sound card support
+  KCONFIG:=CONFIG_SND_AUDIO_GRAPH_CARD
+  FILES:=$(LINUX_DIR)/sound/soc/generic/snd-soc-audio-graph-card.ko
+  DEPENDS:=+kmod-sound-soc-simple-card-utils
+  AUTOLOAD:=$(call AutoProbe,snd-soc-audio-graph-card)
+  $(call AddDepends/sound)
+endef
+
+define KernelPackage/sound-soc-audio-graph-card/description
+ Generic sound card driver described by the audio-graph-card device
+ tree binding (OF graph).
+endef
+
+$(eval $(call KernelPackage,sound-soc-audio-graph-card))
+
+
+define KernelPackage/sound-soc-hdmi-codec
+  TITLE:=ASoC HDMI codec support
+  HIDDEN:=1
+  KCONFIG:=CONFIG_SND_SOC_HDMI_CODEC
+  FILES:=$(LINUX_DIR)/sound/soc/codecs/snd-soc-hdmi-codec.ko
+  DEPENDS:=+kmod-sound-soc-core
+  AUTOLOAD:=$(call AutoProbe,snd-soc-hdmi-codec)
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-hdmi-codec))
+
+
+define KernelPackage/sound-soc-es8316
+  TITLE:=Everest Semi ES8316 codec support
+  KCONFIG:=CONFIG_SND_SOC_ES8316
+  FILES:=$(LINUX_DIR)/sound/soc/codecs/snd-soc-es8316.ko
+  DEPENDS:=+kmod-sound-soc-core +kmod-i2c-core +kmod-regmap-i2c
+  AUTOLOAD:=$(call AutoProbe,snd-soc-es8316)
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-es8316))

@@ -49,9 +49,7 @@ $(eval $(call KernelPackage,fs-afs))
 define KernelPackage/fs-autofs4
   SUBMENU:=$(FS_MENU)
   TITLE:=AUTOFS4 filesystem support
-  KCONFIG:= \
-	CONFIG_AUTOFS4_FS \
-	CONFIG_AUTOFS_FS
+  KCONFIG:=CONFIG_AUTOFS_FS
   FILES:= \
 	$(LINUX_DIR)/fs/autofs/autofs4.ko
   AUTOLOAD:=$(call AutoLoad,30,autofs4)
@@ -67,10 +65,8 @@ $(eval $(call KernelPackage,fs-autofs4))
 define KernelPackage/fs-btrfs
   SUBMENU:=$(FS_MENU)
   TITLE:=BTRFS filesystem support
-  DEPENDS:=+LINUX_6_12:kmod-lib-crc32c +kmod-lib-lzo +kmod-lib-zlib-inflate +kmod-lib-zlib-deflate +kmod-lib-raid6 +kmod-lib-xor +kmod-lib-zstd +kmod-crypto-blake2b +kmod-crypto-xxhash
-  KCONFIG:=\
-	CONFIG_BTRFS_FS \
-	CONFIG_BTRFS_FS_CHECK_INTEGRITY=n
+  DEPENDS:=+kmod-lib-lzo +kmod-lib-zlib-inflate +kmod-lib-zlib-deflate +kmod-lib-raid6 +kmod-lib-xor +kmod-lib-zstd +kmod-crypto-blake2b +kmod-crypto-xxhash
+  KCONFIG:=CONFIG_BTRFS_FS
   FILES:=\
 	$(LINUX_DIR)/fs/btrfs/btrfs.ko
   AUTOLOAD:=$(call AutoLoad,30,btrfs,1)
@@ -243,7 +239,6 @@ define KernelPackage/fs-ext4
     +kmod-crypto-crc32c
   KCONFIG:= \
 	CONFIG_EXT4_FS \
-	CONFIG_EXT4_ENCRYPTION=n \
 	CONFIG_JBD2
   FILES:= \
 	$(LINUX_DIR)/fs/ext4/ext4.ko \
@@ -447,8 +442,7 @@ define KernelPackage/fs-nfs
   DEPENDS:=+kmod-fs-nfs-common +kmod-dnsresolver
   KCONFIG:= \
 	CONFIG_NFS_FS \
-	CONFIG_NFS_USE_LEGACY_DNS=n \
-	CONFIG_NFS_USE_NEW_IDMAPPER=n
+	CONFIG_NFS_USE_LEGACY_DNS=n
   FILES:= \
 	$(LINUX_DIR)/fs/nfs/nfs.ko
   AUTOLOAD:=$(call AutoLoad,40,nfs)
@@ -563,7 +557,6 @@ define KernelPackage/fs-nfsd
 	CONFIG_NFSD_BLOCKLAYOUT=n \
 	CONFIG_NFSD_SCSILAYOUT=n \
 	CONFIG_NFSD_FLEXFILELAYOUT=n \
-	CONFIG_NFSD_FAULT_INJECTION=n \
 	CONFIG_NFSD_V4_2_INTER_SSC=n
   FILES:=$(LINUX_DIR)/fs/nfsd/nfsd.ko
   AUTOLOAD:=$(call AutoLoad,40,nfsd)
@@ -593,21 +586,6 @@ define KernelPackage/fs-ntfs3/description
 endef
 
 $(eval $(call KernelPackage,fs-ntfs3))
-
-
-define KernelPackage/fs-reiserfs
-  SUBMENU:=$(FS_MENU)
-  TITLE:=ReiserFS filesystem support
-  KCONFIG:=CONFIG_REISERFS_FS
-  FILES:=$(LINUX_DIR)/fs/reiserfs/reiserfs.ko
-  AUTOLOAD:=$(call AutoLoad,30,reiserfs,1)
-endef
-
-define KernelPackage/fs-reiserfs/description
- Kernel module for ReiserFS support
-endef
-
-$(eval $(call KernelPackage,fs-reiserfs))
 
 
 define KernelPackage/fs-squashfs
@@ -667,7 +645,7 @@ define KernelPackage/fs-xfs
   SUBMENU:=$(FS_MENU)
   TITLE:=XFS filesystem support
   KCONFIG:=CONFIG_XFS_FS
-  DEPENDS:= +kmod-fs-exportfs +LINUX_6_12:kmod-lib-crc32c
+  DEPENDS:= +kmod-fs-exportfs
   FILES:=$(LINUX_DIR)/fs/xfs/xfs.ko
   AUTOLOAD:=$(call AutoLoad,30,xfs,1)
 endef
