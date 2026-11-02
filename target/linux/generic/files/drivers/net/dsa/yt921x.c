@@ -9,7 +9,14 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
+#include <linux/rtnetlink.h>
+
 #include "yt921x_internal.h"
+
+static bool experimental_8021q;
+module_param(experimental_8021q, bool, 0444);
+MODULE_PARM_DESC(experimental_8021q,
+		"Use experimental 802.1Q transport on both CPU links (default off; reboot to change)");
 
 static int yt921x_hwmon_read_temp(struct yt921x_priv *priv, long *temp)
 {
@@ -144,10 +151,33 @@ static int yt921x_dsa_setup(struct dsa_switch *ds)
 	if (res)
 		return res;
 
+	if (priv->tag_8021q &&
+	    (!of_machine_is_compatible("xiaomi,cr881x") ||
+	     priv->cpu_ports_mask != (BIT(4) | BIT(8)) ||
+	     priv->primary_cpu_port != 8 || priv->secondary_cpu_port != 4 ||
+	     !priv->dt_secondary_conduit_user_mask_valid ||
+	     priv->dt_secondary_conduit_user_mask != BIT(3))) {
+		dev_err(dev, "Experimental 802.1Q requires the CR881x dual-conduit mapping\n");
+		return -EOPNOTSUPP;
+	}
+
 	res = yt921x_devlink_params_register(ds);
 	if (res)
 		return res;
 	priv->devlink_params_registered = true;
+
+	if (priv->tag_8021q) {
+		ds->max_num_bridges = DSA_TAG_8021Q_MAX_NUM_BRIDGES;
+		rtnl_lock();
+		res = dsa_tag_8021q_register(ds, htons(ETH_P_8021Q));
+		rtnl_unlock();
+		if (res) {
+			yt921x_devlink_params_unregister(ds);
+			priv->devlink_params_registered = false;
+			return res;
+		}
+		dev_warn(dev, "Experimental 802.1Q transport enabled; NSS takeover remains manual\n");
+	}
 
 	return 0;
 }
@@ -155,6 +185,12 @@ static int yt921x_dsa_setup(struct dsa_switch *ds)
 static void yt921x_dsa_teardown(struct dsa_switch *ds)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+
+	if (ds->tag_8021q_ctx) {
+		rtnl_lock();
+		dsa_tag_8021q_unregister(ds);
+		rtnl_unlock();
+	}
 
 	if (!priv->devlink_params_registered)
 		return;
@@ -217,6 +253,8 @@ static const struct dsa_switch_ops yt921x_dsa_switch_ops = {
 	.port_vlan_filtering	= yt921x_dsa_port_vlan_filtering,
 	.port_vlan_del		= yt921x_dsa_port_vlan_del,
 	.port_vlan_add		= yt921x_dsa_port_vlan_add,
+	.tag_8021q_vlan_add	= yt921x_tag_8021q_vlan_add,
+	.tag_8021q_vlan_del	= yt921x_tag_8021q_vlan_del,
 	/* dscp */
 	.port_get_dscp_prio	= yt921x_dsa_port_get_dscp_prio,
 	.port_del_dscp_prio	= yt921x_dsa_port_del_dscp_prio,
@@ -446,6 +484,7 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 	ds->num_lag_ids = YT921X_LAG_NUM;
 	ds->num_ports = YT921X_PORT_NUM;
 	ds->num_tx_queues = YT921X_PRIO_NUM;
+	priv->tag_8021q = experimental_8021q;
 
 	mdiodev_set_drvdata(mdiodev, priv);
 

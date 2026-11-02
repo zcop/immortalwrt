@@ -1,0 +1,24 @@
+Subject: [PATCH] net: dsa: register the experimental YT921x VLAN tagger
+
+32 and 33 are reserved by the MxL862xx and QCA ethertype taggers in this
+tree. Keep the additions next to the generic 8021q entries so subsequent
+tag backports can retain their tail context.
+
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -38,6 +38,7 @@
+ #define DSA_TAG_PROTO_QCA_VALUE			10
+ #define DSA_TAG_PROTO_TRAILER_VALUE		11
+ #define DSA_TAG_PROTO_8021Q_VALUE		12
++#define DSA_TAG_PROTO_YT921X_8021Q_VALUE	34
+ #define DSA_TAG_PROTO_SJA1105_VALUE		13
+ #define DSA_TAG_PROTO_KSZ8795_VALUE		14
+ #define DSA_TAG_PROTO_OCELOT_VALUE		15
+@@ -74,6 +75,7 @@
+ 	DSA_TAG_PROTO_QCA		= DSA_TAG_PROTO_QCA_VALUE,
+ 	DSA_TAG_PROTO_TRAILER		= DSA_TAG_PROTO_TRAILER_VALUE,
+ 	DSA_TAG_PROTO_8021Q		= DSA_TAG_PROTO_8021Q_VALUE,
++	DSA_TAG_PROTO_YT921X_8021Q	= DSA_TAG_PROTO_YT921X_8021Q_VALUE,
+ 	DSA_TAG_PROTO_SJA1105		= DSA_TAG_PROTO_SJA1105_VALUE,
+ 	DSA_TAG_PROTO_KSZ8795		= DSA_TAG_PROTO_KSZ8795_VALUE,
+ 	DSA_TAG_PROTO_OCELOT		= DSA_TAG_PROTO_OCELOT_VALUE,

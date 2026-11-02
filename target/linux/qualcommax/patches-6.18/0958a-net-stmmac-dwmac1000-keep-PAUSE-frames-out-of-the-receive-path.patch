@@ -1,0 +1,48 @@
+From: Stanislaw Pal <kuncy7@gmail.com>
+Date: Thu, 15 Oct 2026 13:40:00 +0200
+Subject: [PATCH] net: stmmac: dwmac1000: keep PAUSE frames out of the receive
+ path in promiscuous mode
+
+In promiscuous mode dwmac1000 sets PCF to 0b10: every MAC control frame
+is passed to the application. A PAUSE frame is acted on by the flow
+control logic of the MAC regardless, so passing it on only hands the
+receive path frames the stack throws away.
+
+On an IPQ5018 the GMAC is the conduit of a switch and therefore in
+promiscuous mode, and its receive ring belongs to the NSS firmware, which
+punts every such frame to the host as an exception. A TP-Link Archer
+AX55 talks to its RTL8367S over a 2.5G link; with a client on a 1G port
+downloading at ~800 Mb/s the switch paused the GMAC tens of thousands of
+times per run, and each PAUSE ended up on the host CPU.
+
+Use PCF 0b01 instead: control frames other than PAUSE still pass, PAUSE
+stays with the flow control logic.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+---
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac1000.h
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac1000.h
+@@ -125,6 +125,7 @@
+ #define GMAC_FRAME_FILTER_PM	0x00000010	/* Pass all multicast */
+ #define GMAC_FRAME_FILTER_DBF	0x00000020	/* Disable Broadcast frames */
+ #define GMAC_FRAME_FILTER_PCF	0x00000080	/* Pass Control frames */
++#define GMAC_FRAME_FILTER_PCF_NOPAUSE	0x00000040	/* Pass Control frames but PAUSE */
+ #define GMAC_FRAME_FILTER_SAIF	0x00000100	/* Inverse Filtering */
+ #define GMAC_FRAME_FILTER_SAF	0x00000200	/* Source Address Filter */
+ #define GMAC_FRAME_FILTER_HPF	0x00000400	/* Hash or perfect Filter */
+--- a/drivers/net/ethernet/stmicro/stmmac/dwmac1000_core.c
++++ b/drivers/net/ethernet/stmicro/stmmac/dwmac1000_core.c
+@@ -154,7 +154,12 @@
+ 	memset(mc_filter, 0, sizeof(mc_filter));
+ 
+ 	if (dev->flags & IFF_PROMISC) {
+-		value = GMAC_FRAME_FILTER_PR | GMAC_FRAME_FILTER_PCF;
++		/* A PAUSE frame is acted on by the flow control logic of the
++		 * MAC; passing it on as well only feeds the receive path with
++		 * frames the stack drops. Behind an NSS firmware every one of
++		 * them is an exception punted to the host.
++		 */
++		value = GMAC_FRAME_FILTER_PR | GMAC_FRAME_FILTER_PCF_NOPAUSE;
+ 	} else if (dev->flags & IFF_ALLMULTI) {
+ 		value = GMAC_FRAME_FILTER_PM;	/* pass all multi */
+ 	} else if (!netdev_mc_empty(dev) && (mcbitslog2 == 0)) {

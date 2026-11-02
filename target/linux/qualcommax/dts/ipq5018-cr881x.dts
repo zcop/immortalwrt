@@ -5,6 +5,7 @@
 #include "ipq5018.dtsi"
 #include "ipq5018-ess.dtsi"
 #include "ipq5018-qcn6122.dtsi"
+#include "ipq5018-nss.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 
@@ -82,6 +83,11 @@
 /* CR881x has 256 MiB and its bootloader does not fix up this node. */
 &{/memory@40000000} {
 	reg = <0x0 0x40000000 0x0 0x10000000>;
+};
+
+/* The MP firmware low-memory layout uses 8 MiB on this 256 MiB board. */
+&nss_region {
+	reg = <0x0 0x40000000 0x0 0x800000>;
 };
 
 /* Match the clock and console setup used by working IPQ5018 boards. */

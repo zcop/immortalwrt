@@ -88,6 +88,16 @@ static int yt921x_port_setup(struct yt921x_priv *priv, int port)
 			return res;
 	}
 
+	/* Registration precedes port_setup(), whose legacy defaults reset VLAN
+	 * parsing. Restore the transport PVID and entry-based egress afterwards.
+	 */
+	if (priv->tag_8021q &&
+	    (dsa_is_user_port(ds, port) || dsa_is_cpu_port(ds, port))) {
+		res = yt921x_8021q_port_enter(priv, port);
+		if (res)
+			return res;
+	}
+
 	/* Apply full board override once during setup (before link events). */
 	res = yt921x_port_ctrl_apply_dt(priv, port, true);
 	if (res)
@@ -101,6 +111,9 @@ yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 			    enum dsa_tag_protocol m)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
+
+	if (priv->tag_8021q)
+		return DSA_TAG_PROTO_YT921X_8021Q;
 
 	if (dsa_is_cpu_port(ds, port) &&
 	    yt921x_is_secondary_cpu_port(priv, port))
@@ -141,6 +154,16 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 	if (new_cpu_port < 0)
 		return new_cpu_port;
 
+	/* The initial netifd move is required, but arbitrary remapping would
+	 * invalidate both the board isolation policy and NSS (VID, phys_if).
+	 */
+	if (priv->tag_8021q && priv->dt_secondary_conduit_user_mask_valid &&
+	    (!!(priv->dt_secondary_conduit_user_mask & BIT(port)) !=
+	     yt921x_is_secondary_cpu_port(priv, new_cpu_port))) {
+		NL_SET_ERR_MSG_MOD(extack, "Experimental transport pins ports to the board conduit mapping");
+		return -EOPNOTSUPP;
+	}
+
 	if (!dp->cpu_dp) {
 		NL_SET_ERR_MSG_MOD(extack, "User port has no previous CPU port");
 		return -EINVAL;
@@ -158,7 +181,8 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 	 * only steer those frames back to one user port, so reject mappings
 	 * that would place multiple user ports on the secondary conduit.
 	 */
-	if (yt921x_is_secondary_cpu_port(priv, new_cpu_port) &&
+	if (!priv->tag_8021q &&
+	    yt921x_is_secondary_cpu_port(priv, new_cpu_port) &&
 	    new_cpu_port != old_cpu_port) {
 		dsa_switch_for_each_user_port(user_dp, ds) {
 			if (user_dp->index == port)
@@ -202,7 +226,7 @@ yt921x_dsa_port_change_conduit(struct dsa_switch *ds, int port,
 		res = yt921x_conduit_fdb_retarget(priv, port, old_cpu_port,
 						  new_cpu_port);
 
-	/* Do NOT update YT921X_EXT_CPU_PORT here. That register must stay
+	/* In 802.1Q mode EXT_CPU_PORT stays disabled. Otherwise it must stay
 	 * pinned to primary_cpu_port (set once in yt921x_chip_setup_dsa).
 	 * The secondary conduit uses DSA_TAG_PROTO_NONE and receives raw
 	 * untagged frames via port isolation steering alone. Redirecting
@@ -226,6 +250,10 @@ int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
 		return 0;
 
 	mutex_lock(&priv->reg_lock);
+	if (priv->tag_8021q && priv->bridge_vlan_fault[port]) {
+		mutex_unlock(&priv->reg_lock);
+		return -EIO;
+	}
 	res = yt921x_reg_set_bits(priv, YT921X_PORTn_CTRL(port), mask);
 	if (!res)
 		res = yt921x_port_ctrl_apply_dt(priv, port, false);
@@ -1125,7 +1153,9 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	       YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO;
 	for (port = 0; port < YT921X_PORT_NUM; port++) {
 		res = yt921x_reg_update_bits(priv, YT921X_MCAST_PORT_POLICYn(port),
-					     ctrl, ctrl);
+					     ctrl, priv->tag_8021q ?
+					     ctrl & ~(YT921X_MCAST_PORT_POLICY_VLAN_LEAKY |
+						      YT921X_MCAST_PORT_POLICY_IGMP_BYPASS_ISO) : ctrl);
 		if (res)
 			return res;
 	}
@@ -1154,7 +1184,8 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	ctrl = 0;
 	for (port = 0; port < YT921X_PORT_NUM; port++)
 		ctrl |= YT921X_VLAN_IGR_FILTER_PORTn_BYPASS_IGMP(port);
-	res = yt921x_reg_update_bits(priv, YT921X_VLAN_IGR_FILTER, ctrl, ctrl);
+	res = yt921x_reg_update_bits(priv, YT921X_VLAN_IGR_FILTER, ctrl,
+				     priv->tag_8021q ? 0 : ctrl);
 	if (res)
 		return res;
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
@@ -1165,7 +1196,7 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	 * keep only internal MCU (port 10) blocked, allow CPU/LAN/WAN delivery.
 	 * 0x7ff blackholes unknown unicast destined for router MAC on this board.
 	 */
-	ctrl = BIT(10) | priv->cpu_ports_mask;
+	ctrl = BIT(10) | (priv->tag_8021q ? 0 : priv->cpu_ports_mask);
 	res = yt921x_reg_write(priv, YT921X_FILTER_UNK_UCAST, ctrl);
 	if (res)
 		return res;
@@ -1175,8 +1206,8 @@ static int yt921x_chip_setup_dsa(struct yt921x_priv *priv)
 	/* Keep stock-safe defaults for flood filters until semantics are fully
 	 * mapped on YT9215.
 	 */
-	priv->flood_unk_ucast_base_mask = BIT(10) | priv->cpu_ports_mask;
-	priv->flood_mcast_base_mask = BIT(10) | priv->cpu_ports_mask;
+	priv->flood_unk_ucast_base_mask = ctrl;
+	priv->flood_mcast_base_mask = ctrl;
 	priv->flood_bcast_base_mask = BIT(10);
 	priv->flood_storm_mask = 0;
 	res = yt921x_apply_flood_filters_locked(priv);

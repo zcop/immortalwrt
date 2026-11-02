@@ -1859,8 +1859,9 @@ int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv)
 {
 	struct dsa_switch *ds = &priv->ds;
 	struct dsa_port *dp;
-	u16 unk_ucast_mask = BIT(10) | priv->cpu_ports_mask;
-	u16 mcast_mask = BIT(10) | priv->cpu_ports_mask;
+	u16 cpu_mask = priv->tag_8021q ? 0 : priv->cpu_ports_mask;
+	u16 unk_ucast_mask = BIT(10) | cpu_mask;
+	u16 mcast_mask = BIT(10) | cpu_mask;
 	u16 bcast_mask = BIT(10);
 
 	dsa_switch_for_each_user_port(dp, ds) {

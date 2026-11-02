@@ -888,21 +888,39 @@ endef
 
 $(eval $(call KernelPackage,dsa-qca8k))
 
+PKG_CONFIG_DEPENDS += CONFIG_DSA_YT921X_EXPERIMENTAL_8021Q
+
 define KernelPackage/dsa-yt921x
   SUBMENU:=$(NETWORK_DEVICES_MENU)
   TITLE:=Motorcomm YT921x switch DSA support
   DEPENDS:=+kmod-dsa
   KCONFIG:= \
 	CONFIG_NET_DSA_YT921X \
-	CONFIG_NET_DSA_TAG_YT921X
+	CONFIG_NET_DSA_TAG_YT921X \
+	CONFIG_NET_DSA_TAG_YT921X_8021Q
   FILES:= \
 	$(LINUX_DIR)/drivers/net/dsa/yt921x_driver.ko \
-	$(LINUX_DIR)/net/dsa/tag_yt921x.ko
+	$(LINUX_DIR)/net/dsa/tag_yt921x.ko \
+	$(LINUX_DIR)/net/dsa/tag_yt921x_8021q.ko
   AUTOLOAD:=$(call AutoLoad,42,yt921x_driver,1)
+  MODPARAMS.yt921x_driver:=$(if $(filter y,$(CONFIG_DSA_YT921X_EXPERIMENTAL_8021Q)),experimental_8021q=1)
 endef
 
 define KernelPackage/dsa-yt921x/description
   DSA based kernel modules for Motorcomm YT921x switch family
+endef
+
+define KernelPackage/dsa-yt921x/config
+  if PACKAGE_kmod-dsa-yt921x
+    config DSA_YT921X_EXPERIMENTAL_8021Q
+      bool "Use experimental YT921x 802.1Q CPU transport at early boot"
+      depends on TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x
+      default n
+      help
+        Pass experimental_8021q=1 when the CR881x switch driver first loads.
+        The boot modules load before the writable overlay, so this must be
+        part of the image. NSS takeover remains disabled and manual.
+  endif
 endef
 
 $(eval $(call KernelPackage,dsa-yt921x))

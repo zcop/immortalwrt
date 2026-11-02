@@ -1,0 +1,49 @@
+From: zcop <hongson.hn@gmail.com>
+Subject: [PATCH] nss: ipq50xx: halt the UBI32 core before teardown
+
+The common remove path only stops firmware when the HAL implements
+core_halt. IPQ50xx omitted that callback, leaving the core executing after
+IRQs and its host mappings were removed. Use the same local reset clamp
+as firmware_load, with readback before teardown. Do not assert GCC resets:
+they affect hardware shared with the upstream GMAC drivers.
+
+Expose a read-only capability so the manual controller can reject older
+core modules before arming them. Reload behavior still needs hardware
+validation; this callback alone is not a guarantee of successful restart.
+
+--- a/nss_hal/ipq50xx/nss_hal_pvt.c
++++ b/nss_hal/ipq50xx/nss_hal_pvt.c
+@@ -271,6 +271,25 @@
+ }
+ 
+ /*
++ * Report the IPQ50xx-specific teardown capability to the manual controller.
++ */
++static bool ipq50xx_core_halt = true;
++module_param(ipq50xx_core_halt, bool, 0444);
++MODULE_PARM_DESC(ipq50xx_core_halt, "IPQ50xx HAL clamps the core before removal");
++
++static void __nss_hal_core_halt(struct nss_ctx_instance *nss_ctx)
++{
++	uint32_t clamp;
++
++	/* Halt only the UBI32 core. GCC resets also reset shared GMAC state. */
++	nss_write_32(nss_ctx->nmap, NSS_REGS_RESET_CTRL_OFFSET, 0x1);
++	/* Complete the clamp write before IRQs and mappings are torn down. */
++	clamp = nss_read_32(nss_ctx->nmap, NSS_REGS_RESET_CTRL_OFFSET);
++	pr_info("nss-ipq50xx: core %d local reset clamp=%#x before teardown\n",
++		nss_ctx->id, clamp);
++}
++
++/*
+  * __nss_hal_core_reset()
+  */
+ static int __nss_hal_core_reset(struct platform_device *nss_dev, void __iomem *map, uint32_t addr, uint32_t clk_src)
+@@ -673,6 +692,7 @@
+ struct nss_hal_ops nss_hal_ipq50xx_ops = {
+ 	.common_reset = __nss_hal_common_reset,
+ 	.core_reset = __nss_hal_core_reset,
++	.core_halt = __nss_hal_core_halt,
+ 	.clock_configure = __nss_hal_clock_configure,
+ 	.firmware_load = nss_hal_firmware_load,
+ 	.debug_enable = __nss_hal_debug_enable,

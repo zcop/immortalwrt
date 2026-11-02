@@ -10,6 +10,7 @@
 #define __YT921X_INTERNAL_H
 
 #include <linux/dcbnl.h>
+#include <linux/dsa/8021q.h>
 #include <linux/debugfs.h>
 #include <linux/etherdevice.h>
 #include <linux/fs.h>
@@ -330,5 +331,21 @@ int yt921x_dsa_port_enable(struct dsa_switch *ds, int port,
 void yt921x_dsa_port_disable(struct dsa_switch *ds, int port);
 void yt921x_dsa_phylink_get_caps(struct dsa_switch *ds, int port,
 				 struct phylink_config *config);
+
+/* Experimental 802.1Q transport. Register helpers require reg_lock. */
+int yt921x_fdb_flush_port(struct yt921x_priv *priv, int port, bool flush_static);
+int yt921x_vlan_aware_set(struct yt921x_priv *priv, int port, bool aware);
+int yt921x_port_set_pvid(struct yt921x_priv *priv, int port, u16 vid);
+int yt921x_vlan_add(struct yt921x_priv *priv, int port, u16 vid, bool untagged);
+int yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid);
+int yt921x_8021q_port_enter(struct yt921x_priv *priv, int port);
+int yt921x_8021q_standalone(struct yt921x_priv *priv, int port);
+void yt921x_8021q_fault(struct yt921x_priv *priv, int port);
+int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable);
+int yt921x_8021q_bridge_vlan(struct yt921x_priv *priv, int port,
+		const struct switchdev_obj_port_vlan *vlan, bool add,
+		struct netlink_ext_ack *extack);
+int yt921x_tag_8021q_vlan_add(struct dsa_switch *ds, int port, u16 vid, u16 flags);
+int yt921x_tag_8021q_vlan_del(struct dsa_switch *ds, int port, u16 vid);
 
 #endif

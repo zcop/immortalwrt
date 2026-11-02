@@ -681,6 +681,9 @@ yt921x_port_up(struct yt921x_priv *priv, int port, unsigned int mode,
 	u32 ctrl;
 	int res;
 
+	if (priv->tag_8021q && priv->bridge_vlan_fault[port])
+		return -EIO;
+
 	res = yt921x_port_validate_link_mode(priv, port, interface, speed,
 					     duplex);
 	if (res) {

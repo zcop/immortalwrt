@@ -533,7 +533,7 @@ yt921x_fdb_flush_raw(struct yt921x_priv *priv, u16 ports_mask, u16 vid,
 	return 0;
 }
 
-static int
+int
 yt921x_fdb_flush_port(struct yt921x_priv *priv, int port, bool flush_static)
 {
 	return yt921x_fdb_flush_raw(priv, BIT(port), 4096, flush_static);
@@ -727,12 +727,43 @@ yt921x_dsa_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 	return res;
 }
 
+/* In tag_8021q mode a bridge that is not VLAN-aware hands its FDB and MDB
+ * entries over with VID 0; the switch learns (IVL) in the tag_8021q VID the
+ * frames are classified into, so the static entries have to go there. The
+ * DSA core zeroes db.bridge.num for a switch without FDB isolation, so the
+ * bridge's number is taken from a port that is in it.
+ */
+static u16 yt921x_db_vid(struct yt921x_priv *priv, struct dsa_db db, u16 vid)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+
+	if (!priv->tag_8021q || vid)
+		return vid;
+
+	switch (db.type) {
+	case DSA_DB_BRIDGE:
+		dsa_switch_for_each_user_port(dp, ds)
+			if (dsa_port_offloads_bridge_dev(dp, db.bridge.dev))
+				return dsa_tag_8021q_bridge_vid(dp->bridge->num);
+		return vid;
+	case DSA_DB_PORT:
+		if (!dsa_is_user_port(ds, db.dp->index))
+			return vid;
+		return dsa_tag_8021q_standalone_vid(db.dp);
+	default:
+		return vid;
+	}
+}
+
 int
 yt921x_dsa_port_fdb_del(struct dsa_switch *ds, int port,
 			const unsigned char *addr, u16 vid, struct dsa_db db)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
+
+	vid = yt921x_db_vid(priv, db, vid);
 
 	mutex_lock(&priv->reg_lock);
 	res = yt921x_fdb_leave(priv, addr, vid, BIT(port));
@@ -748,6 +779,8 @@ yt921x_dsa_port_fdb_add(struct dsa_switch *ds, int port,
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	int res;
 
+	vid = yt921x_db_vid(priv, db, vid);
+
 	mutex_lock(&priv->reg_lock);
 	res = yt921x_fdb_join(priv, addr, vid, BIT(port));
 	mutex_unlock(&priv->reg_lock);
@@ -761,7 +794,7 @@ static u16 yt921x_mdb_resolve_vid(struct yt921x_priv *priv, int port, u16 vid)
 	struct net_device *bdev;
 	u16 pvid = 0;
 
-	if (vid)
+	if (vid || priv->tag_8021q)
 		return vid;
 
 	dp = dsa_to_port(&priv->ds, port);
@@ -783,7 +816,8 @@ yt921x_dsa_port_mdb_del(struct dsa_switch *ds, int port,
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct device *dev = yt921x_dev(priv);
 	const unsigned char *addr = mdb->addr;
-	u16 vid = yt921x_mdb_resolve_vid(priv, port, mdb->vid);
+	u16 vid = yt921x_db_vid(priv, db,
+			yt921x_mdb_resolve_vid(priv, port, mdb->vid));
 	int res;
 
 	mutex_lock(&priv->reg_lock);
@@ -804,7 +838,8 @@ yt921x_dsa_port_mdb_add(struct dsa_switch *ds, int port,
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	struct device *dev = yt921x_dev(priv);
 	const unsigned char *addr = mdb->addr;
-	u16 vid = yt921x_mdb_resolve_vid(priv, port, mdb->vid);
+	u16 vid = yt921x_db_vid(priv, db,
+			yt921x_mdb_resolve_vid(priv, port, mdb->vid));
 	int res;
 
 	/* Bridge core rejects static MDB programming when multicast snooping
@@ -820,7 +855,7 @@ yt921x_dsa_port_mdb_add(struct dsa_switch *ds, int port,
 	return res;
 }
 
-static int
+int
 yt921x_vlan_aware_set(struct yt921x_priv *priv, int port, bool vlan_aware)
 {
 	u32 ctrl;
@@ -835,7 +870,7 @@ yt921x_vlan_aware_set(struct yt921x_priv *priv, int port, bool vlan_aware)
 	return yt921x_reg_write(priv, YT921X_PORTn_IGR_TPID(port), ctrl);
 }
 
-static int
+int
 yt921x_port_set_pvid(struct yt921x_priv *priv, int port, u16 vid)
 {
 	u32 mask;
@@ -891,7 +926,7 @@ yt921x_vlan_filtering(struct yt921x_priv *priv, int port, bool vlan_filtering)
 	return 0;
 }
 
-static int
+int
 yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid)
 {
 	u64 ctrl64;
@@ -913,7 +948,7 @@ yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid)
 	return yt921x_reg64_write(priv, YT921X_VLANn_CTRL(vid), ctrl64);
 }
 
-static int
+int
 yt921x_vlan_add(struct yt921x_priv *priv, int port, u16 vid, bool untagged)
 {
 	u64 mask64;
@@ -1002,6 +1037,12 @@ yt921x_dsa_port_vlan_filtering(struct dsa_switch *ds, int port,
 
 	mutex_lock(&priv->reg_lock);
 	do {
+		if (priv->tag_8021q) {
+			res = yt921x_8021q_filtering(priv, port, vlan_filtering);
+			if (res && res != -EBUSY)
+				yt921x_8021q_fault(priv, port);
+			break;
+		}
 		res = yt921x_vlan_filtering(priv, port, vlan_filtering);
 		if (res)
 			break;
@@ -1028,6 +1069,9 @@ yt921x_dsa_port_vlan_del(struct dsa_switch *ds, int port,
 	u16 vid = vlan->vid;
 	u16 pvid = 0;
 	int res;
+
+	if (priv->tag_8021q)
+		return yt921x_8021q_bridge_vlan(priv, port, vlan, false, NULL);
 
 	mutex_lock(&priv->reg_lock);
 	do {
@@ -1065,6 +1109,9 @@ yt921x_dsa_port_vlan_add(struct dsa_switch *ds, int port,
 	u16 vid = vlan->vid;
 	u16 pvid = 0;
 	int res;
+
+	if (priv->tag_8021q)
+		return yt921x_8021q_bridge_vlan(priv, port, vlan, true, extack);
 
 	mutex_lock(&priv->reg_lock);
 	do {
@@ -1606,14 +1653,22 @@ yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 	if (dsa_is_cpu_port(ds, port))
 		return;
 
+	if (priv->tag_8021q)
+		dsa_tag_8021q_bridge_leave(ds, port, bridge);
+
 	mutex_lock(&priv->reg_lock);
-	res = yt921x_bridge_leave(priv, port);
+	if (priv->tag_8021q)
+		res = yt921x_8021q_standalone(priv, port);
+	else
+		res = yt921x_bridge_leave(priv, port);
 	if (!res)
 		res = yt921x_refresh_flood_masks_locked(priv);
 	if (!res) {
 		priv->ports[port].mrouter = false;
 		res = yt921x_sync_mrouter_masks_locked(priv);
 	}
+	if (res && priv->tag_8021q)
+		yt921x_8021q_fault(priv, port);
 	mutex_unlock(&priv->reg_lock);
 
 	if (res)
@@ -1633,6 +1688,24 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 	if (dsa_is_cpu_port(ds, port))
 		return 0;
 
+	if (priv->tag_8021q) {
+		struct dsa_port *dp = dsa_to_port(ds, port), *other;
+
+		/* A shared bridge VID cannot encode which conduit owns the copy. */
+		dsa_switch_for_each_user_port(other, ds) {
+			if (other != dp &&
+			    dsa_port_offloads_bridge_dev(other, bridge.dev) &&
+			    other->cpu_dp != dp->cpu_dp) {
+				NL_SET_ERR_MSG_MOD(extack, "Experimental transport cannot bridge across CPU conduits");
+				return -EOPNOTSUPP;
+			}
+		}
+		res = dsa_tag_8021q_bridge_join(ds, port, bridge,
+					      tx_fwd_offload, extack);
+		if (res)
+			return res;
+	}
+
 	ports_mask = yt921x_dsa_bridge_ports(ds, bridge.dev);
 	ports_mask |= priv->cpu_ports_mask;
 
@@ -1640,7 +1713,11 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 	res = yt921x_bridge_join(priv, port, ports_mask);
 	if (!res)
 		res = yt921x_refresh_flood_masks_locked(priv);
+	if (res && priv->tag_8021q)
+		yt921x_8021q_fault(priv, port);
 	mutex_unlock(&priv->reg_lock);
+	if (res && priv->tag_8021q)
+		dsa_tag_8021q_bridge_leave(ds, port, bridge);
 
 	return res;
 }

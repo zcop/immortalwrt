@@ -1,0 +1,65 @@
+From: Stanislaw Pal <kuncy7@gmail.com>
+Subject: [PATCH] net: bridge: read the ECM helpers' state under RCU
+
+Two helpers that the ECM patches add are called by ECM under RCU or in
+softirq, and lockdep reports both (IPQ5018, first accelerated flows):
+
+- br_dev_is_vlan_filter_enabled() (0966) says its caller holds the RCU
+  read lock, and ECM calls it from the post-routing hook under
+  rcu_read_lock(), but it took the VLAN groups with br_vlan_group() and
+  nbp_vlan_group(), which expect RTNL ("suspicious
+  rcu_dereference_protected() usage", br_private.h:1620 and 1626). Use
+  their _rcu variants.
+
+- br_fdb_entry_refresh() (0960) looked the port up with
+  br_port_get_rcu() before its own rcu_read_lock(); ECM calls it from
+  the NSS stats sync in NAPI context with no RCU section open
+  ("suspicious rcu_dereference_check() usage", br_private.h:457). Take
+  the lock first.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+---
+--- a/net/bridge/br_fdb.c
++++ b/net/bridge/br_fdb.c
+@@ -1156,16 +1156,18 @@ void br_fdb_update(struct net_bridge *br
+ void br_fdb_entry_refresh(struct net_device *dev, const char *addr, __u16 vid)
+ {
+ 	struct net_bridge_fdb_entry *fdb;
+-	struct net_bridge_port *p = br_port_get_rcu(dev);
++	struct net_bridge_port *p;
+ 
++	rcu_read_lock();
++	p = br_port_get_rcu(dev);
+ 	if (!p || p->state == BR_STATE_DISABLED)
+-		return;
++		goto out;
+ 
+-	rcu_read_lock();
+ 	fdb = fdb_find_rcu(&p->br->fdb_hash_tbl, addr, vid);
+ 	if (likely(fdb)) {
+ 		fdb->updated = jiffies;
+ 	}
++out:
+ 	rcu_read_unlock();
+ }
+ EXPORT_SYMBOL_GPL(br_fdb_entry_refresh);
+--- a/net/bridge/br_vlan.c
++++ b/net/bridge/br_vlan.c
+@@ -961,7 +961,7 @@ int br_dev_is_vlan_filter_enabled(struct
+ 			return -ENOENT;
+ 		}
+ 
+-		vg = br_vlan_group(netdev_priv(dev));
++		vg = br_vlan_group_rcu(netdev_priv(dev));
+ 	} else if (dev->priv_flags & IFF_BRIDGE_PORT) {
+ 		/*
+ 		 * It's a bridge port
+@@ -977,7 +977,7 @@ int br_dev_is_vlan_filter_enabled(struct
+ 
+ 		p = br_port_get_rcu(dev);
+ 		if (p)
+-			vg = nbp_vlan_group(p);
++			vg = nbp_vlan_group_rcu(p);
+ 	} else {
+ 		/*
+ 		 * Neither a bridge device or port

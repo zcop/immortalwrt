@@ -346,6 +346,12 @@ struct yt921x_priv;
 #define   YT921X_PORT_EGR_TPID_CTAG(x)			FIELD_PREP(YT921X_PORT_EGR_TPID_CTAG_M, (x))
 #define  YT921X_PORT_EGR_TPID_STAG_M		GENMASK(3, 2)
 #define   YT921X_PORT_EGR_TPID_STAG(x)			FIELD_PREP(YT921X_PORT_EGR_TPID_STAG_M, (x))
+#define YT921X_PORTn_EGR_VLAN_CTRL(port)	(0x100080 + 4 * (port))
+#define  YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE_M	GENMASK(14, 12)
+#define   YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE(x) \
+		FIELD_PREP(YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE_M, (x))
+#define   YT921X_EGR_CTAG_MODE_KEEP_ALL			4
+#define   YT921X_EGR_CTAG_MODE_ENTRY_BASED		5
 #define YT921X_TPID_EGRn(x)		(0x100300 + 4 * (x))	/* [0, 3] */
 #define  YT921X_TPID_EGR_TPID_M			GENMASK(15, 0)
 
@@ -1328,6 +1334,14 @@ struct yt921x_priv {
 	unsigned int queue_shape_slot_ns;
 	/* cache of dsa_cpu_ports(ds) */
 	u16 cpu_ports_mask;
+	/* Immutable experiment selection; original transport is the default. */
+	bool tag_8021q;
+	bool bridge_vlan_fault[YT921X_PORT_NUM];
+	bool bridge_vlan_filtering[YT921X_PORT_NUM];
+	u16 tag_8021q_pvid[YT921X_PORT_NUM];
+	u16 bridge_pvid[YT921X_PORT_NUM];
+	u16 bridge_vlan_members[3072];
+	u16 bridge_vlan_untagged[3072];
 	int primary_cpu_port;
 	int secondary_cpu_port;
 	u8 cycle_ns;

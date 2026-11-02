@@ -1,0 +1,169 @@
+From: Augusto Amaral <contato@augustoamaral.com>
+Subject: [PATCH] net: stmmac: let the NSS owner restore the firmware descriptor rings
+
+The NSS firmware points the dwmac1000 DMA at its own descriptor rings the
+first time it opens the GMAC after boot. A later firmware open neither
+reprograms the list addresses nor rewinds its own ring indices: it
+expects the DMA to carry on where it stopped. A host close/open in
+between - netifd bouncing the DSA conduit on a config reload, an MTU
+change - resets the DMA onto the host rings, so wired traffic dies until
+a reboot. Measured on a Xiaomi AX6000 after a bridge reload: the GMAC0
+list addresses were the host rings (0x4567c000/0x43ddc000) instead of the
+firmware's gmac_rx_desc_0/gmac_tx_desc_0 from the NSS meminfo; putting
+only the ring bases back restarted the DMA at descriptor 0 while the
+firmware waited at 7 (RX) and 16 (TX), and TX deadlocked.
+
+Give the claim owner what it needs to put the DMA back exactly where the
+firmware left it: stop the DMA and read the current descriptors before
+the host takes the GMAC back; write the list addresses with the DMA
+stopped, so the next start resumes from them; write the ring bases again
+once the DMA runs, which it reads at the end of the ring (measured); and
+gate the MAC while doing so, so no burst wraps the ring in between.
+
+---
+--- a/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
++++ b/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
+@@ -2528,6 +2528,143 @@ u32 qca_dwmac_dp_rx_kick(struct net_devi
+ }
+ EXPORT_SYMBOL(qca_dwmac_dp_rx_kick);
+ 
++/*
++ * Descriptor rings of the firmware-owned data plane. The NSS firmware
++ * points the DMA at its own rings (dwmac1000: receive list address 0x100c,
++ * transmit list address 0x1010) the first time it opens the GMAC after
++ * boot. A later firmware open neither reprograms them nor rewinds its own
++ * ring indices: it expects the DMA to carry on where it stopped. A host
++ * close/open in between - netifd bouncing the DSA conduit, an MTU change -
++ * resets the DMA onto the host rings, so the owner puts it back where the
++ * firmware left it:
++ *
++ *  - before handing the GMAC to the host: qca_dwmac_dp_dma_stop(), then
++ *    qca_dwmac_dp_rings_get(); the current descriptors are where the
++ *    firmware resumes;
++ *  - before the firmware reopens, MAC gated off (qca_dwmac_dp_mac_set()):
++ *    qca_dwmac_dp_rings_set() to those descriptors, because a start loads
++ *    the current descriptor from the list address register;
++ *  - once the firmware has started the DMA: qca_dwmac_dp_rings_wrap() to
++ *    the ring bases, because the running DMA reads the list address again
++ *    at the end of the ring (measured on IPQ5018) - the ring keeps its
++ *    full length.
++ */
++#define QCA_DWMAC_DMA_RCV_BASE_ADDR	0x0000100c
++#define QCA_DWMAC_DMA_TX_BASE_ADDR	0x00001010
++#define QCA_DWMAC_DMA_CUR_TX_DESC	0x00001048
++#define QCA_DWMAC_DMA_CUR_RX_DESC	0x0000104c
++#define QCA_DWMAC_DMA_RS(st)		(((st) >> 17) & 7)
++#define QCA_DWMAC_DMA_TS(st)		(((st) >> 20) & 7)
++#define QCA_DWMAC_DMA_POLLS		100
++
++static struct stmmac_priv *qca_dwmac_dp_priv(struct net_device *dev)
++{
++	if (!dev || dev->netdev_ops != &stmmac_netdev_ops)
++		return NULL;
++	return netdev_priv(dev);
++}
++
++/* wait until both DMA processes are stopped, or both have started */
++static bool qca_dwmac_dp_dma_wait(struct stmmac_priv *priv, bool started)
++{
++	int i;
++
++	for (i = 0; i < QCA_DWMAC_DMA_POLLS; i++) {
++		u32 st = readl(priv->ioaddr + QCA_DWMAC_DMA_STATUS);
++		bool rs = QCA_DWMAC_DMA_RS(st), ts = QCA_DWMAC_DMA_TS(st);
++
++		if (started ? (rs && ts) : (!rs && !ts))
++			return true;
++		usleep_range(100, 200);
++	}
++	return false;
++}
++
++int qca_dwmac_dp_rings_get(struct net_device *dev,
++			   struct qca_dwmac_dp_rings *rings)
++{
++	struct stmmac_priv *priv = qca_dwmac_dp_priv(dev);
++
++	if (!priv || !rings)
++		return -EINVAL;
++
++	rings->rx_base = readl(priv->ioaddr + QCA_DWMAC_DMA_RCV_BASE_ADDR);
++	rings->tx_base = readl(priv->ioaddr + QCA_DWMAC_DMA_TX_BASE_ADDR);
++	rings->rx_cur = readl(priv->ioaddr + QCA_DWMAC_DMA_CUR_RX_DESC);
++	rings->tx_cur = readl(priv->ioaddr + QCA_DWMAC_DMA_CUR_TX_DESC);
++	rings->host_rx = lower_32_bits(priv->dma_conf.rx_queue[0].dma_rx_phy);
++	rings->host_tx = lower_32_bits(priv->dma_conf.tx_queue[0].dma_tx_phy);
++	return 0;
++}
++EXPORT_SYMBOL(qca_dwmac_dp_rings_get);
++
++int qca_dwmac_dp_dma_stop(struct net_device *dev)
++{
++	struct stmmac_priv *priv = qca_dwmac_dp_priv(dev);
++
++	ASSERT_RTNL();
++
++	if (!priv)
++		return -EINVAL;
++	if (!priv->dp_owner)
++		return -EPERM;
++
++	stmmac_stop_all_dma(priv);
++	return qca_dwmac_dp_dma_wait(priv, false) ? 0 : -EBUSY;
++}
++EXPORT_SYMBOL(qca_dwmac_dp_dma_stop);
++
++int qca_dwmac_dp_rings_set(struct net_device *dev, u32 rx, u32 tx)
++{
++	struct stmmac_priv *priv = qca_dwmac_dp_priv(dev);
++
++	ASSERT_RTNL();
++
++	if (!priv)
++		return -EINVAL;
++	if (!priv->dp_owner)
++		return -EPERM;
++	/* the list addresses may only be written with both processes stopped */
++	if (!qca_dwmac_dp_dma_wait(priv, false))
++		return -EBUSY;
++
++	writel(rx, priv->ioaddr + QCA_DWMAC_DMA_RCV_BASE_ADDR);
++	writel(tx, priv->ioaddr + QCA_DWMAC_DMA_TX_BASE_ADDR);
++	return 0;
++}
++EXPORT_SYMBOL(qca_dwmac_dp_rings_set);
++
++int qca_dwmac_dp_rings_wrap(struct net_device *dev, u32 rx, u32 tx)
++{
++	struct stmmac_priv *priv = qca_dwmac_dp_priv(dev);
++
++	ASSERT_RTNL();
++
++	if (!priv)
++		return -EINVAL;
++	if (!priv->dp_owner)
++		return -EPERM;
++	/* only after the start has loaded the current descriptors */
++	if (!qca_dwmac_dp_dma_wait(priv, true))
++		return -EBUSY;
++
++	writel(rx, priv->ioaddr + QCA_DWMAC_DMA_RCV_BASE_ADDR);
++	writel(tx, priv->ioaddr + QCA_DWMAC_DMA_TX_BASE_ADDR);
++	return 0;
++}
++EXPORT_SYMBOL(qca_dwmac_dp_rings_wrap);
++
++void qca_dwmac_dp_mac_set(struct net_device *dev, bool enable)
++{
++	struct stmmac_priv *priv = qca_dwmac_dp_priv(dev);
++
++	ASSERT_RTNL();
++
++	if (priv && priv->dp_owner)
++		stmmac_mac_set(priv, priv->ioaddr, enable);
++}
++EXPORT_SYMBOL(qca_dwmac_dp_mac_set);
++
+ /**
+  *  stmmac_dma_operation_mode - HW DMA operation mode
+  *  @priv: driver private structure

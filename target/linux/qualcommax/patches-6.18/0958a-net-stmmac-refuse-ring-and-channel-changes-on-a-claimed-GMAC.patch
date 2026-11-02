@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stanislaw Pal <kuncy7@gmail.com>
+Date: Mon, 26 Oct 2026 13:40:00 +0100
+Subject: [PATCH] net: stmmac: refuse ring and channel changes on a claimed GMAC
+
+"ethtool -G" and "ethtool -L" reach stmmac_reinit_ringparam() and
+stmmac_reinit_queues(), which reopen a running interface with
+stmmac_release() and stmmac_open() and send no netdev event on the
+way. While qca-dwmac-nss has claimed the GMAC for the NSS firmware,
+the release napi_disable()s the queues the claim already disabled and
+blocks for good with rtnl held: on a Xiaomi CR8806, "ethtool -G eth1
+rx 64" took the router off the network until a power cycle.
+
+MTU changes have the same reopen, but qca-dwmac-nss releases the claim
+on NETDEV_PRECHANGEMTU first. Ring and channel changes have no event
+to hook, so return -EBUSY while the GMAC is claimed.
+
+Reported-by: fanha99 <fanha99@hotmail.com>
+Link: https://github.com/kuncy7/openwrt-nss-edma/issues/52
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+---
+--- a/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
++++ b/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
+@@ -7729,11 +7729,34 @@ static void stmmac_napi_del(struct net_d
+ 	}
+ }
+ 
++/*
++ * A claimed GMAC runs on the NSS firmware's descriptor rings. Reopening
++ * it here, as a ring or channel change does, bypasses the netdev
++ * notifiers the owner releases the claim on: stmmac_release() would
++ * napi_disable() the queues the claim already disabled, which blocks for
++ * good with rtnl held. MTU changes go through NETDEV_PRECHANGEMTU
++ * instead; these have no event to hook, so refuse them.
++ */
++static int stmmac_reinit_refuse_claimed(struct net_device *dev)
++{
++	struct stmmac_priv *priv = netdev_priv(dev);
++
++	if (!priv->dp_owner)
++		return 0;
++
++	netdev_warn(dev, "the NSS firmware owns the DMA, not reconfiguring it\n");
++	return -EBUSY;
++}
++
+ int stmmac_reinit_queues(struct net_device *dev, u32 rx_cnt, u32 tx_cnt)
+ {
+ 	struct stmmac_priv *priv = netdev_priv(dev);
+ 	int ret = 0, i;
+ 
++	ret = stmmac_reinit_refuse_claimed(dev);
++	if (ret)
++		return ret;
++
+ 	if (netif_running(dev))
+ 		stmmac_release(dev);
+ 
+@@ -7757,7 +7780,11 @@ int stmmac_reinit_queues(struct net_devi
+ int stmmac_reinit_ringparam(struct net_device *dev, u32 rx_size, u32 tx_size)
+ {
+ 	struct stmmac_priv *priv = netdev_priv(dev);
+-	int ret = 0;
++	int ret;
++
++	ret = stmmac_reinit_refuse_claimed(dev);
++	if (ret)
++		return ret;
+ 
+ 	if (netif_running(dev))
+ 		stmmac_release(dev);
