@@ -7,7 +7,7 @@ the upstream stmmac driver and the existing YT921x DSA driver in its opt-in
 single-tag 802.1Q mode. Both CPU conduits remain in use. No `qca-nss-dp` or
 `qca-ssdk` is used by this integration.
 
-| Single TCP stream, 30 seconds | Host 802.1Q | NSS + ECM | NSS CPU idle |
+| Initial 1G CPU trunk, TCP 30 seconds | Host 802.1Q | NSS + ECM | NSS CPU idle |
 | --- | ---: | ---: | ---: |
 | LAN -> WAN | 543.1 Mbit/s | 939.0 Mbit/s | 98.98% |
 | WAN -> LAN | 536.4 Mbit/s | 938.8 Mbit/s | 99.00% |
@@ -29,6 +29,13 @@ The separate ath11k hot-reload problem is avoided by keeping its drivers loaded;
 Wi-Fi NSS and boot autostart remain disabled.
 See [current porting notes and limits](nss-kuncy-port.md) for exact sources,
 image identity, mapping, startup ordering and evidence paths.
+
+The LAN CPU SerDes is now enabled at 2.5G through native GMAC1/UNIPHY PCS.
+Three-minute NSS TCP runs reached 939.02/938.76 Mbit/s, and UDP at 900 Mbit/s
+had zero reported loss both ways. Over 546 seconds of monitoring, carrier
+counters stayed unchanged and both GMACs had no increase in checked MAC
+errors. Same-boot NSS restart also passed. The external LAN/WAN links remain
+1G; see [2.5G test details and limits](nss-serdes-2500.md).
 
 The remainder records the older qca-nss-dp integration and its former
 asymmetry; it does not describe this new result.

@@ -4,11 +4,17 @@ The experiment keeps ImmortalWrt's upstream stmmac Ethernet stack and the
 existing YT921x driver. The initial foundation provides the NSS kernel API,
 driver, firmware, DSA glue, ECM and wired clients, without automatic takeover.
 An opt-in, single-tag YT921x 802.1Q transport is implemented and has passed
-wired LAN/WAN acceleration and manual stop/restart tests on CR881x. The latest
-image measured about 939 Mbit/s in each TCP direction with about 99% CPU idle.
+wired LAN/WAN acceleration and manual stop/restart tests on CR881x. The image
+with a 1G CPU trunk measured about 939 Mbit/s in each TCP direction with about
+99% CPU idle.
 Use `cr881x-nss start|stop|restart|status` for manual control. QinQ, Wi-Fi NSS
 and boot autostart remain deferred. The original transport remains the default.
 Do not arm a GMAC while its CPU link still carries the proprietary YT tag.
+
+The LAN CPU SerDes has subsequently been enabled at 2.5G using today's native
+GMAC/UNIPHY PCS stack. Wired NSS, six minutes of sustained TCP, UDP and a
+same-boot NSS restart passed with no carrier changes or checked MAC errors
+during the traffic window. See [2.5G SerDes results and limits](nss-serdes-2500.md).
 
 The build also requires the preceding upstream compatibility fixes: the
 CR881x fstools overlay patch follows the new overlay-name argument, and the
