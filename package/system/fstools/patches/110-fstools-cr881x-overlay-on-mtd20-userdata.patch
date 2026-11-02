@@ -231,7 +231,7 @@
 +	return volume_find((char *)(fallback_name ? fallback_name : "rootfs_data"));
 +}
 +
-+static struct volume *overlay_volume_find_done(void)
++static struct volume *overlay_volume_find_done(const char *fallback_name)
 +{
 +	struct volume *v;
 +
@@ -244,7 +244,7 @@
 +			return v;
 +	}
 +
-+	return volume_find("rootfs_data");
++	return volume_find((char *)(fallback_name ? fallback_name : "rootfs_data"));
 +}
 +
  /*
@@ -267,12 +267,12 @@
  	switch (volume_identify(data)) {
  	case FS_NONE:
  		ULOG_WARN("no usable overlay filesystem found, using tmpfs overlay\n");
-@@ -115,7 +348,7 @@
- static int
- done(int argc, char *argv[1])
- {
--	struct volume *v = volume_find("rootfs_data");
-+	struct volume *v = overlay_volume_find_done();
+@@ -123,7 +355,7 @@
+ 	if (get_var_from_file("/proc/cmdline", "fstools_overlay_name", dataparam, sizeof(dataparam)))
+ 		dataname = dataparam;
+ 
+-	v = volume_find(dataname);
++	v = overlay_volume_find_done(dataname);
  
  	if (!v)
  		return -1;

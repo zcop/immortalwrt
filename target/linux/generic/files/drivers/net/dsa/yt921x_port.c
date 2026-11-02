@@ -531,7 +531,8 @@ static int yt921x_dsa_policer_apply(struct yt921x_priv *priv)
 
 int
 yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
-			    struct dsa_mall_policer_tc_entry *policer)
+			    const struct flow_action_police *policer,
+			    struct netlink_ext_ack *extack)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 	u64 old_rate_bytes_per_sec;
@@ -541,7 +542,7 @@ yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 
 	if (!yt921x_storm_policer_supported_port(ds, port))
 		return -EOPNOTSUPP;
-	if (!policer->rate_bytes_per_sec)
+	if (!policer->rate_bytes_ps)
 		return -EINVAL;
 
 	mutex_lock(&priv->reg_lock);
@@ -551,7 +552,7 @@ yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
 	old_burst = priv->policer_burst[port];
 
 	priv->policer_ports |= BIT(port);
-	priv->policer_rate_bytes_per_sec[port] = policer->rate_bytes_per_sec;
+	priv->policer_rate_bytes_per_sec[port] = policer->rate_bytes_ps;
 	priv->policer_burst[port] = policer->burst;
 
 	res = yt921x_dsa_policer_apply(priv);

@@ -247,7 +247,8 @@ int yt921x_dsa_cls_flower_stats(struct dsa_switch *ds, int port,
 int yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 			     enum tc_setup_type type, void *type_data);
 int yt921x_dsa_port_policer_add(struct dsa_switch *ds, int port,
-				struct dsa_mall_policer_tc_entry *policer);
+				const struct flow_action_police *policer,
+				struct netlink_ext_ack *extack);
 void yt921x_dsa_port_policer_del(struct dsa_switch *ds, int port);
 
 int yt921x_dsa_port_get_default_prio(struct dsa_switch *ds, int port);
