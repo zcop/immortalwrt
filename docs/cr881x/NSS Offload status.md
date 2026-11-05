@@ -1,48 +1,18 @@
+# CR881x NSS backend transition
+
+The Kuncy7 stmmac takeover backend and manual cr881x-nss controller are
+removed. Ordinary CR881x images retain upstream stmmac, YT921x DSA and
+the 2.5G LAN CPU link. Shared DSA/NSS interfaces remain available for the
+native replacement. Historical port and QinQ measurements are archived
+under reference/ and do not validate a replacement backend.
+
+The report below describes an older NSS experiment.
+
 # CR881x NSS Offload Status
-
-## Current stmmac integration, 2026-11-02
-
-Wired NSS routing now works in both directions on CR881x with kernel 6.18.55,
-the upstream stmmac driver and the existing YT921x DSA driver in its opt-in
-single-tag 802.1Q mode. Both CPU conduits remain in use. No `qca-nss-dp` or
-`qca-ssdk` is used by this integration.
-
-| Initial 1G CPU trunk, TCP 30 seconds | Host 802.1Q | NSS + ECM | NSS CPU idle |
-| --- | ---: | ---: | ---: |
-| LAN -> WAN | 543.1 Mbit/s | 939.0 Mbit/s | 98.98% |
-| WAN -> LAN | 536.4 Mbit/s | 938.8 Mbit/s | 99.00% |
-
-Firmware special IPv4 RX/TX counters increased by 2,786,776 and 2,717,331
-packets respectively during the two NSS runs. ECM showed active rules, and
-no nft flowtable was enabled. The matched 400 Mbit/s reverse UDP test received
-399.7 Mbit/s with zero reported loss; the earlier original-transport host
-baseline received 344.0 Mbit/s with 13.95% reported loss.
-
-NSS startup is still manual. This validates routed unicast on the connected
-LAN3 and WAN ports; QinQ, Wi-Fi acceleration and the wider VLAN/control-plane
-feature matrix remain unvalidated. The normal host ath11k code is unchanged. After a clean reboot, keeping both
-host Wi-Fi PHYs loaded also passed 938.8/936.7 Mbit/s ten-second TCP checks.
-The manual controller now supports stop/restart without a router reboot:
-the glue restores prior DSA user-port states, and the IPQ50xx HAL halts its core
-before removal. Two same-boot restarts passed with both host PHYs retained.
-The separate ath11k hot-reload problem is avoided by keeping its drivers loaded;
-Wi-Fi NSS and boot autostart remain disabled.
-See [current porting notes and limits](nss-kuncy-port.md) for exact sources,
-image identity, mapping, startup ordering and evidence paths.
-
-The LAN CPU SerDes is now enabled at 2.5G through native GMAC1/UNIPHY PCS.
-Three-minute NSS TCP runs reached 939.02/938.76 Mbit/s, and UDP at 900 Mbit/s
-had zero reported loss both ways. Over 546 seconds of monitoring, carrier
-counters stayed unchanged and both GMACs had no increase in checked MAC
-errors. Same-boot NSS restart also passed. The external LAN/WAN links remain
-1G; see [2.5G test details and limits](nss-serdes-2500.md).
-
-The remainder records the older qca-nss-dp integration and its former
-asymmetry; it does not describe this new result.
 
 Date: 2026-04-23
 
-## Historical status
+## Current status
 
 - Platform: IPQ50xx + YT9215S (DSA)
 - NSS stack loads and runs (`qca-nss-drv`, `qca-nss-dp`, `ecm`).
@@ -50,7 +20,7 @@ Date: 2026-04-23
   - Downstream (WAN -> LAN): offload works well, near line-rate.
   - Upstream (LAN -> WAN): offload is weaker/partial and often falls back.
 
-## Measured routing results (historical)
+## Measured routing results (latest)
 
 Test path: LAN client `10.1.0.178` <-> WAN host `192.168.137.1` via router `192.168.2.1`.
 
@@ -60,7 +30,7 @@ Test path: LAN client `10.1.0.178` <-> WAN host `192.168.137.1` via router `192.
   - Downstream TCP (`iperf3 -R`, 20s): ~399 Mbps
   - Upstream TCP (`iperf3`, 20s): ~578 Mbps
 
-## Historical configuration notes
+## Configuration notes
 
 - Do not run NSS ECM and OpenWrt flow offload together on this device.
 - Use one fast path at a time:
@@ -68,7 +38,7 @@ Test path: LAN client `10.1.0.178` <-> WAN host `192.168.137.1` via router `192.
   - Software mode: ECM OFF, flow offload ON
 - `nf_conntrack_tcp_be_liberal=1` is important to reduce ECM flush/thrash on this kernel line.
 
-## Historical DSA vs NSS tradeoff
+## Conclusion: DSA vs NSS tradeoff
 
 - Keep DSA:
   - Pros: modern OpenWrt switch model, standard DSA/switchdev workflow, better upstream maintainability.
@@ -78,6 +48,6 @@ Test path: LAN client `10.1.0.178` <-> WAN host `192.168.137.1` via router `192.
   - Pros: higher chance of symmetric NSS acceleration.
   - Cons: lose DSA-era features/ergonomics (per-port DSA workflow, bridge-vlan model, switchdev consistency), higher maintenance burden.
 
-Historical decision for CR881x:
+Final decision for CR881x:
 - Keep DSA as the default architecture.
 - Current NSS benefit is mostly download speed; this does not justify dropping many YT921x switch offloads and DSA control-plane features.

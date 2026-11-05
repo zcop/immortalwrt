@@ -1,3 +1,5 @@
+> Historical reference: measurements used the Kuncy7 foundation.
+
 # CR881x wired NSS test topology
 
 Validated 2026-11-01/02. The same wiring was tested on the original host path,

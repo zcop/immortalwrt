@@ -1,3 +1,8 @@
+# Archived Kuncy7 integration reference
+
+Inactive on the qosmio branch. The working reference remains in the original
+`nss-qinq-experiment` worktree. Measurements below used that foundation.
+
 # CR881x NSS integration
 
 The experiment keeps ImmortalWrt's upstream stmmac Ethernet stack and the
@@ -7,14 +12,23 @@ An opt-in, single-tag YT921x 802.1Q transport is implemented and has passed
 wired LAN/WAN acceleration and manual stop/restart tests on CR881x. The image
 with a 1G CPU trunk measured about 939 Mbit/s in each TCP direction with about
 99% CPU idle.
-Use `cr881x-nss start|stop|restart|status` for manual control. QinQ, Wi-Fi NSS
-and boot autostart remain deferred. The original transport remains the default.
+Use `cr881x-nss start|stop|restart|status` for manual control. QinQ port-ID
+transport now also passes wired IPv4 NAT with exact outer port identity:
+about 936 Mbit/s both ways, including a VLAN-aware PVID1 check. Wi-Fi NSS,
+boot autostart and broader feature acceptance remain deferred. The original
+transport remains the default. See [QinQ routing acceptance](nss-qinq-routing-test.md).
 Do not arm a GMAC while its CPU link still carries the proprietary YT tag.
 
 The LAN CPU SerDes has subsequently been enabled at 2.5G using today's native
 GMAC/UNIPHY PCS stack. Wired NSS, six minutes of sustained TCP, UDP and a
 same-boot NSS restart passed with no carrier changes or checked MAC errors
 during the traffic window. See [2.5G SerDes results and limits](nss-serdes-2500.md).
+
+A separate direct-rule firmware probe has now passed double-tag parsing,
+forwarding and egress generation for both `8100+8100` and `88a8+8100`, with
+bidirectional inner-VID rewrites. The later DSA/ECM prototype now passes
+wired routing; the direct probe remains distinct evidence for the firmware
+capability. See [QinQ firmware evidence](nss-qinq-firmware-test.md).
 
 The build also requires the preceding upstream compatibility fixes: the
 CR881x fstools overlay patch follows the new overlay-name argument, and the

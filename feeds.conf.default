@@ -7,7 +7,6 @@ src-git zcopapp https://github.com/zcop/luci-app-cr881x-yt921x-qos.git
 src-git cr881xwanmode https://github.com/zcop/luci-app-cr881x-wan-mode.git
 src-git wanconduit https://github.com/zcop/openwrt-wan-conduit-manager.git;master
 src-git amneziawg https://github.com/zcop/amneziawg-openwrt.git;master
-src-git nss https://github.com/kuncy7/nss-packages.git^4fa071ab14de0694c341b0c6f1970ac94aca3e62
 #src-git targets https://github.com/openwrt/targets.git
 #src-git oldpackages http://git.openwrt.org/packages.git
 #src-link custom /usr/src/openwrt/custom-feed
