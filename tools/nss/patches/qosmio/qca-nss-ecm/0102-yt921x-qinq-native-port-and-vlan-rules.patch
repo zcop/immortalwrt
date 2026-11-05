@@ -1,0 +1,342 @@
+Map native YT921x QinQ ports to exact qosmio physical/leaf interfaces.
+
+The normal netdev-wide NSS lookup declines QinQ ports. Ported IPv4/IPv6
+frontends resolve each routed side independently and program both wire
+tags. Missing/ambiguous nodes, direct port VLAN uppers, tunnels and L2
+flows stay on the host. No Kuncy7 ECM14 source files are substituted.
+
+--- a/frontends/nss/ecm_nss_common.h
++++ b/frontends/nss/ecm_nss_common.h
+@@ -60,6 +60,19 @@
+ 		ipaddrt[3] = nss6[0]; \
+ 	}
+ 
++/* Exact YT921x QinQ transport mapping. Ordinary interfaces return zero. */
++struct ecm_nss_qinq_side {
++	int physical;
++	int leaf;
++	u32 outer;
++	u32 inner;
++};
++bool ecm_nss_qinq_is_port(struct net_device *dev);
++bool ecm_nss_qinq_is_upper(struct net_device *dev);
++int ecm_nss_qinq_side_get(struct ecm_db_connection_instance *ci,
++	struct ecm_db_iface_instance *ifaces[], int first,
++	struct ecm_nss_qinq_side *side);
++
+ /*
+  * ecm_nss_common_get_interface_number_by_dev()
+  *	Returns the acceleration engine interface number based on the net_device object.
+@@ -79,6 +92,11 @@
+ 	}
+ #endif
+ 
++	/* A QinQ port has several firmware nodes, not one netdev-wide ID.
++	 * Only the ported frontends below resolve an exact pair for a flow.
++	 */
++	if (ecm_nss_qinq_is_port(dev) || ecm_nss_qinq_is_upper(dev))
++		return -1;
+ 	return nss_cmn_get_interface_number_by_dev(dev);
+ }
+ 
+@@ -107,6 +125,8 @@
+ 	}
+ #endif
+ 
++	if (ecm_nss_qinq_is_port(dev) || ecm_nss_qinq_is_upper(dev))
++		return -1;
+ 	return nss_cmn_get_interface_number_by_dev_and_type(dev, type);
+ }
+ 
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -21,6 +21,12 @@
+ #include <linux/module.h>
+ #include <linux/inet.h>
+ #include <linux/etherdevice.h>
++#include <linux/if_bridge.h>
++#include <linux/if_vlan.h>
++#if IS_ENABLED(CONFIG_NET_DSA)
++#include <linux/dsa/8021q.h>
++#include <net/dsa.h>
++#endif
+ 
+ #define DEBUG_LEVEL ECM_NSS_COMMON_DEBUG_LEVEL
+ 
+@@ -42,6 +48,160 @@
+ #include "ecm_nss_ipv6.h"
+ #include "ecm_nss_ipv4.h"
+ 
++#if IS_ENABLED(CONFIG_NET_DSA)
++/* Owned by the optional qca-nss-qinq module, pinned only during lookup. */
++int qca_nss_qinq_resolve(struct net_device *conduit, u16 svid, u16 *vid);
++
++bool ecm_nss_qinq_is_port(struct net_device *dev)
++{
++	struct dsa_port *dp;
++
++	if (!dsa_user_dev_check(dev))
++		return false;
++	dp = dsa_port_from_netdev(dev);
++	return !IS_ERR_OR_NULL(dp) && dp->ds && dp->ds->dst && dp->ds->dst->tag_ops &&
++	       dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_YT921X_QINQ;
++}
++
++bool ecm_nss_qinq_is_upper(struct net_device *dev)
++{
++	return is_vlan_dev(dev) && ecm_nss_qinq_is_port(vlan_dev_real_dev(dev));
++}
++
++int ecm_nss_qinq_side_get(struct ecm_db_connection_instance *ci,
++	struct ecm_db_iface_instance *ifaces[], int first,
++	struct ecm_nss_qinq_side *side)
++{
++	struct net_device *port = NULL, *dev, *br, *conduit;
++	struct bridge_vlan_info vinfo;
++	struct dsa_port *dp;
++	int (*resolve)(struct net_device *, u16, u16 *);
++	int i, ret = 0;
++	u16 svid, cvid = 0;
++
++	memset(side, 0, sizeof(*side));
++	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++		dev = dev_get_by_index(&init_net, ecm_db_iface_interface_identifier_get(ifaces[i]));
++		if (!dev) {
++			ret = -ENODEV;
++			goto out;
++		}
++		if (ecm_nss_qinq_is_upper(dev)) {
++			dev_put(dev);
++			ret = -EOPNOTSUPP;
++			goto out;
++		}
++		if (!ecm_nss_qinq_is_port(dev)) {
++			dev_put(dev);
++			continue;
++		}
++		if (port) {
++			dev_put(dev);
++			ret = -EOPNOTSUPP;
++			goto out;
++		}
++		port = dev;
++	}
++	if (!port)
++		return 0;
++
++	/* This first native mapping supports plain routed Ethernet/bridge/VLAN
++	 * hierarchies. Do not mistake a PPP/tunnel next hop for the QinQ leaf.
++	 */
++	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++		ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
++
++		if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
++		    type != ECM_DB_IFACE_TYPE_BRIDGE && type != ECM_DB_IFACE_TYPE_VLAN) {
++			ret = -EOPNOTSUPP;
++			goto out;
++		}
++	}
++	if (!ecm_db_connection_is_routed_get(ci)) {
++		ret = -EOPNOTSUPP;
++		goto out;
++	}
++
++	rcu_read_lock();
++	dp = dsa_port_from_netdev(port);
++	if (IS_ERR_OR_NULL(dp) || !dp->cpu_dp || !dp->ds->tag_8021q_ctx) {
++		ret = -ENODEV;
++		goto unlock;
++	}
++	conduit = dp->cpu_dp->conduit;
++	svid = dsa_tag_8021q_standalone_vid(dp);
++	br = dsa_port_bridge_dev_get(dp);
++	if (!br) {
++		cvid = svid;
++	} else if (!br_vlan_enabled(br)) {
++		int bridge_num = dsa_port_bridge_num_get(dp);
++
++		if (bridge_num <= 0 || bridge_num > DSA_TAG_8021Q_MAX_NUM_BRIDGES) {
++			ret = -EINVAL;
++			goto unlock;
++		}
++		cvid = dsa_tag_8021q_bridge_vid(bridge_num);
++	} else {
++		/* A VLAN upper of this bridge gives the exact side-specific VID.
++		 * Otherwise resolve() accepts only a single ready port leaf.
++		 */
++		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++			dev = dev_get_by_index(&init_net, ecm_db_iface_interface_identifier_get(ifaces[i]));
++			if (!dev) {
++				ret = -ENODEV;
++				goto unlock;
++			}
++			if (is_vlan_dev(dev)) {
++				u16 vid = vlan_dev_vlan_id(dev);
++
++				if (vlan_dev_real_dev(dev) != br || (cvid && cvid != vid)) {
++					dev_put(dev);
++					ret = -EOPNOTSUPP;
++					goto unlock;
++				}
++				cvid = vid;
++			}
++			dev_put(dev);
++		}
++	}
++	side->physical = nss_cmn_get_interface_number_by_dev(conduit);
++	if (side->physical < 0 || side->physical >= NSS_MAX_PHYSICAL_INTERFACES) {
++		ret = -ENODEV;
++		goto unlock;
++	}
++	resolve = symbol_get(qca_nss_qinq_resolve);
++	if (!resolve) {
++		ret = -ENODEV;
++		goto unlock;
++	}
++	side->leaf = resolve(conduit, svid, &cvid);
++	symbol_put(qca_nss_qinq_resolve);
++	if (side->leaf < 0 || !cvid || cvid == VLAN_VID_MASK) {
++		ret = -ENOENT;
++		goto unlock;
++	}
++	if (br && br_vlan_enabled(br) && br_vlan_get_info_rcu(port, cvid, &vinfo)) {
++		ret = -ENOENT;
++		goto unlock;
++	}
++	side->outer = (ETH_P_8021AD << 16) | svid;
++	side->inner = (ETH_P_8021Q << 16) | cvid;
++	ret = 1;
++unlock:
++	rcu_read_unlock();
++out:
++	if (port)
++		dev_put(port);
++	return ret;
++}
++#else
++bool ecm_nss_qinq_is_port(struct net_device *dev) { return false; }
++bool ecm_nss_qinq_is_upper(struct net_device *dev) { return false; }
++int ecm_nss_qinq_side_get(struct ecm_db_connection_instance *ci,
++	struct ecm_db_iface_instance *ifaces[], int first,
++	struct ecm_nss_qinq_side *side) { return 0; }
++#endif
++
+ #ifdef ECM_IPV6_ENABLE
+ /*
+  * ecm_nss_ipv6_is_conn_limit_reached()
+--- a/frontends/nss/ecm_nss_ported_ipv4.c
++++ b/frontends/nss/ecm_nss_ported_ipv4.c
+@@ -342,6 +342,8 @@
+ 	int32_t list_index;
+ 	int32_t interface_type_counts[ECM_DB_IFACE_TYPE_COUNT];
+ 	bool rule_invalid;
++	struct ecm_nss_qinq_side qinq_from, qinq_to;
++	int qinq_from_status, qinq_to_status;
+ 	uint8_t dest_mac_xlate[ETH_ALEN];
+ 	ecm_db_direction_t ecm_dir;
+ 	ecm_front_end_acceleration_mode_t result_mode;
+@@ -416,7 +418,16 @@
+ 	to_nss_iface = to_ifaces[to_ifaces_first];
+ 	from_nss_iface_id = ecm_db_iface_ae_interface_identifier_get(from_nss_iface);
+ 	to_nss_iface_id = ecm_db_iface_ae_interface_identifier_get(to_nss_iface);
+-	if ((from_nss_iface_id < 0) || (to_nss_iface_id < 0)) {
++	qinq_from_status = ecm_nss_qinq_side_get(feci->ci, from_ifaces,
++		from_ifaces_first, &qinq_from);
++	qinq_to_status = ecm_nss_qinq_side_get(feci->ci, to_ifaces,
++		to_ifaces_first, &qinq_to);
++	if (qinq_from_status > 0)
++		from_nss_iface_id = qinq_from.physical;
++	if (qinq_to_status > 0)
++		to_nss_iface_id = qinq_to.physical;
++	if (qinq_from_status < 0 || qinq_to_status < 0 ||
++	    (from_nss_iface_id < 0) || (to_nss_iface_id < 0)) {
+ 		DEBUG_TRACE("%px: from_nss_iface_id: %d, to_nss_iface_id: %d\n", feci, from_nss_iface_id, to_nss_iface_id);
+ 		ecm_db_connection_interfaces_deref(from_ifaces, from_ifaces_first);
+ 		ecm_db_connection_interfaces_deref(to_ifaces, to_ifaces_first);
+@@ -1106,6 +1117,28 @@
+ 			nircm->vlan_secondary_rule.egress_vlan_tag = pr->egress_vlan_tag[1];
+ 		}
+ #endif
++
++	/* The wire always carries outer port ID then inner customer/domain VID.
++	 * Keep any inner PCP selected by the normal VLAN QoS rule construction.
++	 */
++	if (qinq_from_status > 0) {
++		u32 pcp = nircm->vlan_primary_rule.ingress_vlan_tag;
++
++		pcp = pcp == ECM_FRONT_END_VLAN_ID_NOT_CONFIGURED ? 0 : pcp & VLAN_PRIO_MASK;
++		nircm->vlan_primary_rule.ingress_vlan_tag = qinq_from.outer;
++		nircm->vlan_secondary_rule.ingress_vlan_tag = qinq_from.inner | pcp;
++		nircm->nexthop_rule.flow_nexthop = qinq_from.leaf;
++		nircm->valid_flags |= NSS_IPV4_RULE_CREATE_VLAN_VALID;
++	}
++	if (qinq_to_status > 0) {
++		u32 pcp = nircm->vlan_primary_rule.egress_vlan_tag;
++
++		pcp = pcp == ECM_FRONT_END_VLAN_ID_NOT_CONFIGURED ? 0 : pcp & VLAN_PRIO_MASK;
++		nircm->vlan_primary_rule.egress_vlan_tag = qinq_to.outer;
++		nircm->vlan_secondary_rule.egress_vlan_tag = qinq_to.inner | pcp;
++		nircm->nexthop_rule.return_nexthop = qinq_to.leaf;
++		nircm->valid_flags |= NSS_IPV4_RULE_CREATE_VLAN_VALID;
++	}
+ 
+ 	protocol = ecm_db_connection_protocol_get(feci->ci);
+ 
+--- a/frontends/nss/ecm_nss_ported_ipv6.c
++++ b/frontends/nss/ecm_nss_ported_ipv6.c
+@@ -347,6 +347,8 @@
+ 	int32_t list_index;
+ 	int32_t interface_type_counts[ECM_DB_IFACE_TYPE_COUNT];
+ 	bool rule_invalid;
++	struct ecm_nss_qinq_side qinq_from, qinq_to;
++	int qinq_from_status, qinq_to_status;
+ 	ip_addr_t src_ip;
+ 	ip_addr_t dest_ip;
+ 	ecm_front_end_acceleration_mode_t result_mode;
+@@ -421,7 +423,16 @@
+ 	to_nss_iface = to_ifaces[to_ifaces_first];
+ 	from_nss_iface_id = ecm_db_iface_ae_interface_identifier_get(from_nss_iface);
+ 	to_nss_iface_id = ecm_db_iface_ae_interface_identifier_get(to_nss_iface);
+-	if ((from_nss_iface_id < 0) || (to_nss_iface_id < 0)) {
++	qinq_from_status = ecm_nss_qinq_side_get(feci->ci, from_ifaces,
++		from_ifaces_first, &qinq_from);
++	qinq_to_status = ecm_nss_qinq_side_get(feci->ci, to_ifaces,
++		to_ifaces_first, &qinq_to);
++	if (qinq_from_status > 0)
++		from_nss_iface_id = qinq_from.physical;
++	if (qinq_to_status > 0)
++		to_nss_iface_id = qinq_to.physical;
++	if (qinq_from_status < 0 || qinq_to_status < 0 ||
++	    (from_nss_iface_id < 0) || (to_nss_iface_id < 0)) {
+ 		DEBUG_TRACE("%px: from_nss_iface_id: %d, to_nss_iface_id: %d\n", feci, from_nss_iface_id, to_nss_iface_id);
+ 		ecm_db_connection_interfaces_deref(from_ifaces, from_ifaces_first);
+ 		ecm_db_connection_interfaces_deref(to_ifaces, to_ifaces_first);
+@@ -1068,6 +1079,28 @@
+ 			nircm->vlan_secondary_rule.egress_vlan_tag = pr->egress_vlan_tag[1];
+ 		}
+ #endif
++	/* The wire always carries outer port ID then inner customer/domain VID.
++	 * Keep any inner PCP selected by the normal VLAN QoS rule construction.
++	 */
++	if (qinq_from_status > 0) {
++		u32 pcp = nircm->vlan_primary_rule.ingress_vlan_tag;
++
++		pcp = pcp == ECM_FRONT_END_VLAN_ID_NOT_CONFIGURED ? 0 : pcp & VLAN_PRIO_MASK;
++		nircm->vlan_primary_rule.ingress_vlan_tag = qinq_from.outer;
++		nircm->vlan_secondary_rule.ingress_vlan_tag = qinq_from.inner | pcp;
++		nircm->nexthop_rule.flow_nexthop = qinq_from.leaf;
++		nircm->valid_flags |= NSS_IPV6_RULE_CREATE_VLAN_VALID;
++	}
++	if (qinq_to_status > 0) {
++		u32 pcp = nircm->vlan_primary_rule.egress_vlan_tag;
++
++		pcp = pcp == ECM_FRONT_END_VLAN_ID_NOT_CONFIGURED ? 0 : pcp & VLAN_PRIO_MASK;
++		nircm->vlan_primary_rule.egress_vlan_tag = qinq_to.outer;
++		nircm->vlan_secondary_rule.egress_vlan_tag = qinq_to.inner | pcp;
++		nircm->nexthop_rule.return_nexthop = qinq_to.leaf;
++		nircm->valid_flags |= NSS_IPV6_RULE_CREATE_VLAN_VALID;
++	}
++
+ 	protocol = ecm_db_connection_protocol_get(feci->ci);
+ 
+ 	/*

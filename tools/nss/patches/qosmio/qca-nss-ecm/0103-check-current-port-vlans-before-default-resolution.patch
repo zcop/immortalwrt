@@ -1,0 +1,43 @@
+Resolve a VLAN-aware default only from current bridge-port membership.
+
+The firmware node cache can lag a topology notifier. Do not infer the
+flow VLAN from one cached node while another port VLAN is being added.
+The bounded VID scan runs only during rule setup without an explicit L3 VID.
+
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -143,7 +143,8 @@
+ 		cvid = dsa_tag_8021q_bridge_vid(bridge_num);
+ 	} else {
+ 		/* A VLAN upper of this bridge gives the exact side-specific VID.
+-		 * Otherwise resolve() accepts only a single ready port leaf.
++		 * Otherwise require one current bridge-port VLAN, not merely one
++		 * cached firmware leaf that might precede a topology resync.
+ 		 */
+ 		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+ 			dev = dev_get_by_index(&init_net, ecm_db_iface_interface_identifier_get(ifaces[i]));
+@@ -162,6 +163,24 @@
+ 				cvid = vid;
+ 			}
+ 			dev_put(dev);
++		}
++		if (!cvid) {
++			u16 vid;
++
++			/* Rule setup only; this bounded scan is not per packet. */
++			for (vid = 1; vid < VLAN_VID_MASK; vid++) {
++				if (br_vlan_get_info_rcu(port, vid, &vinfo))
++					continue;
++				if (cvid) {
++					ret = -EOPNOTSUPP;
++					goto unlock;
++				}
++				cvid = vid;
++			}
++			if (!cvid) {
++				ret = -ENOENT;
++				goto unlock;
++			}
+ 		}
+ 	}
+ 	side->physical = nss_cmn_get_interface_number_by_dev(conduit);

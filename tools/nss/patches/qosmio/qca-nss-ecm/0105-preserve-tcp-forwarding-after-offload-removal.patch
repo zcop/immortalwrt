@@ -1,0 +1,34 @@
+ECM: mark accelerated TCP connections liberal on Linux 6.18.
+
+Follow net/netfilter/nft_flow_offload.c flow_offload_ct_tcp(): the host
+misses packets during offload, so its window state can lag when a rule is
+removed. Without this, a QinQ resync stalls an established TCP transfer.
+Set only the selected conntrack entry, under the existing lock, for both
+IPv4 and IPv6; leave the global sysctl unchanged.
+
+--- a/frontends/nss/ecm_nss_ported_ipv4.c
++++ b/frontends/nss/ecm_nss_ported_ipv4.c
+@@ -1258,6 +1258,10 @@
+ 
+ 			DEBUG_TRACE("%px: TCP Accel Get window data from ct %px for conn %px\n", feci, ct, feci->ci);
+ 			spin_lock_bh(&ct->lock);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++			/* Match flowtable: host TCP windows lag while NSS owns the flow. */
++			nf_ct_set_tcp_be_liberal(ct);
++#endif
+ 			nircm->tcp_rule.flow_window_scale = ct->proto.tcp.seen[flow_dir].td_scale;
+ 			nircm->tcp_rule.flow_max_window = ct->proto.tcp.seen[flow_dir].td_maxwin;
+ 			nircm->tcp_rule.flow_end = ct->proto.tcp.seen[flow_dir].td_end;
+--- a/frontends/nss/ecm_nss_ported_ipv6.c
++++ b/frontends/nss/ecm_nss_ported_ipv6.c
+@@ -1177,6 +1177,10 @@
+ 
+ 			DEBUG_TRACE("%px: TCP Accel Get window data from ct %px for conn %px\n", feci, ct, feci->ci);
+ 			spin_lock_bh(&ct->lock);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++			/* Match flowtable: host TCP windows lag while NSS owns the flow. */
++			nf_ct_set_tcp_be_liberal(ct);
++#endif
+ 			nircm->tcp_rule.flow_window_scale = ct->proto.tcp.seen[flow_dir].td_scale;
+ 			nircm->tcp_rule.flow_max_window = ct->proto.tcp.seen[flow_dir].td_maxwin;
+ 			nircm->tcp_rule.flow_end = ct->proto.tcp.seen[flow_dir].td_end;

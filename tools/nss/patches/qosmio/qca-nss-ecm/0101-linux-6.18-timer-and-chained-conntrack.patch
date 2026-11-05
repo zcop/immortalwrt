@@ -1,0 +1,93 @@
+Use Linux 6.18 timer API and the configured conntrack notifier chain.
+
+Retain single-notifier compatibility when chained events are disabled,
+and unregister on netns acquisition failures before returning.
+
+--- a/ecm_db/ecm_db_timer.c
++++ b/ecm_db/ecm_db_timer.c
+@@ -521,5 +521,9 @@
+ 	 * as we would wait for the callback to finish and it would wait
+ 	 * indefinately for the lock to be released!
+ 	 */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++	timer_delete_sync(&ecm_db_timer);
++#else
+ 	del_timer_sync(&ecm_db_timer);
+-}
++#endif
++}
+--- a/ecm_conntrack_notifier.c
++++ b/ecm_conntrack_notifier.c
+@@ -384,6 +384,17 @@
+  * struct nf_ct_event_notifier ecm_conntrack_notifier
+  *	Netfilter conntrack event system to monitor connection tracking changes
+  */
++#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
++static int ecm_conntrack_chain_event(struct notifier_block *nb,
++				     unsigned long events, void *item)
++{
++	return ecm_conntrack_event(events, item);
++}
++
++static struct notifier_block ecm_conntrack_notifier = {
++	.notifier_call = ecm_conntrack_chain_event,
++};
++#else
+ static struct nf_ct_event_notifier ecm_conntrack_notifier = {
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
+     .fcn	= ecm_conntrack_event,
+@@ -393,6 +404,16 @@
+ };
+ #endif
+ 
++static void ecm_conntrack_notifier_unregister(void)
++{
++#if defined(CONFIG_NF_CONNTRACK_CHAIN_EVENTS) || (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
++	nf_conntrack_unregister_notifier(&init_net, &ecm_conntrack_notifier);
++#else
++	nf_conntrack_unregister_notifier(&init_net);
++#endif
++}
++#endif
++
+ /*
+  * ecm_conntrack_notifier_stop()
+  */
+@@ -427,7 +448,7 @@
+ 	/*
+ 	 * Eventing subsystem is available so we register a notifier hook to get fast notifications of expired connections
+ 	 */
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
++#if defined(CONFIG_NF_CONNTRACK_CHAIN_EVENTS) || (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
+    result = nf_conntrack_register_notifier(&init_net, &ecm_conntrack_notifier);
+ 	if (result < 0) {
+ 		DEBUG_ERROR("Can't register nf notifier hook.\n");
+@@ -445,6 +466,7 @@
+ 	result = nf_ct_netns_get(&init_net, NFPROTO_IPV4);
+ 	if (result < 0) {
+ 		DEBUG_ERROR("Can't hold ipv4 netns.\n");
++		ecm_conntrack_notifier_unregister();
+ 		debugfs_remove_recursive(ecm_conntrack_notifier_dentry);
+ 		return result;
+ 	}
+@@ -452,6 +474,7 @@
+ 	result = nf_ct_netns_get(&init_net, NFPROTO_IPV6);
+ 	if (result < 0) {
+ 		DEBUG_ERROR("Can't hold ipv6 netns.\n");
++		ecm_conntrack_notifier_unregister();
+ 		nf_ct_netns_put(&init_net, NFPROTO_IPV4);
+ 		debugfs_remove_recursive(ecm_conntrack_notifier_dentry);
+ 		return result;
+@@ -478,11 +501,7 @@
+ #ifdef ECM_IPV6_ENABLE
+ 	nf_ct_netns_put(&init_net, NFPROTO_IPV6);
+ #endif
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
+-	nf_conntrack_unregister_notifier(&init_net, &ecm_conntrack_notifier);
+-#else
+-   nf_conntrack_unregister_notifier(&init_net);
+-#endif
++	ecm_conntrack_notifier_unregister();
+ #endif
+ 	/*
+ 	 * Remove the debugfs files recursively.

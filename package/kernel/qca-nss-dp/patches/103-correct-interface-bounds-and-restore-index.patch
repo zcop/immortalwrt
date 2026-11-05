@@ -1,0 +1,24 @@
+Respect zero-based IPQ5018 firmware interfaces and MAC-index conversion.
+
+MAC IDs in DT remain1/2; the firmware interfaces and arrays are0/1.
+
+--- a/nss_dp_attach.c
++++ b/nss_dp_attach.c
+@@ -174,7 +174,7 @@
+ 	}
+ 
+ 	dp_dev->data_plane_ops = nss_dp_hal_get_data_plane_ops();
+-	dp_dev->dpc = &dp_global_data_plane_ctx[dp_dev->macid - NSS_DP_START_IFNUM];
++	dp_dev->dpc = &dp_global_data_plane_ctx[nss_dp_get_idx_from_macid(dp_dev->macid)];
+ 
+ 	/*
+ 	 * TODO: Re-initialize EDMA dataplane
+@@ -190,7 +190,7 @@
+ {
+ 	struct nss_dp_dev *dp_dev;
+ 
+-	if ((if_num > NSS_DP_HAL_MAX_PORTS) || (if_num < NSS_DP_START_IFNUM)) {
++	if ((if_num >= NSS_DP_MAX_INTERFACES) || (if_num < NSS_DP_START_IFNUM)) {
+ 		pr_err("Invalid if_num %d\n", if_num);
+ 		return NULL;
+ 	}

@@ -1,0 +1,17 @@
+Map the firmware meminfo request table write-combined.
+
+The vendor cache-maintenance patch removes the clean for these shared
+requests. Cached host writes could otherwise remain invisible to NSS.
+Reference: IPQ5018 meminfo fix described by ADCDS and Kuncy7.
+
+--- a/nss_meminfo.c
++++ b/nss_meminfo.c
+@@ -751,7 +751,7 @@
+ 	}
+ 
+ 	map = &mem_ctx->meminfo_map;
+-	map->start = (uint32_t *)ioremap_cache(meminfo_start[1], NSS_MEMINFO_MAP_SIZE);
++	map->start = (uint32_t *)ioremap_wc(meminfo_start[1], NSS_MEMINFO_MAP_SIZE);
+ 	if (!map->start) {
+ 		nss_info_always("%px: failed to remap meminfo map\n", nss_ctx);
+ 		return false;

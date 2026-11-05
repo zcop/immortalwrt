@@ -1,0 +1,60 @@
+Serialize native dataplane lifecycle and park IPQ5018 before remove.
+
+Qosmio registration runs in a workqueue; phylink requires RTNL.
+Keep the core-local clamp asserted while host DMA is rebuilt; do not
+pulse shared GCC resets. Module cleanup drains registration work first.
+
+--- a/nss_data_plane/nss_data_plane_common.c
++++ b/nss_data_plane/nss_data_plane_common.c
+@@ -16,6 +16,7 @@
+ 
+ #include "nss_data_plane.h"
+ #include "nss_core.h"
++#include <linux/rtnetlink.h>
+ 
+ static struct delayed_work nss_data_plane_work;
+ static struct workqueue_struct *nss_data_plane_workqueue;
+@@ -49,7 +50,9 @@
+ 	}
+ 
+ data_plane_reg:
++	rtnl_lock();
+ 	nss_top->data_plane_ops->data_plane_register(nss_ctx);
++	rtnl_unlock();
+ }
+ 
+ /*
+--- a/nss_hal/nss_hal.c
++++ b/nss_hal/nss_hal.c
+@@ -31,6 +31,7 @@
+ 
+ #include "nss_hal.h"
+ #include "nss_core.h"
++#include <linux/rtnetlink.h>
+ #include "nss_tx_rx_common.h"
+ #ifdef NSS_DATA_PLANE_GENERIC_SUPPORT
+ #include "nss_data_plane.h"
+@@ -898,6 +899,13 @@
+ 	struct nss_ctx_instance *nss_ctx = &nss_top->nss[nss_dev->id];
+ 	int i;
+ 
++#ifdef NSS_HAL_IPQ50XX_SUPPORT
++	/* Keep firmware from touching host buffers after IRQ/NAPI teardown. */
++	WRITE_ONCE(nss_ctx->state, NSS_CORE_STATE_UNINITIALIZED);
++	nss_write_32(nss_ctx->nmap, NSS_REGS_RESET_CTRL_OFFSET, 0x1);
++	wmb();
++#endif
++
+ 	/*
+ 	 * Clean up debugfs
+ 	 */
+@@ -916,7 +924,9 @@
+ 	 * nss-drv is exiting, unregister and restore host data plane
+ 	 */
+ #ifdef NSS_DATA_PLANE_GENERIC_SUPPORT
++	rtnl_lock();
+ 	nss_top->data_plane_ops->data_plane_unregister();
++	rtnl_unlock();
+ #endif
+ 
+ #ifdef NSS_DATA_PLANE_LITE_SUPPORT

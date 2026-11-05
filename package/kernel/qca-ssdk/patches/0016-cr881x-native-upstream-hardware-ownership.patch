@@ -1,0 +1,44 @@
+Keep SSDK passive for the explicit upstream-managed CR881x NSS variant.
+
+No SSDK switch is present. Its global netdevice notifier nevertheless
+reads switch registers and dereferences per-device state. Do not register
+it, or initialize/reset the upstream-owned PHY/UNIPHY/switch resources.
+Require both the board compatible and the native DTS opt-in property.
+
+--- a/src/init/ssdk_init.c
++++ b/src/init/ssdk_init.c
+@@ -2437,6 +2437,8 @@
+ 	return;
+ }
+ #endif
++static bool ssdk_no_hardware;
++
+ static int __init regi_init(void)
+ {
+ 	a_uint32_t num = 0, dev_id = 0, dev_num = 1;
+@@ -2446,6 +2448,15 @@
+ /*qca808x_start*/
+ 	int rv = 0;
+ /*qca808x_end*/
++	/* An upstream-managed native DP needs SSDK symbols, not its hardware
++	 * setup or notifier (which assumes at least one SSDK switch exists).
++	 */
++	if (of_machine_is_compatible("xiaomi,cr881x") &&
++	    of_property_read_bool(of_root, "qcom,ssdk-no-hardware")) {
++		ssdk_no_hardware = true;
++		pr_info("SSDK: CR881x hardware remains with upstream drivers\n");
++		return 0;
++	}
+ 	/*init switch device num firstly*/
+ 	ssdk_switch_device_num_init();
+ 
+@@ -2599,6 +2610,9 @@
+ 	a_uint32_t dev_id, dev_num = 1;
+ 	sw_error_t rv = SW_OK;
+ /*qca808x_end*/
++	if (ssdk_no_hardware)
++		return;
++
+ 	unregister_netdevice_notifier(&ssdk_dev_notifier);
+ 
+ 	dev_num = ssdk_switch_device_num_get();

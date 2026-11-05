@@ -1,0 +1,77 @@
+IPQ5018 native boot prerequisites, adapted to pinned qosmio 12.5.
+
+Reference: Kuncy7 feed 4fa071ab14de0694c341b0c6f1970ac94aca3e62,
+0136/0138, by Stanislaw Pal. Keep the core-local clamp during firmware
+replacement and clock setup; do not pulse shared GCC block resets.
+
+--- a/nss_hal/nss_hal.c
++++ b/nss_hal/nss_hal.c
+@@ -136,6 +136,12 @@
+ 	if (nss_ctx->id == 0) {
+ 	  nss_hal_firmware_info(nss_dev, nss_fw);
+ 	}
++
++#ifdef NSS_HAL_IPQ50XX_SUPPORT
++	/* A warm reboot can leave old firmware executing in the load region. */
++	nss_write_32(npd->nmap, NSS_REGS_RESET_CTRL_OFFSET, 0x1);
++	wmb();
++#endif
+ 
+ 	dev_info(&nss_dev->dev, "fw of size %d bytes copied to addr: %x, nss_id: %d\n", (int)nss_fw->size, npd->load_addr, nss_ctx->id);
+ 	memcpy_toio(load_mem, nss_fw->data, nss_fw->size);
+--- a/nss_hal/ipq50xx/nss_hal_pvt.c
++++ b/nss_hal/ipq50xx/nss_hal_pvt.c
+@@ -243,18 +243,17 @@
+ 		return -EFAULT;
+ 	}
+ 
++	err = clk_prepare_enable(nss_clk);
++	if (err)
++		return err;
++
+ 	if (rate) {
+ 		err = clk_set_rate(nss_clk, rate);
+ 		if (err) {
+ 			pr_err("%px: cannot set %s freq\n", dev, id);
+-			return -EFAULT;
++			clk_disable_unprepare(nss_clk);
++			return err;
+ 		}
+-	}
+-
+-	err = clk_prepare_enable(nss_clk);
+-	if (err) {
+-		pr_err("%px: cannot enable clock: %s\n", dev, id);
+-		return -EFAULT;
+ 	}
+ 
+ 	return 0;
+@@ -298,18 +297,20 @@
+ 	nss_write_32(map, NSS_REGS_CORE_IFETCH_RANGE_OFFSET, 0xBF004001);
+ 
+ 	/*
++	 * Set values only once for core0. Grab the proper clock.
++	 */
++	nss_core0_clk = clk_get(&nss_dev->dev, NSS_CORE_CLK);
++
++	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_CORE_CLK, nss_runtime_samples.freq_scale[NSS_FREQ_MID_SCALE].frequency)) {
++		return -EFAULT;
++	}
++
++
++	/*
+ 	 * De-assert ubi32 core reset
+ 	 */
+ 	nss_write_32(map, NSS_REGS_RESET_CTRL_OFFSET, 0x0);
+ 
+-	/*
+-	 * Set values only once for core0. Grab the proper clock.
+-	 */
+-	nss_core0_clk = clk_get(&nss_dev->dev, NSS_CORE_CLK);
+-
+-	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_CORE_CLK, nss_runtime_samples.freq_scale[NSS_FREQ_MID_SCALE].frequency)) {
+-		return -EFAULT;
+-	}
+ 
+ 	return 0;
+ }

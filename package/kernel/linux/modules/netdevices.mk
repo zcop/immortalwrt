@@ -917,7 +917,7 @@ define KernelPackage/dsa-yt921x/config
   if PACKAGE_kmod-dsa-yt921x
     config DSA_YT921X_EXPERIMENTAL_8021Q
       bool "Use experimental YT921x 802.1Q CPU transport at early boot"
-      depends on TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x
+      depends on TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x || TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss
       default n
       help
         Pass experimental_8021q=1 when the CR881x switch driver first loads.
@@ -926,7 +926,7 @@ define KernelPackage/dsa-yt921x/config
 
     config DSA_YT921X_EXPERIMENTAL_QINQ
       bool "Use experimental YT921x QinQ port-ID CPU transport at early boot"
-      depends on TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x
+      depends on TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x || TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss
       default n
       help
         Pass experimental_qinq=1 when the CR881x switch driver first loads.

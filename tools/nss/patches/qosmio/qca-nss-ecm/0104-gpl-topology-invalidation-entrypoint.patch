@@ -1,0 +1,31 @@
+ECM: provide a GPL-exported optional QinQ topology invalidator.
+
+Linux 6.18 symbol_get only accepts GPL exports. Preserve the existing
+public API export and provide a dedicated wrapper for the GPL QinQ module.
+
+--- a/ecm_db/ecm_db_connection.c
++++ b/ecm_db/ecm_db_connection.c
+@@ -1540,6 +1540,13 @@
+ 	DEBUG_INFO("Defuncting complete\n");
+ }
+ EXPORT_SYMBOL(ecm_db_connection_defunct_all);
++
++/* Optional QinQ topology invalidation, resolved without a module dependency. */
++void ecm_nss_qinq_defunct_all(void)
++{
++	ecm_db_connection_defunct_all();
++}
++EXPORT_SYMBOL_GPL(ecm_nss_qinq_defunct_all);
+ 
+ #ifdef ECM_INTERFACE_OVS_BRIDGE_ENABLE
+ /*
+--- a/ecm_db/ecm_db_connection.h
++++ b/ecm_db/ecm_db_connection.h
+@@ -383,6 +383,7 @@
+ struct ecm_db_connection_instance *ecm_db_connection_get_and_ref_next(struct ecm_db_connection_instance *ci);
+ 
+ void ecm_db_connection_defunct_all(void);
++void ecm_nss_qinq_defunct_all(void);
+ void ecm_db_connection_defunct_by_port(int port, ecm_db_obj_dir_t dir);
+ void ecm_db_connection_defunct_by_protocol(int protocol);
+ void ecm_db_connection_defunct_ip_version(int ip_version);

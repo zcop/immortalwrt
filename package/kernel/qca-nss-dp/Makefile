@@ -43,6 +43,11 @@ EXTRA_CFLAGS+= \
 endif
 
 NSS_DP_HAL_DIR:=$(PKG_BUILD_DIR)/hal
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	$(CP) ./src/* $(PKG_BUILD_DIR)/
+endef
+
 define Build/Configure
 	$(CP) $(NSS_DP_HAL_DIR)/soc_ops/$(CONFIG_TARGET_SUBTARGET)/nss_$(CONFIG_TARGET_SUBTARGET).h \
 		$(PKG_BUILD_DIR)/exports/nss_dp_arch.h
@@ -52,7 +57,8 @@ define Build/Compile
 	+$(KERNEL_MAKE) $(PKG_JOBS) \
 		-C "$(LINUX_DIR)" \
 		M="$(PKG_BUILD_DIR)" \
-		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" SoC="$(CONFIG_TARGET_SUBTARGET)" \
+		NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
+		SoC="$(CONFIG_TARGET_SUBTARGET)" \
 		modules
 endef
 

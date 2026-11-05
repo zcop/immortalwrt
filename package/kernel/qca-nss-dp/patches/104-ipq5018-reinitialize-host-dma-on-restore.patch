@@ -1,0 +1,44 @@
+Reinitialize IPQ5018 host DMA after native NSS removal.
+
+The NSS core removal path parks the core before restoring the host.
+Finish ndo_stop even when that parked core cannot acknowledge close.
+
+--- a/nss_dp_main.c
++++ b/nss_dp_main.c
+@@ -335,8 +335,15 @@
+ 	netif_stop_queue(netdev);
+ 	netif_carrier_off(netdev);
+ 
+-	if (dp_priv->ipq5018)
++	if (dp_priv->ipq5018) {
+ 		nss_dp_ipq5018_stop(dp_priv);
++		dp_priv->gmac_hal_ops->stop(dp_priv->gmac_hal_ctx);
++		if (dp_priv->data_plane_ops->close(dp_priv->dpc))
++			netdev_warn(netdev, "native dataplane close not acknowledged\n");
++		dp_priv->link_state = __NSS_DP_LINK_DOWN;
++		clear_bit(__NSS_DP_UP, &dp_priv->flags);
++		return 0;
++	}
+ 
+ 	/* Notify data plane link is going down */
+ 	if (dp_priv->data_plane_ops->link_state(dp_priv->dpc, 0)) {
+--- a/nss_dp_attach.c
++++ b/nss_dp_attach.c
+@@ -176,9 +176,14 @@
+ 	dp_dev->data_plane_ops = nss_dp_hal_get_data_plane_ops();
+ 	dp_dev->dpc = &dp_global_data_plane_ctx[nss_dp_get_idx_from_macid(dp_dev->macid)];
+ 
+-	/*
+-	 * TODO: Re-initialize EDMA dataplane
+-	 */
++#ifdef NSS_DP_IPQ50XX
++	/* The firmware owned the DMA rings; host state must be rebuilt. */
++	dp_dev->drv_flags &= ~(NSS_DP_PRIV_FLAG(INIT_DONE) |
++			      NSS_DP_PRIV_FLAG(INIT_OVERRIDE));
++	dp_dev->dpc->dev = netdev;
++	if (netif_running(netdev) && netdev->netdev_ops->ndo_open(netdev))
++		netdev_err(netdev, "host dataplane restore failed\n");
++#endif
+ }
+ EXPORT_SYMBOL(nss_dp_restore_data_plane);
+ 

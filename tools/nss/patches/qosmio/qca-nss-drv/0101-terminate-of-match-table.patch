@@ -1,0 +1,14 @@
+Terminate the NSS OF match table for strict module alias checking.
+
+The final all-zero entry is required by both the matcher and modpost.
+
+--- a/nss_init.c
++++ b/nss_init.c
+@@ -143,6 +143,7 @@
+ 	{ .compatible = "qcom,nss" },
+ 	{ .compatible = "qcom,nss0" },
+ 	{ .compatible = "qcom,nss1" },
++	{ },
+ };
+ MODULE_DEVICE_TABLE(of, nss_dt_ids);
+ #endif

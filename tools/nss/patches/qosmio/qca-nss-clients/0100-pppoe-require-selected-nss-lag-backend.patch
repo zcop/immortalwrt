@@ -1,0 +1,16 @@
+Compile PPPoE LAG lookups only when the NSS LAG backend is selected.
+
+Host bonding can be enabled independently. Without an NSS LAG backend,
+the existing negative bondid check declines offload over a bond device.
+NSS_LAG_SUPPORT is supplied by the guarded feed recipe overlay.
+
+--- a/pppoe/Makefile
++++ b/pppoe/Makefile
+@@ -5,6 +5,6 @@
+ obj-m += qca-nss-pppoe.o
+ qca-nss-pppoe-objs := nss_connmgr_pppoe.o
+ 
+-ifneq (,$(filter $(CONFIG_BONDING),y m))
++ifeq ($(NSS_LAG_SUPPORT),y)
+ ccflags-y += -DBONDING_SUPPORT
+ endif

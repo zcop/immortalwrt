@@ -1,0 +1,66 @@
+Match the vanilla Linux 6.18 TCP conntrack policy surface.
+
+No tcp_no_window_check field exists in 6.18. Treat that optional legacy
+OpenWrt extension as disabled while retaining global/per-flow BE_LIBERAL
+checks. Keep older kernels and their extension unchanged.
+
+--- a/frontends/nss/ecm_nss_ported_ipv6.c
++++ b/frontends/nss/ecm_nss_ported_ipv6.c
+@@ -1133,7 +1133,12 @@
+ #else
+ 			struct nf_tcp_net *tn = nf_tcp_pernet(nf_ct_net(ct));
+ 			uint32_t tcp_be_liberal = tn->tcp_be_liberal;
++			/* Vanilla 6.18 has no no-window-check sysctl. */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++			uint32_t tcp_no_window_check = 0;
++#else
+ 			uint32_t tcp_no_window_check = tn->tcp_no_window_check;
++#endif
+ #endif
+ 			ecm_front_end_flow_and_return_directions_get(ct, src_ip, 6, &flow_dir, &return_dir);
+ 
+--- a/frontends/nss/ecm_nss_ported_ipv4.c
++++ b/frontends/nss/ecm_nss_ported_ipv4.c
+@@ -1213,7 +1213,12 @@
+ #else
+ 			struct nf_tcp_net *tn = nf_tcp_pernet(nf_ct_net(ct));
+ 			uint32_t tcp_be_liberal = tn->tcp_be_liberal;
++			/* Vanilla 6.18 has no no-window-check sysctl. */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++			uint32_t tcp_no_window_check = 0;
++#else
+ 			uint32_t tcp_no_window_check = tn->tcp_no_window_check;
++#endif
+ #endif
+ 			ecm_db_connection_address_get(feci->ci, ECM_DB_OBJ_DIR_FROM, addr);
+ 			ecm_front_end_flow_and_return_directions_get(ct, addr, 4, &flow_dir, &return_dir);
+--- a/frontends/sfe/ecm_sfe_ported_ipv4.c
++++ b/frontends/sfe/ecm_sfe_ported_ipv4.c
+@@ -1411,7 +1411,12 @@
+ #else
+ 			struct nf_tcp_net *tn = nf_tcp_pernet(nf_ct_net(ct));
+ 			uint32_t tcp_be_liberal = tn->tcp_be_liberal;
++			/* Vanilla 6.18 has no no-window-check sysctl. */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++			uint32_t tcp_no_window_check = 0;
++#else
+ 			uint32_t tcp_no_window_check = tn->tcp_no_window_check;
++#endif
+ #endif
+ 			ecm_db_connection_address_get(feci->ci, ECM_DB_OBJ_DIR_FROM, addr);
+ 			ecm_front_end_flow_and_return_directions_get(ct, addr, 4, &flow_dir, &return_dir);
+--- a/frontends/sfe/ecm_sfe_ported_ipv6.c
++++ b/frontends/sfe/ecm_sfe_ported_ipv6.c
+@@ -1463,7 +1463,12 @@
+ #else
+ 			struct nf_tcp_net *tn = nf_tcp_pernet(nf_ct_net(ct));
+ 			uint32_t tcp_be_liberal = tn->tcp_be_liberal;
++			/* Vanilla 6.18 has no no-window-check sysctl. */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++			uint32_t tcp_no_window_check = 0;
++#else
+ 			uint32_t tcp_no_window_check = tn->tcp_no_window_check;
++#endif
+ #endif
+ 			ecm_front_end_flow_and_return_directions_get(ct, src_ip, 6, &flow_dir, &return_dir);
+ 

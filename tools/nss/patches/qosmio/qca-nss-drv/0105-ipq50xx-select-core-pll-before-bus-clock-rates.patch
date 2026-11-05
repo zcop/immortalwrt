@@ -1,0 +1,74 @@
+IPQ50xx: configure the core PLL before changing shared bus clock rates.
+
+Adapted from Kuncy7 feed 4fa071ab14de0694c341b0c6f1970ac94aca3e62,
+patch 0138 by Stanislaw Pal. Completes the clock ordering prerequisite;
+0102 already enables each clock before changing its rate.
+
+--- a/nss_hal/ipq50xx/nss_hal_pvt.c
++++ b/nss_hal/ipq50xx/nss_hal_pvt.c
+@@ -369,29 +369,6 @@
+ {
+ 	int32_t i;
+ 
+-	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_DBG_CLK, 150000000)) {
+-		return -EFAULT;
+-	}
+-
+-	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_CFG_CLK, 100000000)) {
+-		return -EFAULT;
+-	}
+-
+-	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_AXI_CLK, 400000000)) {
+-		return -EFAULT;
+-	}
+-
+-	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_SNOC_AXI_CLK, 400000000)) {
+-		return -EFAULT;
+-	}
+-
+-	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_NC_AXI_CLK, 266670000)) {
+-		return -EFAULT;
+-	}
+-
+-	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_UTCM_CLK, 266670000)) {
+-		return -EFAULT;
+-	}
+ 
+ 	/*
+ 	 * No entries, then just load default
+@@ -449,6 +426,35 @@
+ 		if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_CORE_CLK, nss_runtime_samples.freq_scale[i].frequency)) {
+ 			return -EFAULT;
+ 		}
++	}
++
++	/*
++	 * Move the core RCG off GPLL0 before changing bus clocks. A parent
++	 * rate adjustment otherwise propagates to the parked core RCG and
++	 * times out while the bootloader-selected source is not running.
++	 */
++	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_DBG_CLK, 150000000)) {
++		return -EFAULT;
++	}
++
++	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_CFG_CLK, 100000000)) {
++		return -EFAULT;
++	}
++
++	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_AXI_CLK, 400000000)) {
++		return -EFAULT;
++	}
++
++	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_SNOC_AXI_CLK, 400000000)) {
++		return -EFAULT;
++	}
++
++	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_NC_AXI_CLK, 266670000)) {
++		return -EFAULT;
++	}
++
++	if (nss_hal_clock_set_and_enable(&nss_dev->dev, NSS_UTCM_CLK, 266670000)) {
++		return -EFAULT;
+ 	}
+ 
+ 	nss_info("Supported Frequencies - ");

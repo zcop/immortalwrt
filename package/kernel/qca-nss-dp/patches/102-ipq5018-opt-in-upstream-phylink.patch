@@ -1,0 +1,206 @@
+Native IPQ5018 NSS-DP with opt-in upstream phylink management.
+
+Keep SSDK-managed ports on the existing path. The new helper handles
+MAC clocks, PHY/PCS link state and 2.5G encoding for the CR881x variant.
+Preserve probe deferral and remove only the bound platform port.
+
+--- a/Makefile
++++ b/Makefile
+@@ -54,6 +54,7 @@
+ #endif
+ 
+ ifeq ($(SoC),$(filter $(SoC),ipq50xx))
++qca-nss-dp-objs += nss_dp_ipq5018.o
+ qca-nss-dp-objs += hal/dp_ops/syn_gmac_dp/syn_dp_cfg_rx.o \
+ 		   hal/dp_ops/syn_gmac_dp/syn_dp_cfg_tx.o \
+ 		   hal/dp_ops/syn_gmac_dp/syn_dp_rx.o \
+--- a/include/nss_dp_dev.h
++++ b/include/nss_dp_dev.h
+@@ -218,7 +218,10 @@
+ /*
+  * nss data plane device structure
+  */
++struct nss_dp_ipq5018;
++
+ struct nss_dp_dev {
++	struct nss_dp_ipq5018 *ipq5018;
+ 	uint32_t macid;			/* Sequence# of Mac on the platform */
+ 	uint32_t vsi;			/* vsi number */
+ 	unsigned long flags;		/* Status flags */
+--- a/nss_dp_main.c
++++ b/nss_dp_main.c
+@@ -41,6 +41,7 @@
+ #include <init/ssdk_init.h>
+ #endif
+ #include "nss_dp_hal.h"
++#include "nss_dp_ipq5018.h"
+ 
+ #define JUMBO_MRU_3K 3072
+ #define NSS_DP_CAPWAP_VP_RX_CORE_INVALID 0XFFFF
+@@ -334,6 +335,9 @@
+ 	netif_stop_queue(netdev);
+ 	netif_carrier_off(netdev);
+ 
++	if (dp_priv->ipq5018)
++		nss_dp_ipq5018_stop(dp_priv);
++
+ 	/* Notify data plane link is going down */
+ 	if (dp_priv->data_plane_ops->link_state(dp_priv->dpc, 0)) {
+ 		netdev_dbg(netdev, "Data plane set link failed\n");
+@@ -460,7 +464,7 @@
+ 	/*
+ 	 * Notify GMAC to start receive/transmit
+ 	 */
+-	if (dp_priv->gmac_hal_ops->start) {
++	if (!dp_priv->ipq5018 && dp_priv->gmac_hal_ops->start) {
+ 		if (dp_priv->gmac_hal_ops->start(dp_priv->gmac_hal_ctx)) {
+ 			netdev_dbg(netdev, "GMAC start failed\n");
+ 			return -EAGAIN;
+@@ -469,7 +473,9 @@
+ 
+ 	netif_start_queue(netdev);
+ 
+-	if (!dp_priv->phydev) {
++	if (dp_priv->ipq5018) {
++		nss_dp_ipq5018_start(dp_priv);
++	} else if (!dp_priv->phydev) {
+ 		/* Notify data plane link is up */
+ 		if (dp_priv->data_plane_ops->link_state(dp_priv->dpc, 1)) {
+ 			netdev_dbg(netdev, "Data plane set link failed\n");
+@@ -678,20 +684,22 @@
+ 		return -EFAULT;
+ 	}
+ 
+-	dp_priv->phy_node = of_parse_phandle(np, "phy-handle", 0);
+-	if(!dp_priv->phy_node) {
+-		if(of_phy_is_fixed_link(np)) {
+-			int ret = of_phy_register_fixed_link(np);
+-			if(ret < 0) {
+-				pr_err("%s: fail to register fixed-link: %d\n", np->name, ret);
+-				return -EFAULT;
++	if (!of_property_read_bool(np, "qcom,upstream-phylink")) {
++		dp_priv->phy_node = of_parse_phandle(np, "phy-handle", 0);
++		if(!dp_priv->phy_node) {
++			if(of_phy_is_fixed_link(np)) {
++				int ret = of_phy_register_fixed_link(np);
++				if(ret < 0) {
++					pr_err("%s: fail to register fixed-link: %d\n", np->name, ret);
++					return -EFAULT;
++				}
+ 			}
+-		}
+-		dp_priv->phy_node = of_node_get(np);
+-	}
+-
+-	if(!dp_priv->phy_node)
+-		pr_err("%s: no phy-handle or fixed-link found\n", np->name);
++			dp_priv->phy_node = of_node_get(np);
++		}
++	
++		if(!dp_priv->phy_node)
++			pr_err("%s: no phy-handle or fixed-link found\n", np->name);
++	}
+ 
+ 	if (of_property_read_u32(np, "qcom,mactype", &hal_pdata->mactype)) {
+ 		pr_err("%s: error reading mactype\n", np->name);
+@@ -910,6 +918,10 @@
+ 		goto fail;
+ 	}
+ 
++	ret = nss_dp_ipq5018_init(dp_priv);
++	if (ret)
++		goto fail;
++
+ 	/* Use data plane ops as per the configured SoC */
+ 	dp_priv->data_plane_ops = nss_dp_hal_get_data_plane_ops();
+ 	if (!dp_priv->data_plane_ops) {
+@@ -948,7 +960,12 @@
+ 
+ 	dp_priv->drv_flags |= NSS_DP_PRIV_FLAG(INIT_DONE);
+ 
+-	if (dp_priv->phy_node) {
++	ret = nss_dp_ipq5018_connect(dp_priv);
++	if (ret)
++		goto phy_setup_fail;
++	nss_dp_ipq5018_set_ethtool(dp_priv);
++
++	if (!dp_priv->ipq5018 && dp_priv->phy_node) {
+ 
+ 		dp_priv->phydev = of_phy_connect(netdev, dp_priv->phy_node,
+ 		        &nss_dp_adjust_link, 0,
+@@ -1021,12 +1038,23 @@
+ 	return 0;
+ 
+ phy_setup_fail:
++	nss_dp_ipq5018_cleanup(dp_priv);
++	if (dp_priv->phydev) {
++		phy_disconnect(dp_priv->phydev);
++		dp_priv->phydev = NULL;
++	}
+ 	dp_priv->data_plane_ops->deinit(dp_priv->dpc);
+ data_plane_init_fail:
+ 	dp_priv->gmac_hal_ops->exit(dp_priv->gmac_hal_ctx);
+ fail:
++	nss_dp_ipq5018_cleanup(dp_priv);
++	if (dp_priv->phy_node) {
++		if (of_phy_is_fixed_link(np))
++			of_phy_deregister_fixed_link(np);
++		of_node_put(dp_priv->phy_node);
++	}
+ 	free_netdev(netdev);
+-	return -EFAULT;
++	return ret ? ret : -EFAULT;
+ }
+ 
+ /*
+@@ -1049,8 +1077,12 @@
+ 
+ 	for (i = 0; i < NSS_DP_HAL_MAX_PORTS; i++) {
+ 		dp_priv = dp_global_ctx.nss_dp[i];
+-		if (!dp_priv)
++		if (!dp_priv || dp_priv->pdev != pdev)
+ 			continue;
++
++		/* ndo_stop must run before disconnecting its PHY and DMA context. */
++		unregister_netdev(dp_priv->netdev);
++		nss_dp_ipq5018_cleanup(dp_priv);
+ 
+ 		dp_ops = dp_priv->data_plane_ops;
+ 		hal_ops = dp_priv->gmac_hal_ops;
+@@ -1078,7 +1110,11 @@
+ 		 * priv's HAL data. So we ensure that netdev is unregistered
+ 		 * before performing hal_ops exit().
+ 		 */
+-		unregister_netdev(dp_priv->netdev);
++		if (dp_priv->phy_node) {
++			if (of_phy_is_fixed_link(pdev->dev.of_node))
++				of_phy_deregister_fixed_link(pdev->dev.of_node);
++			of_node_put(dp_priv->phy_node);
++		}
+ 		hal_ops->exit(dp_priv->gmac_hal_ctx);
+ 		dp_priv->gmac_hal_ctx = NULL;
+ 		free_netdev(dp_priv->netdev);
+--- a/hal/gmac_ops/syn/gmac/syn_if.c
++++ b/hal/gmac_ops/syn/gmac/syn_if.c
+@@ -698,6 +698,10 @@
+ 	struct clk *gmac_clk = NULL;
+ 	int err;
+ 
++	/* Upstream-managed ports already hold the complete clock set. */
++	if (dp_priv->ipq5018)
++		return;
++
+ 	gmac_clk = devm_clk_get(dev, SYN_GMAC_SNOC_GMAC_AXI_CLK);
+ 	if (IS_ERR(gmac_clk)) {
+ 		pr_err("%s: cannot get clock: %s\n", __func__,
+--- a/nss_dp_attach.c
++++ b/nss_dp_attach.c
+@@ -105,7 +105,7 @@
+ 	 * Free up the resources used by the data plane
+ 	 */
+ 	if (dp_dev->drv_flags & NSS_DP_PRIV_FLAG(INIT_DONE)) {
+-		if (dp_dev->data_plane_ops->deinit(dpc)) {
++		if (dp_dev->data_plane_ops->deinit(dp_dev->dpc)) {
+ 			netdev_dbg(netdev, "Data plane de-init failed\n");
+ 			return -ENOMEM;
+ 		}

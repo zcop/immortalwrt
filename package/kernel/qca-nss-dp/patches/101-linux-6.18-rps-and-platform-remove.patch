@@ -1,0 +1,27 @@
+Follow the Linux 6.18 RPS flow-table indexing and platform remove APIs.
+
+--- a/nss_dp_main.c
++++ b/nss_dp_main.c
+@@ -526,7 +526,11 @@
+ 	}
+ 
+ 	hash = skb_get_hash(skb);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,18,0))
++	rxflow = &flow_table->flows[hash_32(hash, flow_table->log)];
++#else
+ 	rxflow = &flow_table->flows[hash & flow_table->mask];
++#endif
+ 	rxcpu = (uint32_t)rxflow->cpu;
+ 
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0))
+@@ -1093,7 +1097,9 @@
+ 
+ static struct platform_driver nss_dp_drv = {
+ 	.probe = nss_dp_probe,
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0))
++	.remove = nss_dp_remove,
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+ 	.remove_new = nss_dp_remove,
+ #else
+ 	.remove = nss_dp_remove,

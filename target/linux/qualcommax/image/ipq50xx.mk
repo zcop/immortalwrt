@@ -362,6 +362,18 @@ define Device/xiaomi_cr881x
 endef
 TARGET_DEVICES += xiaomi_cr881x
 
+define Device/xiaomi_cr881x_nss
+	$(call Device/xiaomi_cr881x)
+	DEVICE_VARIANT := Native NSS QinQ experiment
+	DEVICE_DTS := ipq5018-cr881x-nss
+	BOARD_NAME := xiaomi_cr881x
+	SUPPORTED_DEVICES := xiaomi,cr881x
+	DEVICE_PACKAGES += kmod-qca-nss-dp kmod-qca-nss-drv \
+		kmod-qca-nss-ecm kmod-qca-nss-drv-pppoe kmod-qca-nss-qinq \
+		nss-firmware-ipq50xx
+endef
+TARGET_DEVICES += xiaomi_cr881x_nss
+
 define Device/mercusys_mr80x-v2
 	$(call Device/FitImageLzma)
 	DEVICE_VENDOR := MERCUSYS
