@@ -1720,12 +1720,14 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 		struct dsa_port *dp = dsa_to_port(ds, port), *other;
 
 		/* A shared bridge VID cannot encode which conduit owns the copy. */
-		dsa_switch_for_each_user_port(other, ds) {
-			if (other != dp &&
-			    dsa_port_offloads_bridge_dev(other, bridge.dev) &&
-			    other->cpu_dp != dp->cpu_dp) {
-				NL_SET_ERR_MSG_MOD(extack, "Experimental transport cannot bridge across CPU conduits");
-				return -EOPNOTSUPP;
+		if (!priv->qinq) {
+			dsa_switch_for_each_user_port(other, ds) {
+				if (other != dp &&
+				    dsa_port_offloads_bridge_dev(other, bridge.dev) &&
+				    other->cpu_dp != dp->cpu_dp) {
+					NL_SET_ERR_MSG_MOD(extack, "Experimental transport cannot bridge across CPU conduits");
+					return -EOPNOTSUPP;
+				}
 			}
 		}
 		res = dsa_tag_8021q_bridge_join(ds, port, bridge,
