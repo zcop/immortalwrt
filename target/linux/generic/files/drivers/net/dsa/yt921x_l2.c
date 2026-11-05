@@ -863,10 +863,19 @@ yt921x_vlan_aware_set(struct yt921x_priv *priv, int port, bool vlan_aware)
 	/* Abuse SVLAN for PCP parsing without polluting the FDB - it just works
 	 * despite YT921X_VLAN_CTRL_SVLAN_EN never being set
 	 */
-	if (!vlan_aware)
+	if (priv->qinq) {
+		/* Both tag layers stay parseable for the whole port lifetime:
+		 * profile 1 is the 0x88a8 outer tag, profile 0 the 0x8100
+		 * customer tag. The field is a profile mask, so the bridge
+		 * VLAN-filtering state must not narrow it.
+		 */
+		ctrl = YT921X_PORT_IGR_TPIDn_STAG(YT921X_QINQ_SVID_PROFILE) |
+		       YT921X_PORT_IGR_TPIDn_CTAG(0);
+	} else if (!vlan_aware) {
 		ctrl = YT921X_PORT_IGR_TPIDn_STAG(0);
-	else
+	} else {
 		ctrl = YT921X_PORT_IGR_TPIDn_CTAG(0);
+	}
 	return yt921x_reg_write(priv, YT921X_PORTn_IGR_TPID(port), ctrl);
 }
 
@@ -1704,13 +1713,24 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 					      tx_fwd_offload, extack);
 		if (res)
 			return res;
+
+		/* The QinQ tagger replicates CPU-originated bridge traffic in
+		 * Linux and rejects frames marked as hardware-forwarded.
+		 */
+		if (priv->qinq)
+			*tx_fwd_offload = false;
 	}
 
 	ports_mask = yt921x_dsa_bridge_ports(ds, bridge.dev);
 	ports_mask |= priv->cpu_ports_mask;
 
 	mutex_lock(&priv->reg_lock);
-	res = yt921x_bridge_join(priv, port, ports_mask);
+	if (priv->qinq)
+		res = yt921x_qinq_restore_standalone(priv, port);
+	else
+		res = 0;
+	if (!res)
+		res = yt921x_bridge_join(priv, port, ports_mask);
 	if (!res)
 		res = yt921x_refresh_flood_masks_locked(priv);
 	if (res && priv->tag_8021q)

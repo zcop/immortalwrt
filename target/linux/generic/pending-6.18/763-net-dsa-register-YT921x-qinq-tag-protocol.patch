@@ -1,0 +1,47 @@
+Subject: [PATCH] net: dsa: register the experimental YT921x QinQ tagger
+
+Reserve a separate protocol for outer port identity and inner VLAN tags.
+The switch driver selects this transport with experimental_qinq=1.
+
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -39,6 +39,7 @@
+ #define DSA_TAG_PROTO_TRAILER_VALUE		11
+ #define DSA_TAG_PROTO_8021Q_VALUE		12
+ #define DSA_TAG_PROTO_YT921X_8021Q_VALUE	34
++#define DSA_TAG_PROTO_YT921X_QINQ_VALUE	35
+ #define DSA_TAG_PROTO_SJA1105_VALUE		13
+ #define DSA_TAG_PROTO_KSZ8795_VALUE		14
+ #define DSA_TAG_PROTO_OCELOT_VALUE		15
+@@ -78,6 +79,7 @@
+ 	DSA_TAG_PROTO_TRAILER		= DSA_TAG_PROTO_TRAILER_VALUE,
+ 	DSA_TAG_PROTO_8021Q		= DSA_TAG_PROTO_8021Q_VALUE,
+ 	DSA_TAG_PROTO_YT921X_8021Q	= DSA_TAG_PROTO_YT921X_8021Q_VALUE,
++	DSA_TAG_PROTO_YT921X_QINQ	= DSA_TAG_PROTO_YT921X_QINQ_VALUE,
+ 	DSA_TAG_PROTO_SJA1105		= DSA_TAG_PROTO_SJA1105_VALUE,
+ 	DSA_TAG_PROTO_KSZ8795		= DSA_TAG_PROTO_KSZ8795_VALUE,
+ 	DSA_TAG_PROTO_OCELOT		= DSA_TAG_PROTO_OCELOT_VALUE,
+--- a/net/dsa/Kconfig
++++ b/net/dsa/Kconfig
+@@ -216,4 +216,11 @@
+ 	help
+ 	  Experimental standard VLAN transport for Motorcomm YT921x switches.
+ 
++config NET_DSA_TAG_YT921X_QINQ
++	tristate "QinQ port tag driver for Motorcomm YT921x switches"
++	select NET_DSA_TAG_8021Q
++	help
++	  Experimental outer S-tag port identity and inner C-tag VLAN transport.
++	  This tagger requires matching switch programming before use.
++
+ endif
+--- a/net/dsa/Makefile
++++ b/net/dsa/Makefile
+@@ -43,6 +43,7 @@
+ obj-$(CONFIG_NET_DSA_TAG_XRS700X) += tag_xrs700x.o
+ obj-$(CONFIG_NET_DSA_TAG_YT921X) += tag_yt921x.o
+ obj-$(CONFIG_NET_DSA_TAG_YT921X_8021Q) += tag_yt921x_8021q.o
++obj-$(CONFIG_NET_DSA_TAG_YT921X_QINQ) += tag_yt921x_qinq.o
+ 
+ # for tracing framework to find trace.h
+ CFLAGS_trace.o := -I$(src)

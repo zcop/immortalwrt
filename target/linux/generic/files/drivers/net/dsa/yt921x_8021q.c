@@ -3,7 +3,13 @@
  * Experimental 802.1Q CPU transport for YT921x.
  * VLAN programming adapted from michioxd/openwrt-wf810df, commit
  * 63fc98585ad49fac9b43c9c2a4c30415a22b8edd. CR881x conduit policy and
- * boot-only selection are local. This is a single-tag transport, not QinQ.
+ * boot-only selection are local.
+ *
+ * The default transport is a single tag. The opt-in QinQ variant keeps the
+ * same VPID/standalone-VLAN plumbing but adds a per-port default SVID: user
+ * ports classify untagged frames into their standalone VID, CPU ports force
+ * that SVID into an outer 0x88a8 tag on egress, and user egress strips it
+ * again while leaving the inner 0x8100 customer tag to the VLAN entry.
  */
 #include "yt921x_internal.h"
 
@@ -24,10 +30,92 @@ static u32 yt921x_8021q_cpu_block_mask(struct yt921x_priv *priv, int port)
 static int yt921x_egress_ctag_mode_set(struct yt921x_priv *priv, int port,
 				       u32 mode)
 {
+	u32 mask = YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE_M;
+
+	/* KEEP_ALL is only KEEP_ALL when the "keep tagged only" bit is clear. */
+	if (mode == YT921X_EGR_CTAG_MODE_KEEP_ALL)
+		mask |= YT921X_PORT_EGR_VLAN_CTRL_CTAG_KEEP;
+
 	return yt921x_reg_update_bits(priv,
 				      YT921X_PORTn_EGR_VLAN_CTRL(port),
-				      YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE_M,
+				      mask,
 				      YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE(mode));
+}
+
+static int yt921x_egress_stag_mode_set(struct yt921x_priv *priv, int port,
+				       u32 mode)
+{
+	u32 mask = YT921X_PORT_EGR_VLAN_CTRL_STAG_MODE_M;
+
+	if (mode == YT921X_EGR_STAG_MODE_KEEP_ALL)
+		mask |= YT921X_PORT_EGR_VLAN_CTRL_STAG_KEEP;
+
+	return yt921x_reg_update_bits(priv,
+				      YT921X_PORTn_EGR_VLAN_CTRL(port),
+				      mask,
+				      YT921X_PORT_EGR_VLAN_CTRL_STAG_MODE(mode));
+}
+
+static int yt921x_qinq_tpid_setup(struct yt921x_priv *priv)
+{
+	int res;
+
+	res = yt921x_reg_update_bits(priv,
+				     YT921X_TPID_IGRn(YT921X_QINQ_SVID_PROFILE),
+				     YT921X_TPID_IGR_TPID_M,
+				     YT921X_TPID_IGR_TPID(YT921X_QINQ_SVID_TPID));
+	if (res)
+		return res;
+
+	return yt921x_reg_update_bits(priv,
+				      YT921X_TPID_EGRn(YT921X_QINQ_SVID_PROFILE),
+				      YT921X_TPID_EGR_TPID_M,
+				      YT921X_TPID_EGR_TPID(YT921X_QINQ_SVID_TPID));
+}
+
+/* Global TPID profile setup; requires reg_lock. */
+int yt921x_qinq_setup(struct yt921x_priv *priv)
+{
+	int res;
+
+	res = yt921x_qinq_tpid_setup(priv);
+	if (res)
+		return res;
+	return yt921x_qinq_acl_setup(priv);
+}
+
+/* Profile 0 is the 0x8100 customer tag, profile 1 the 0x88a8 service tag. */
+static int yt921x_qinq_port_tpid_sel(struct yt921x_priv *priv, int port)
+{
+	u32 egr = YT921X_PORT_EGR_TPID_STAG(YT921X_QINQ_SVID_PROFILE) |
+		  YT921X_PORT_EGR_TPID_CTAG(0);
+	int res;
+
+	res = yt921x_reg_update_bits(priv, YT921X_PORTn_EGR(port),
+				     YT921X_PORT_EGR_TPID_STAG_M |
+				     YT921X_PORT_EGR_TPID_CTAG_M, egr);
+	if (res)
+		return res;
+
+	/* Priv->qinq is already set here, so the shared helper writes the
+	 * dual-profile ingress mask (profile 1 S-tag, profile 0 C-tag).
+	 */
+	return yt921x_vlan_aware_set(priv, port, true);
+}
+
+static int yt921x_qinq_svid_set(struct yt921x_priv *priv, int port, u16 vid)
+{
+	return yt921x_reg_update_bits(priv, YT921X_PORTn_VLAN_CTRL(port),
+				      YT921X_PORT_VLAN_CTRL_SVID_M,
+				      YT921X_PORT_VLAN_CTRL_SVID(vid));
+}
+
+static int yt921x_qinq_lookup_sel_set(struct yt921x_priv *priv, int port,
+				      bool svlan)
+{
+	return yt921x_reg_toggle_bits(priv, YT921X_LOOK_UP_VLAN_SEL,
+				      YT921X_LOOK_UP_VLAN_SEL_PORTn(port),
+				      svlan);
 }
 
 static int yt921x_8021q_cpu_port_enter(struct yt921x_priv *priv, int port)
@@ -160,12 +248,142 @@ static int yt921x_8021q_user_port_enter(struct yt921x_priv *priv, int port)
 				      YT921X_VLAN_IGR_FILTER_PORTn(port), true);
 }
 
+static int yt921x_qinq_cpu_port_enter(struct yt921x_priv *priv, int port)
+{
+	int res;
+
+	res = yt921x_8021q_cpu_port_enter(priv, port);
+	if (res)
+		return res;
+
+	res = yt921x_qinq_port_tpid_sel(priv, port);
+	if (res)
+		return res;
+
+	/* Live capture on the CR881x shows that a user port does not push an
+	 * outer S-tag on ingress: an SVID alone only classifies the frame.
+	 * KEEP_ALL therefore emitted untagged frames towards the conduit.
+	 * Force both layers on the CPU egress instead, which writes the
+	 * classified SVID and the CVID (customer or PVID) as inline tags.
+	 */
+	res = yt921x_egress_stag_mode_set(priv, port,
+					  YT921X_EGR_STAG_MODE_TAGGED);
+	if (res)
+		return res;
+
+	res = yt921x_egress_ctag_mode_set(priv, port,
+					  YT921X_EGR_CTAG_MODE_TAGGED);
+	if (res)
+		return res;
+
+	/* Keep CVID-based forwarding on the CPU ingress, as in the single-tag
+	 * transport. Looking up by SVID puts CPU-originated frames into the
+	 * standalone FID (IVL, FID=VID), while user frames are looked up in
+	 * the bridge VLAN's FID; the two FIDs never learn each other's MACs,
+	 * so host replies became unknown unicast and never reached the CPU.
+	 * The outer SVID still identifies the source port for the tagger.
+	 */
+	res = yt921x_qinq_lookup_sel_set(priv, port, false);
+	if (res)
+		return res;
+
+	/* An S-untagged CPU frame would fall back to the default SVID (VLAN
+	 * 1, every port) and could flood outside the conduit. Drop it.
+	 */
+	return yt921x_reg_update_bits(priv, YT921X_PORTn_VLAN_CTRL1(port),
+				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED |
+				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED,
+				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED);
+}
+
+static int yt921x_qinq_user_port_enter(struct yt921x_priv *priv, int port)
+{
+	struct dsa_port *dp = dsa_to_port(&priv->ds, port);
+	int res;
+
+	res = yt921x_8021q_user_port_enter(priv, port);
+	if (res)
+		return res;
+
+	res = yt921x_qinq_port_tpid_sel(priv, port);
+	if (res)
+		return res;
+
+	/* Untagged ingress is classified into the port's standalone SVID.
+	 * The CPU port turns that classification into the outer tag; nothing
+	 * is inserted on the user port itself.
+	 */
+	res = yt921x_qinq_svid_set(priv, port,
+				   dsa_tag_8021q_standalone_vid(dp));
+	if (res)
+		return res;
+
+	/* The inner C-tag is the payload VLAN. Follow the C-VLAN entry so
+	 * that PVID/untagged bridge VLANs leave the port untagged.
+	 */
+	res = yt921x_egress_stag_mode_set(priv, port,
+					  YT921X_EGR_STAG_MODE_UNTAGGED);
+	if (res)
+		return res;
+
+	res = yt921x_qinq_lookup_sel_set(priv, port, false);
+	if (res)
+		return res;
+
+	/* Steering must not bypass the inner VLAN membership of user egress. */
+	res = yt921x_reg_set_bits(priv, YT921X_VLAN_EGR_FILTER,
+				  YT921X_VLAN_EGR_FILTER_PORTn(port));
+	if (res)
+		return res;
+
+	/* Customers must not supply the transport S-tag themselves. */
+	return yt921x_reg_update_bits(priv, YT921X_PORTn_VLAN_CTRL1(port),
+				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED |
+				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED,
+				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED);
+}
+
 int yt921x_8021q_port_enter(struct yt921x_priv *priv, int port)
 {
+	if (priv->qinq) {
+		if (dsa_is_cpu_port(&priv->ds, port))
+			return yt921x_qinq_cpu_port_enter(priv, port);
+
+		return yt921x_qinq_user_port_enter(priv, port);
+	}
+
 	if (dsa_is_cpu_port(&priv->ds, port))
 		return yt921x_8021q_cpu_port_enter(priv, port);
 
 	return yt921x_8021q_user_port_enter(priv, port);
+}
+
+/* dsa_tag_8021q_bridge_join() deletes the standalone VID of a port because
+ * the plain tag_8021q design replaces it with the shared bridge VID. QinQ
+ * keeps using the standalone VID as the outer S-tag for the whole life of
+ * the port, so put the user port and every CPU port back into that entry.
+ * Requires reg_lock.
+ */
+int yt921x_qinq_restore_standalone(struct yt921x_priv *priv, int port)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp = dsa_to_port(ds, port);
+	u16 vid = dsa_tag_8021q_standalone_vid(dp);
+	int cpu, res;
+
+	res = yt921x_vlan_add(priv, port, vid, true);
+	if (res)
+		return res;
+
+	for (cpu = 0; cpu < ds->num_ports; cpu++) {
+		if (!dsa_is_cpu_port(ds, cpu))
+			continue;
+		res = yt921x_vlan_add(priv, cpu, vid, false);
+		if (res)
+			return res;
+	}
+
+	return 0;
 }
 
 int yt921x_tag_8021q_vlan_add(struct dsa_switch *ds, int port, u16 vid,
@@ -255,7 +473,10 @@ int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable)
 	if (res)
 		return res;
 
-	if (internal_vid) {
+	if (internal_vid &&
+	    !(priv->qinq &&
+	      internal_vid == dsa_tag_8021q_standalone_vid(dsa_to_port(&priv->ds,
+								      port)))) {
 		res = yt921x_vlan_del(priv, port, internal_vid);
 		if (res)
 			return res;

@@ -889,6 +889,7 @@ endef
 $(eval $(call KernelPackage,dsa-qca8k))
 
 PKG_CONFIG_DEPENDS += CONFIG_DSA_YT921X_EXPERIMENTAL_8021Q
+PKG_CONFIG_DEPENDS += CONFIG_DSA_YT921X_EXPERIMENTAL_QINQ
 
 define KernelPackage/dsa-yt921x
   SUBMENU:=$(NETWORK_DEVICES_MENU)
@@ -897,13 +898,15 @@ define KernelPackage/dsa-yt921x
   KCONFIG:= \
 	CONFIG_NET_DSA_YT921X \
 	CONFIG_NET_DSA_TAG_YT921X \
-	CONFIG_NET_DSA_TAG_YT921X_8021Q
+	CONFIG_NET_DSA_TAG_YT921X_8021Q \
+	CONFIG_NET_DSA_TAG_YT921X_QINQ
   FILES:= \
 	$(LINUX_DIR)/drivers/net/dsa/yt921x_driver.ko \
 	$(LINUX_DIR)/net/dsa/tag_yt921x.ko \
-	$(LINUX_DIR)/net/dsa/tag_yt921x_8021q.ko
+	$(LINUX_DIR)/net/dsa/tag_yt921x_8021q.ko \
+	$(LINUX_DIR)/net/dsa/tag_yt921x_qinq.ko
   AUTOLOAD:=$(call AutoLoad,42,yt921x_driver,1)
-  MODPARAMS.yt921x_driver:=$(if $(filter y,$(CONFIG_DSA_YT921X_EXPERIMENTAL_8021Q)),experimental_8021q=1)
+  MODPARAMS.yt921x_driver:=$(strip $(if $(filter y,$(CONFIG_DSA_YT921X_EXPERIMENTAL_8021Q)),experimental_8021q=1) $(if $(filter y,$(CONFIG_DSA_YT921X_EXPERIMENTAL_QINQ)),experimental_qinq=1))
 endef
 
 define KernelPackage/dsa-yt921x/description
@@ -919,7 +922,18 @@ define KernelPackage/dsa-yt921x/config
       help
         Pass experimental_8021q=1 when the CR881x switch driver first loads.
         The boot modules load before the writable overlay, so this must be
-        part of the image. NSS takeover remains disabled and manual.
+        part of the image. NSS setup depends on the selected platform driver.
+
+    config DSA_YT921X_EXPERIMENTAL_QINQ
+      bool "Use experimental YT921x QinQ port-ID CPU transport at early boot"
+      depends on TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x
+      default n
+      help
+        Pass experimental_qinq=1 when the CR881x switch driver first loads.
+        The outer S-tag carries the per-port standalone VID and this mode
+        implies experimental_8021q. The boot modules load before the
+        writable overlay, so this must be part of the image. NSS takeover
+        depends on the selected platform driver and board integration.
   endif
 endef
 

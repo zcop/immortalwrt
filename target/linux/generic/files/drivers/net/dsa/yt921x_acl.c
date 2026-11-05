@@ -1975,6 +1975,8 @@ yt921x_acl_add(struct yt921x_priv *priv, const struct yt921x_acl_entry *group,
 	best_free = UINT_MAX;
 	blkid = UINT_MAX;
 	for (unsigned int i = 0; i < YT921X_ACL_BLK_NUM; i++) {
+		if (priv->qinq && i == YT921X_QINQ_ACL_BLOCK)
+			continue;
 		used = priv->acl.useds[i];
 		used_total += used;
 		if (used > YT921X_ACL_ENT_PER_BLK) {

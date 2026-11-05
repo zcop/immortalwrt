@@ -112,6 +112,9 @@ yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 
+	if (priv->qinq)
+		return DSA_TAG_PROTO_YT921X_QINQ;
+
 	if (priv->tag_8021q)
 		return DSA_TAG_PROTO_YT921X_8021Q;
 

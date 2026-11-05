@@ -347,13 +347,30 @@ struct yt921x_priv;
 #define  YT921X_PORT_EGR_TPID_STAG_M		GENMASK(3, 2)
 #define   YT921X_PORT_EGR_TPID_STAG(x)			FIELD_PREP(YT921X_PORT_EGR_TPID_STAG_M, (x))
 #define YT921X_PORTn_EGR_VLAN_CTRL(port)	(0x100080 + 4 * (port))
+#define  YT921X_PORT_EGR_VLAN_CTRL_STAG_KEEP		BIT(31)
+#define  YT921X_PORT_EGR_VLAN_CTRL_CTAG_KEEP		BIT(30)
+#define  YT921X_PORT_EGR_VLAN_CTRL_STAG_MODE_M	GENMASK(29, 27)
+#define   YT921X_PORT_EGR_VLAN_CTRL_STAG_MODE(x) \
+		FIELD_PREP(YT921X_PORT_EGR_VLAN_CTRL_STAG_MODE_M, (x))
+#define   YT921X_EGR_STAG_MODE_UNTAGGED			0
+#define   YT921X_EGR_STAG_MODE_TAGGED			1
+#define   YT921X_EGR_STAG_MODE_KEEP_ALL			4
+#define   YT921X_EGR_STAG_MODE_ENTRY_BASED		5
+#define  YT921X_PORT_EGR_VLAN_CTRL_DEFAULT_SVID_M	GENMASK(26, 15)
+#define   YT921X_PORT_EGR_VLAN_CTRL_DEFAULT_SVID(x) \
+		FIELD_PREP(YT921X_PORT_EGR_VLAN_CTRL_DEFAULT_SVID_M, (x))
 #define  YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE_M	GENMASK(14, 12)
 #define   YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE(x) \
 		FIELD_PREP(YT921X_PORT_EGR_VLAN_CTRL_CTAG_MODE_M, (x))
+#define   YT921X_EGR_CTAG_MODE_TAGGED			1
 #define   YT921X_EGR_CTAG_MODE_KEEP_ALL			4
 #define   YT921X_EGR_CTAG_MODE_ENTRY_BASED		5
+#define  YT921X_PORT_EGR_VLAN_CTRL_DEFAULT_CVID_M	GENMASK(11, 0)
+#define   YT921X_PORT_EGR_VLAN_CTRL_DEFAULT_CVID(x) \
+		FIELD_PREP(YT921X_PORT_EGR_VLAN_CTRL_DEFAULT_CVID_M, (x))
 #define YT921X_TPID_EGRn(x)		(0x100300 + 4 * (x))	/* [0, 3] */
 #define  YT921X_TPID_EGR_TPID_M			GENMASK(15, 0)
+#define   YT921X_TPID_EGR_TPID(x)			FIELD_PREP(YT921X_TPID_EGR_TPID_M, (x))
 
 #define YT921X_PSCH_SHPn_EBS_EIR(port)	(0x354000 + 8 * (port))
 #define  YT921X_PSCH_SHP_EIR_M			GENMASK(17, 0)
@@ -937,6 +954,9 @@ enum yt921x_app_selector {
 #define YT921X_VLAN_IGR_FILTER		0x180280
 #define  YT921X_VLAN_IGR_FILTER_PORTn_BYPASS_IGMP(port)	BIT((port) + 11)
 #define  YT921X_VLAN_IGR_FILTER_PORTn(port)	BIT(port)
+/* Per-port lookup VID selector: cleared = C-VLAN, set = S-VLAN. */
+#define YT921X_LOOK_UP_VLAN_SEL		0x80014
+#define  YT921X_LOOK_UP_VLAN_SEL_PORTn(port)	BIT(port)
 #define YT921X_PORTn_ISOLATION(port)	(0x180294 + 4 * (port))
 #define  YT921X_PORT_ISOLATION_BLOCKn(port)	BIT(port)
 #define YT921X_STPn(n)			(0x18038c + 4 * (n))
@@ -1085,6 +1105,10 @@ enum yt921x_app_selector {
 
 #define YT921X_TPID_IGRn(x)		(0x210000 + 4 * (x))	/* [0, 3] */
 #define  YT921X_TPID_IGR_TPID_M			GENMASK(15, 0)
+#define   YT921X_TPID_IGR_TPID(x)			FIELD_PREP(YT921X_TPID_IGR_TPID_M, (x))
+/* TPID profile 1 carries the 0x88a8 outer tag in QinQ mode. */
+#define  YT921X_QINQ_SVID_PROFILE		1
+#define  YT921X_QINQ_SVID_TPID			0x88a8
 #define YT921X_PORTn_IGR_TPID(port)	(0x210010 + 4 * (port))
 #define  YT921X_PORT_IGR_TPIDn_STAG_M		GENMASK(7, 4)
 #define  YT921X_PORT_IGR_TPIDn_STAG(x)		BIT((x) + 4)
@@ -1178,6 +1202,8 @@ enum yt921x_fdb_entry_status {
 
 #define YT921X_TAG_LEN	8
 #define YT921X_ACL_BLK_NUM	48
+/* Reserved for CPU-originated QinQ steering; tc must skip this block. */
+#define YT921X_QINQ_ACL_BLOCK		(YT921X_ACL_BLK_NUM - 1)
 #define YT921X_ACL_ENT_PER_BLK	8
 #define YT921X_ACL_NUM		(YT921X_ACL_BLK_NUM * YT921X_ACL_ENT_PER_BLK)
 #define YT921X_UDF_NUM		8
@@ -1336,6 +1362,7 @@ struct yt921x_priv {
 	u16 cpu_ports_mask;
 	/* Immutable experiment selection; original transport is the default. */
 	bool tag_8021q;
+	bool qinq;
 	bool bridge_vlan_fault[YT921X_PORT_NUM];
 	bool bridge_vlan_filtering[YT921X_PORT_NUM];
 	u16 tag_8021q_pvid[YT921X_PORT_NUM];
