@@ -1367,8 +1367,8 @@ struct yt921x_priv {
 	bool bridge_vlan_filtering[YT921X_PORT_NUM];
 	u16 tag_8021q_pvid[YT921X_PORT_NUM];
 	u16 bridge_pvid[YT921X_PORT_NUM];
-	u16 bridge_vlan_members[3072];
-	u16 bridge_vlan_untagged[3072];
+	u16 bridge_vlan_members[4096];
+	u16 bridge_vlan_untagged[4096];
 	int primary_cpu_port;
 	int secondary_cpu_port;
 	u8 cycle_ns;

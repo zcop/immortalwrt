@@ -65,6 +65,7 @@
 #include <linux/workqueue.h>
 #include <linux/rtnetlink.h>
 #include <linux/dsa/8021q.h>
+#include <linux/dsa/yt921x_qinq.h>
 #include <net/dsa.h>
 #include <net/switchdev.h>
 #include <nss_api_if.h>
@@ -366,8 +367,9 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 			struct bridge_vlan_info vinfo;
 			u16 vid;
 
-			for (vid = 1; vid < VLAN_N_VID &&
-				      !vid_is_dsa_8021q(vid); vid++) {
+			for (vid = 1; vid < VLAN_N_VID; vid++) {
+				if (!dsa_yt921x_qinq_customer_vid_valid(dp->ds, vid))
+					continue;
 				if (br_vlan_get_info(dev, vid, &vinfo))
 					continue;
 				if (!dsa_nss_want_add(want, &n, max, svid, vid,

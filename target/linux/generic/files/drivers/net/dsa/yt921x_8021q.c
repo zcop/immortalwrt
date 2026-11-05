@@ -12,6 +12,7 @@
  * again while leaving the inner 0x8100 customer tag to the VLAN entry.
  */
 #include "yt921x_internal.h"
+#include <linux/dsa/yt921x_qinq.h>
 
 static u32 yt921x_8021q_cpu_block_mask(struct yt921x_priv *priv, int port)
 {
@@ -524,8 +525,17 @@ int yt921x_8021q_bridge_vlan(struct yt921x_priv *priv, int port,
 		NL_SET_ERR_MSG_MOD(extack, "Use bridge VLANs, not direct port VLAN uppers, with this tagger");
 		return -EOPNOTSUPP;
 	}
-	if (!vid || vid >= ARRAY_SIZE(priv->bridge_vlan_members)) {
-		NL_SET_ERR_MSG_MOD(extack, "VLAN IDs 3072-4095 are reserved for DSA transport");
+	if (!vid || vid == YT921X_VID_UNAWARE) {
+		NL_SET_ERR_MSG_MOD(extack, "VLAN ID must be between 1 and 4094");
+		return -EBUSY;
+	}
+	if (!priv->qinq) {
+		if (vid >= 3072) {
+			NL_SET_ERR_MSG_MOD(extack, "VLAN IDs 3072-4095 are reserved for DSA transport");
+			return -EBUSY;
+		}
+	} else if (!dsa_yt921x_qinq_customer_vid_valid(&priv->ds, vid)) {
+		NL_SET_ERR_MSG_MOD(extack, "VLAN ID collides with the YT921x QinQ standalone or bridge VID");
 		return -EBUSY;
 	}
 

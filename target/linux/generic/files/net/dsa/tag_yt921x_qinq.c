@@ -20,6 +20,7 @@
  * offload_fwd_mark set are dropped rather than forwarded undefined.
  */
 #include <linux/dsa/8021q.h>
+#include <linux/dsa/yt921x_qinq.h>
 #include <linux/if_bridge.h>
 #include <linux/if_vlan.h>
 #include <net/dsa.h>
@@ -163,8 +164,7 @@ static struct sk_buff *yt921x_qinq_rcv(struct sk_buff *skb,
 	vlan_aware = br && br_vlan_enabled(br);
 
 	if (vlan_aware) {
-		if (!inner_vid || inner_vid == VLAN_VID_MASK ||
-		    vid_is_dsa_8021q(inner_vid))
+		if (!dsa_yt921x_qinq_customer_vid_valid(dp->ds, inner_vid))
 			return NULL;
 
 		if (dp->stp_state != BR_STATE_LEARNING &&
@@ -245,8 +245,7 @@ static struct sk_buff *yt921x_qinq_xmit(struct sk_buff *skb,
 		if (!vlan_aware)
 			return NULL;
 
-		if (!inner_vid || inner_vid == VLAN_VID_MASK ||
-		    vid_is_dsa_8021q(inner_vid))
+		if (!dsa_yt921x_qinq_customer_vid_valid(dp->ds, inner_vid))
 			return NULL;
 
 		if (br_vlan_get_info_rcu(dp->user, inner_vid, &vinfo))
@@ -259,8 +258,7 @@ static struct sk_buff *yt921x_qinq_xmit(struct sk_buff *skb,
 			u16 pvid;
 
 			if (br_vlan_get_pvid_rcu(dp->user, &pvid) ||
-			    !pvid || pvid == VLAN_VID_MASK ||
-			    vid_is_dsa_8021q(pvid))
+			    !dsa_yt921x_qinq_customer_vid_valid(dp->ds, pvid))
 				return NULL;
 
 			if (br_vlan_get_info_rcu(dp->user, pvid, &vinfo))

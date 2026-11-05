@@ -25,7 +25,9 @@ for name in ['yt921x_vlan_fid_for_vid', 'yt921x_vlan_aware_set',
     match = re.search(r'^(?:static )?(?:int|u16)\s+' + name + r'\(.*?^\}', common, re.M | re.S)
     assert match, name
     functions.append(match.group(0))
-transport = (DRIVER / 'yt921x_8021q.c').read_text().replace('#include "yt921x_internal.h"', '')
+transport = (DRIVER / 'yt921x_8021q.c').read_text().replace('#include "yt921x_internal.h"', '').replace('#include <linux/dsa/yt921x_qinq.h>', '')
+namespace = (ROOT / 'target/linux/generic/files/include/linux/dsa/yt921x_qinq.h').read_text()
+namespace = re.search(r'static inline bool.*?^}', namespace, re.M | re.S).group(0)
 acl = (DRIVER / 'yt921x_qinq_acl.c').read_text().replace('#include "yt921x_internal.h"', '')
 preamble = r'''
 #include <assert.h>
@@ -49,6 +51,7 @@ typedef uint64_t u64;
 #define container_of_const(p,t,m) ((t *)((char *)(p)-offsetof(t,m)))
 #define dev_err(...) ((void)0)
 #define NL_SET_ERR_MSG_MOD(...) ((void)0)
+#define VLAN_VID_MASK 4095
 #define BRIDGE_VLAN_INFO_PVID 2
 #define BRIDGE_VLAN_INFO_UNTAGGED 4
 struct net_device { int id; };
@@ -56,7 +59,7 @@ struct netlink_ext_ack { int unused; };
 struct bridge { struct net_device *dev; };
 struct dsa_switch;
 struct dsa_port { int index; struct dsa_switch *ds; struct bridge *bridge; struct dsa_port *cpu_dp; };
-struct dsa_switch { struct dsa_port ports[11]; int num_ports; };
+struct dsa_switch { struct dsa_port ports[11]; int num_ports; unsigned int max_num_bridges; };
 struct switchdev_obj_port_vlan {
  struct { struct net_device *orig_dev; } obj;
  u16 vid, flags;
@@ -68,7 +71,7 @@ struct yt921x_priv {
  bool dt_secondary_conduit_user_mask_valid, qinq;
  bool bridge_vlan_fault[11], bridge_vlan_filtering[11];
  u16 tag_8021q_pvid[11], bridge_pvid[11];
- u16 bridge_vlan_members[3072], bridge_vlan_untagged[3072];
+ u16 bridge_vlan_members[4096], bridge_vlan_untagged[4096];
  u8 vlan_fid_mode;
  u16 vlan_svl_fid;
 };
@@ -115,6 +118,7 @@ static int yt921x_reg64_update_bits(struct yt921x_priv *p,u32 r,u64 m,u64 v) {
  u64 old; yt921x_reg64_read(p,r,&old); return yt921x_reg64_write(p,r,(old & ~m)|(v & m));
 }
 static u16 dsa_tag_8021q_standalone_vid(struct dsa_port *p) {return 3072+p->index;}
+static u16 dsa_tag_8021q_bridge_vid(unsigned int n) {return 3072|((n&3)<<4)|((n&4)<<7);}
 static int yt921x_reg96_write(struct yt921x_priv *p,u32 r,const u32 *v) {
  for(int i=0;i<3;i++) {int e=yt921x_reg_write(p,r+4*i,v[i]);if(e)return e;}return 0;
 }
@@ -133,7 +137,7 @@ static void reset(void) {
  priv.cpu_ports_mask=BIT(4)|BIT(8); priv.primary_cpu_port=8; priv.secondary_cpu_port=4;
  priv.dt_secondary_conduit_user_mask=BIT(3); priv.dt_secondary_conduit_user_mask_valid=true;
  for (int i=0;i<11;i++) {priv.ds.ports[i].index=i;priv.ds.ports[i].ds=&priv.ds;priv.ds.ports[i].cpu_dp=&priv.ds.ports[i==3?4:8];}
- priv.ds.num_ports=11;
+ priv.ds.num_ports=11;priv.ds.max_num_bridges=7;
  priv.ds.ports[0].bridge=&bridges[0];priv.ds.ports[1].bridge=&bridges[0];priv.ds.ports[3].bridge=&bridges[1];
  v.vid=10;v.obj.orig_dev=&brdev[0];
 }
@@ -212,13 +216,36 @@ int main(void) {
  reset();priv.qinq=true;priv.dt_secondary_conduit_user_mask=BIT(2);
  assert(yt921x_qinq_acl_setup(&priv)==-EINVAL);assert(writes==0);
  printf("PASS: QinQ CPU/port mapping, teardown and %d commit failure points fail closed\n",aclwrites-1);
+
+ /* QinQ high customer VIDs use the actual mapper and register/cache paths. */
+ int customer_vids[]={3071,3076,3500,4094};
+ for(unsigned int n=0;n<ARRAY_SIZE(customer_vids);n++) {
+  reset();priv.qinq=true;assert(!tag(0,3072));v.vid=customer_vids[n];
+  assert(!yt921x_8021q_bridge_vlan(&priv,0,&v,true,NULL));
+  assert(priv.bridge_vlan_members[v.vid]&BIT(0));
+  assert(!yt921x_8021q_filtering(&priv,0,true));assert(pvid(0)==v.vid);
+  assert(vlan(v.vid)&YT921X_VLAN_CTRL_PORTn(0));
+  assert(!yt921x_8021q_filtering(&priv,0,false));assert(pvid(0)==3072);
+  assert(!(vlan(v.vid)&YT921X_VLAN_CTRL_PORTn(0)));
+  assert(!yt921x_8021q_filtering(&priv,0,true));assert(pvid(0)==v.vid);
+  assert(!yt921x_8021q_bridge_vlan(&priv,0,&v,false,NULL));
+  assert(!priv.bridge_vlan_members[v.vid]);assert(!priv.bridge_pvid[0]);
+ }
+ int reserved[]={0,3072,3073,3074,3075,3088,3104,3120,3584,3600,3616,3632,4095,4096,65535};
+ for(unsigned int n=0;n<ARRAY_SIZE(reserved);n++) {
+  reset();priv.qinq=true;v.vid=reserved[n];int before=writes;
+  assert(yt921x_8021q_bridge_vlan(&priv,0,&v,true,NULL)==-EBUSY);assert(writes==before);
+ }
+ reset();v.vid=3500;assert(yt921x_8021q_bridge_vlan(&priv,0,&v,true,NULL)==-EBUSY);assert(writes==0);
+ puts("PASS: QinQ high VIDs round-trip filtering and cleanup; exact transport collisions and single-tag high VIDs reject without writes");
+
  return 0;
 }
 '''
 with tempfile.TemporaryDirectory(prefix='yt921x-transport-') as temporary:
     directory=Path(temporary)
     source=directory/'transport.c'
-    source.write_text(preamble+'\n'+''.join(defines)+'\n'+'\n'.join(functions)+'\n'+acl+'\n'+transport+'\n'+tests)
+    source.write_text(preamble+'\n'+''.join(defines)+'\n'+namespace+'\n'+'\n'.join(functions)+'\n'+acl+'\n'+transport+'\n'+tests)
     executable=directory/'transport-test'
     subprocess.run(['cc','-std=gnu11','-O1','-g','-fsanitize=address,undefined',str(source),'-o',str(executable)],check=True)
     # LeakSanitizer cannot run under the traced execution sandbox. This
