@@ -1,0 +1,16 @@
+--- a/pcap-linux.c
++++ b/pcap-linux.c
+@@ -5776,7 +5776,12 @@
+ 	 * any tagging protocol configured, and is therefore a standard
+ 	 * Ethernet interface.
+ 	 */
+-	if (strcmp(buf, "none") == 0)
++	/* yt921x-qinq carries standard Ethernet II frames with an outer
++	 * 802.1ad port-identity VLAN and an inner 802.1Q forwarding VLAN.
++	 * Both tags remain on the wire; ordinary Ethernet/VLAN decoding and
++	 * Linux AUXDATA reconstruction apply. Other DSA formats stay opaque.
++	 */
++	if (strcmp(buf, "none") == 0 || strcmp(buf, "yt921x-qinq") == 0)
+ 		return 0;
+ 
+ 	/*
