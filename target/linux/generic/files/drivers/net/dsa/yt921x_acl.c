@@ -1156,8 +1156,6 @@ meta_done:
 			group[i].key[1] |= chain_mask;
 
 		group[i].key[1] |= YT921X_ACL_KEYb_SPORTS(ports_mask);
-		if (!ingress)
-			group[i].key[1] |= YT921X_ACL_KEYb_REVERSE;
 		group[i].mask[1] |= YT921X_ACL_KEYb_SPORTS_M;
 		if (FIELD_GET(YT921X_ACL_KEYb_TYPE_M, group[i].key[1]) !=
 		    YT921X_ACL_TYPE_NA)
@@ -2208,6 +2206,11 @@ yt921x_dsa_cls_flower_add(struct dsa_switch *ds, int port,
 		return -EINVAL;
 	if (!dsa_is_user_port(ds, port))
 		return -EOPNOTSUPP;
+	if (!ingress) {
+		NL_SET_ERR_MSG_MOD(cls->common.extack,
+				   "Hardware egress ACL is unsupported; rule inversion is not an egress selector");
+		return -EOPNOTSUPP;
+	}
 	if (cls->common.chain_index) {
 		NL_SET_ERR_MSG_MOD(cls->common.extack, "chain is not supported");
 		return -EOPNOTSUPP;
