@@ -1,12 +1,29 @@
-# CR881x NSS backend transition
+# Current qosmio migration status
 
-The Kuncy7 stmmac takeover backend and manual cr881x-nss controller are
-removed. Ordinary CR881x images retain upstream stmmac, YT921x DSA and
-the 2.5G LAN CPU link. Shared DSA/NSS interfaces remain available for the
-native replacement. Historical port and QinQ measurements are archived
-under reference/ and do not validate a replacement backend.
+The `nss-qosmio-qinq` branch now boots by normal sysupgrade and starts native
+NSS plus the QinQ node adapter automatically on Linux 6.18.55. YT921x keeps
+DSA ownership. Routed IPv4 TCP measured 935–936 Mbps in both directions with
+about 98.5–98.8% router CPU idle; 900 Mbps UDP had zero loss (2026-11-05).
+These are new native qosmio measurements, not the Kuncy7 reference results.
 
-The report below describes an older NSS experiment.
+A topology resync can retire an existing TCP connection's NSS rules and
+leave that session on CPU forwarding; fresh connections accelerate again.
+The persistent-image near-line-rate resync gate did not pass. TCP continuity
+is fixed, but automatic reacceleration of surviving sessions remains work.
+
+Ambiguous VLAN, direct port VLAN-upper, PPP/tunnel and L2 NSS paths remain
+on the host in this initial native port. Wi-Fi NSS is disabled. Customer
+VLAN/multiport membership, cross-conduit switching, high customer VIDs,
+MST state/FID flushing and hardware rate/mirror/drop policies have subsequent
+device evidence. Physical-loop/STP control delivery, IPv6 traffic, driver
+restore and cold/warm boot remain validation gates. The libpcap capture fix
+is RAM-tested and awaits inclusion in a new image. Startup and TCP
+resync fixes and their flashed/RAM-only status are recorded in
+[device test details](nss-qosmio-device-test.md) and
+[source selection and implementation](nss-qosmio-port.md); the current
+build11 results and open issues are in [execution slices](nss-qosmio-dsa-slices.md).
+
+The older measurements below are historical; they do not validate this branch.
 
 # CR881x NSS Offload Status
 
@@ -51,3 +68,6 @@ Test path: LAN client `10.1.0.178` <-> WAN host `192.168.137.1` via router `192.
 Final decision for CR881x:
 - Keep DSA as the default architecture.
 - Current NSS benefit is mostly download speed; this does not justify dropping many YT921x switch offloads and DSA control-plane features.
+
+DSA feature comparison, actual packet tests, current image gaps and ordered
+fix plan: [native DSA feature audit](nss-qosmio-dsa-feature-audit.md).
