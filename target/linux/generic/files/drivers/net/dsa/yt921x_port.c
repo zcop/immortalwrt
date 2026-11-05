@@ -408,57 +408,72 @@ yt921x_stock_ingress_rate_to_cir(u64 rate_bytes_per_sec, u32 token_level,
 
 static int
 yt921x_ingress_meter_profile_apply(struct yt921x_priv *priv, u32 token_level,
-				   u32 meter_id, u64 rate_bytes_per_sec)
+				   u32 meter_id, u64 rate_bytes_per_sec,
+				   u32 burst_bytes)
 {
 	u32 meter_idx = meter_id + YT921X_RATE_IGR_METER_BASE;
-	u32 meter_word1;
-	u32 meter_word2;
+	u32 meter_base = YT921X_RATE_METER_CONFIGn(meter_idx);
+	u32 words[3];
+	u64 cbs_packed;
+	u32 cbs;
 	u32 cir;
 	u32 f4;
 	int res;
 
+	res = yt921x_reg_read(priv, meter_base, &words[0]);
+	if (res)
+		return res;
+	res = yt921x_reg_read(priv, YT921X_RATE_METER_CONFIG_WORD1(meter_idx),
+			      &words[1]);
+	if (res)
+		return res;
 	res = yt921x_reg_read(priv, YT921X_RATE_METER_CONFIG_WORD2(meter_idx),
-			      &meter_word2);
+			      &words[2]);
 	if (res)
 		return res;
 
 	/* Stock ingress path uses BPS mode with token-unit defaults and
 	 * color-blind drop on Y/R for out-of-profile traffic.
 	 */
-	f4 = FIELD_GET(YT921X_RATE_METER_CFG_F4_M, meter_word2);
+	f4 = FIELD_GET(YT921X_RATE_METER_CFG_F4_M, words[2]);
 	if (!f4) {
 		f4 = YT921X_RATE_TOKEN_UNIT_DEFAULT;
-		meter_word2 &= ~YT921X_RATE_METER_CFG_F4_M;
-		meter_word2 |= YT921X_RATE_METER_CFG_F4(f4);
+		words[2] &= ~YT921X_RATE_METER_CFG_F4_M;
+		words[2] |= YT921X_RATE_METER_CFG_F4(f4);
 	}
 
-	meter_word2 &= ~(YT921X_RATE_METER_CFG_F6 |
-			 YT921X_METER_CTRLc_RFC2698 |
-			 YT921X_METER_CTRLc_PKT_MODE |
-			 YT921X_METER_CTRLc_DROP_M);
-	meter_word2 |= YT921X_METER_CTRLc_METER_EN |
-		       YT921X_METER_CTRLc_COLOR_BLIND |
-		       YT921X_METER_CTRLc_DROP_YR;
+	if (!burst_bytes)
+		return -EINVAL;
+	/* Byte-mode burst2token() floors in the byte domain. */
+	cbs = burst_bytes >> (2 * f4 + 1);
+	if (!cbs)
+		cbs = 1;
+	if (cbs > YT921X_METER_BURST_MAX)
+		return -ERANGE;
+
+	words[2] &= ~(YT921X_RATE_METER_CFG_F6 |
+		      YT921X_METER_CTRLc_RFC2698 |
+		      YT921X_METER_CTRLc_PKT_MODE |
+		      YT921X_METER_CTRLc_DROP_M);
+	words[2] |= YT921X_METER_CTRLc_METER_EN |
+		    YT921X_METER_CTRLc_COLOR_BLIND |
+		    YT921X_METER_CTRLc_DROP_YR;
+
+	cbs_packed = YT921X_METER_CTRLbc_CBS(cbs);
+	words[1] &= ~(u32)YT921X_METER_CTRLbc_CBS_M;
+	words[1] |= (u32)cbs_packed;
+	words[2] &= ~(u32)(YT921X_METER_CTRLbc_CBS_M >> 32);
+	words[2] |= (u32)(cbs_packed >> 32);
 
 	res = yt921x_stock_ingress_rate_to_cir(rate_bytes_per_sec, token_level,
 					       f4, false, &cir);
 	if (res)
 		return res;
 
-	res = yt921x_reg_read(priv, YT921X_RATE_METER_CONFIG_WORD1(meter_idx),
-			      &meter_word1);
-	if (res)
-		return res;
+	words[1] &= ~YT921X_RATE_METER_CFG_CIR_M;
+	words[1] |= YT921X_RATE_METER_CFG_CIR(cir);
 
-	meter_word1 &= ~YT921X_RATE_METER_CFG_CIR_M;
-	meter_word1 |= YT921X_RATE_METER_CFG_CIR(cir);
-	res = yt921x_reg_write(priv, YT921X_RATE_METER_CONFIG_WORD1(meter_idx),
-			       meter_word1);
-	if (res)
-		return res;
-
-	return yt921x_reg_write(priv, YT921X_RATE_METER_CONFIG_WORD2(meter_idx),
-				meter_word2);
+	return yt921x_reg96_write(priv, meter_base, words);
 }
 
 static int yt921x_ingress_meter_policer_apply(struct yt921x_priv *priv)
@@ -495,9 +510,10 @@ disable_port_ctrl:
 			if (!priv->policer_rate_bytes_per_sec[port])
 				return -EINVAL;
 
-			res = yt921x_ingress_meter_profile_apply(priv, token_level,
-								 meter_id,
-								 priv->policer_rate_bytes_per_sec[port]);
+			res = yt921x_ingress_meter_profile_apply(
+				priv, token_level, meter_id,
+				priv->policer_rate_bytes_per_sec[port],
+				priv->policer_burst[port]);
 			if (res)
 				return res;
 
