@@ -711,6 +711,25 @@ void yt921x_dsa_port_fast_age(struct dsa_switch *ds, int port)
 }
 
 int
+yt921x_dsa_port_vlan_fast_age(struct dsa_switch *ds, int port, u16 vid)
+{
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+	u16 fid;
+	int res;
+
+	if (port < 0 || port >= ds->num_ports || !vid ||
+	    vid >= YT921X_VID_UNAWARE)
+		return -EINVAL;
+
+	mutex_lock(&priv->reg_lock);
+	fid = yt921x_vlan_fid_for_vid(priv, vid);
+	res = yt921x_fdb_flush_raw(priv, BIT(port), fid, false);
+	mutex_unlock(&priv->reg_lock);
+
+	return res;
+}
+
+int
 yt921x_dsa_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);

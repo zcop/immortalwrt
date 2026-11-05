@@ -280,6 +280,7 @@ static const struct dsa_switch_ops yt921x_dsa_switch_ops = {
 	/* fdb */
 	.port_fdb_dump		= yt921x_dsa_port_fdb_dump,
 	.port_fast_age		= yt921x_dsa_port_fast_age,
+	.port_vlan_fast_age	= yt921x_dsa_port_vlan_fast_age,
 	.set_ageing_time	= yt921x_dsa_set_ageing_time,
 	.port_fdb_del		= yt921x_dsa_port_fdb_del,
 	.port_fdb_add		= yt921x_dsa_port_fdb_add,

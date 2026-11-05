@@ -278,6 +278,7 @@ int yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag
 int yt921x_dsa_port_fdb_dump(struct dsa_switch *ds, int port,
 			     dsa_fdb_dump_cb_t *cb, void *data);
 void yt921x_dsa_port_fast_age(struct dsa_switch *ds, int port);
+int yt921x_dsa_port_vlan_fast_age(struct dsa_switch *ds, int port, u16 vid);
 int yt921x_dsa_set_ageing_time(struct dsa_switch *ds, unsigned int msecs);
 int yt921x_dsa_port_fdb_del(struct dsa_switch *ds, int port,
 			    const unsigned char *addr, u16 vid,
