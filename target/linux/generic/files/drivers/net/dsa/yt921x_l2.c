@@ -191,6 +191,22 @@ yt921x_dsa_port_lag_check(struct dsa_switch *ds, int port, struct dsa_lag lag,
 	return 0;
 }
 
+static int
+yt921x_direct_vlan_join_check(struct yt921x_priv *priv, int port,
+			      struct netlink_ext_ack *extack)
+{
+	int res = 0;
+
+	mutex_lock(&priv->reg_lock);
+	if (priv->direct_vlan_count[port]) {
+		NL_SET_ERR_MSG_MOD(extack, "Cannot join a bridge or LAG while direct customer VLAN uppers are configured");
+		res = -EBUSY;
+	}
+	mutex_unlock(&priv->reg_lock);
+
+	return res;
+}
+
 int
 yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag,
 			 struct netdev_lag_upper_info *info,
@@ -202,6 +218,12 @@ yt921x_dsa_port_lag_join(struct dsa_switch *ds, int port, struct dsa_lag lag,
 	unsigned int i;
 	u32 ctrl;
 	int res;
+
+	if (priv->qinq) {
+		res = yt921x_direct_vlan_join_check(priv, port, extack);
+		if (res)
+			return res;
+	}
 
 	res = yt921x_dsa_port_lag_check(ds, port, lag, info, extack);
 	if (res)
@@ -1066,7 +1088,8 @@ yt921x_dsa_port_vlan_filtering(struct dsa_switch *ds, int port,
 	mutex_lock(&priv->reg_lock);
 	do {
 		if (priv->tag_8021q) {
-			res = yt921x_8021q_filtering(priv, port, vlan_filtering);
+			res = yt921x_8021q_filtering(priv, port, vlan_filtering,
+						     extack);
 			if (res && res != -EBUSY)
 				yt921x_8021q_fault(priv, port);
 			break;
@@ -1716,6 +1739,12 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 	if (dsa_is_cpu_port(ds, port))
 		return 0;
 
+	if (priv->qinq) {
+		res = yt921x_direct_vlan_join_check(priv, port, extack);
+		if (res)
+			return res;
+	}
+
 	if (priv->tag_8021q) {
 		struct dsa_port *dp = dsa_to_port(ds, port), *other;
 
@@ -1752,6 +1781,13 @@ yt921x_dsa_port_bridge_join(struct dsa_switch *ds, int port,
 		res = 0;
 	if (!res)
 		res = yt921x_bridge_join(priv, port, ports_mask);
+	/* Standalone QinQ ports already have DSA filtering enabled. Joining
+	 * an aware bridge can therefore skip port_vlan_filtering(), although
+	 * our customer-VLAN state still needs to follow the new bridge.
+	 */
+	if (!res && priv->qinq)
+		res = yt921x_8021q_filtering(priv, port,
+					   br_vlan_enabled(bridge.dev), extack);
 	if (!res)
 		res = yt921x_refresh_flood_masks_locked(priv);
 	if (res && priv->tag_8021q)

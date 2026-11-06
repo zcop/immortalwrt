@@ -451,12 +451,22 @@ int yt921x_8021q_standalone(struct yt921x_priv *priv, int port)
 	if (res)
 		return res;
 
+	/* DSA leaves VLAN filtering enabled after an aware bridge when the
+	 * standalone port needs it too. Clear bridge-domain state ourselves.
+	 */
+	if (priv->qinq) {
+		res = yt921x_8021q_filtering(priv, port, false, NULL);
+		if (res)
+			return res;
+	}
+
 	mask = YT921X_PORT_LEARN_DIS;
 
 	return yt921x_reg_set_bits(priv, YT921X_PORTn_LEARN(port), mask);
 }
 
-int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable)
+int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable,
+			   struct netlink_ext_ack *extack)
 {
 	bool old = priv->bridge_vlan_filtering[port];
 	u16 internal_vid = priv->tag_8021q_pvid[port];
@@ -464,8 +474,18 @@ int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable)
 		   YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_UNTAGGED;
 	int vid, res;
 
+	/* Hardware filtering on a standalone QinQ port does not mean a
+	 * customer-aware bridge: keep its native transport PVID and leaves.
+	 */
+	if (priv->qinq && !dsa_to_port(&priv->ds, port)->bridge)
+		enable = false;
+
 	if (priv->bridge_vlan_fault[port])
 		return -EIO;
+	if (enable && priv->direct_vlan_count[port]) {
+		NL_SET_ERR_MSG_MOD(extack, "Cannot enable VLAN filtering while direct customer VLAN uppers are configured");
+		return -EBUSY;
+	}
 	if (enable) {
 		struct dsa_switch *ds = &priv->ds;
 		struct dsa_port *dp = dsa_to_port(ds, port), *other;
@@ -522,6 +542,104 @@ int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable)
 	return res;
 }
 
+/* Direct customer VLAN uppers have no bridge/source-port identity. On a
+ * standalone QinQ user port the user callback owns the VID and programs the
+ * conduit alongside it; CPU callbacks are informational and must not repeat
+ * that work.
+ */
+static int yt921x_8021q_direct_vlan(struct yt921x_priv *priv, int port,
+				    const struct switchdev_obj_port_vlan *vlan,
+				    bool add, struct netlink_ext_ack *extack)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp;
+	int cpu_port, res = 0;
+
+	if (!priv->qinq) {
+		NL_SET_ERR_MSG_MOD(extack, "Use bridge VLANs, not direct port VLAN uppers, with this tagger");
+		return -EOPNOTSUPP;
+	}
+	/* VID 0 is the kernel's automatic filter setup, never a customer VID. */
+	if (!vlan->vid)
+		return 0;
+	if (vlan->flags) {
+		NL_SET_ERR_MSG_MOD(extack, "Direct customer VLAN uppers cannot carry bridge VLAN flags");
+		return -EINVAL;
+	}
+	if (!dsa_yt921x_qinq_customer_vid_valid(ds, vlan->vid)) {
+		NL_SET_ERR_MSG_MOD(extack, "VLAN ID collides with the YT921x QinQ standalone or bridge VID");
+		return -EBUSY;
+	}
+	if (!dsa_is_user_port(ds, port))
+		return 0;
+
+	dp = dsa_to_port(ds, port);
+	if (!dp->cpu_dp || dp->cpu_dp->ds != ds ||
+	    !dsa_is_cpu_port(ds, dp->cpu_dp->index)) {
+		NL_SET_ERR_MSG_MOD(extack, "Direct customer VLAN upper requires a real CPU conduit");
+		return -EINVAL;
+	}
+	cpu_port = dp->cpu_dp->index;
+
+	mutex_lock(&priv->reg_lock);
+	if (priv->bridge_vlan_fault[port]) {
+		res = -EIO;
+		goto out;
+	}
+	if (add && (priv->direct_vlan_members[vlan->vid] & BIT(port))) {
+		res = 0;
+		goto out;
+	}
+	if (!add && !(priv->direct_vlan_members[vlan->vid] & BIT(port))) {
+		res = 0;
+		goto out;
+	}
+	if (dp->bridge || netif_is_bridge_port(dp->user) ||
+	    netif_is_lag_port(dp->user) || priv->bridge_vlan_filtering[port]) {
+		NL_SET_ERR_MSG_MOD(extack, "Direct customer VLAN uppers require a standalone, unfiltered port");
+		res = -EBUSY;
+		goto out;
+	}
+
+	if (!add) {
+		res = yt921x_vlan_del(priv, port, vlan->vid);
+		if (!res)
+			res = yt921x_vlan_del(priv, cpu_port, vlan->vid);
+		if (!res)
+			res = yt921x_fdb_flush_port(priv, port, false);
+		if (res) {
+			yt921x_8021q_fault(priv, port);
+			goto out;
+		}
+		priv->direct_vlan_members[vlan->vid] &= ~BIT(port);
+		priv->direct_vlan_count[port]--;
+		goto out;
+	}
+
+	if (priv->direct_vlan_members[vlan->vid] ||
+	    priv->bridge_vlan_members[vlan->vid]) {
+		NL_SET_ERR_MSG_MOD(extack, "VLAN ID is already owned by another VLAN domain");
+		res = -EBUSY;
+		goto out;
+	}
+
+	/* Reserve before the first write: a partial transaction stays owned so
+	 * the failed hardware state cannot be reused by another domain.
+	 */
+	priv->direct_vlan_members[vlan->vid] = BIT(port);
+	priv->direct_vlan_count[port]++;
+	res = yt921x_vlan_add(priv, cpu_port, vlan->vid, false);
+	if (!res)
+		res = yt921x_vlan_add(priv, port, vlan->vid, false);
+	if (!res)
+		res = yt921x_fdb_flush_port(priv, port, false);
+	if (res)
+		yt921x_8021q_fault(priv, port);
+out:
+	mutex_unlock(&priv->reg_lock);
+	return res;
+}
+
 int yt921x_8021q_bridge_vlan(struct yt921x_priv *priv, int port,
 				    const struct switchdev_obj_port_vlan *vlan,
 				    bool add, struct netlink_ext_ack *extack)
@@ -532,11 +650,8 @@ int yt921x_8021q_bridge_vlan(struct yt921x_priv *priv, int port,
 	u16 old_members, old_untagged, old_pvid;
 	int res = 0;
 
-	/* Direct port VLAN uppers have no bridge domain/source-port identity. */
-	if (!vlan->obj.orig_dev) {
-		NL_SET_ERR_MSG_MOD(extack, "Use bridge VLANs, not direct port VLAN uppers, with this tagger");
-		return -EOPNOTSUPP;
-	}
+	if (!vlan->obj.orig_dev)
+		return yt921x_8021q_direct_vlan(priv, port, vlan, add, extack);
 	if (!vid || vid == YT921X_VID_UNAWARE) {
 		NL_SET_ERR_MSG_MOD(extack, "VLAN ID must be between 1 and 4094");
 		return -EBUSY;
@@ -556,6 +671,14 @@ int yt921x_8021q_bridge_vlan(struct yt921x_priv *priv, int port,
 		res = -EIO;
 		goto out;
 	}
+	if (add && priv->direct_vlan_members[vid]) {
+		NL_SET_ERR_MSG_MOD(extack, "VLAN ID is owned by a direct customer VLAN upper");
+		res = -EBUSY;
+		goto out;
+	}
+	/* A direct upper owns the user and CPU membership of this VID. */
+	if (!add && priv->direct_vlan_members[vid])
+		goto out;
 	if (add && dsa_is_user_port(ds, port) && priv->bridge_vlan_filtering[port]) {
 		/* A CPU frame carries only VID, not a bridge identifier. */
 		dsa_switch_for_each_user_port(other, ds) {

@@ -1371,6 +1371,9 @@ struct yt921x_priv {
 	u16 bridge_pvid[YT921X_PORT_NUM];
 	u16 bridge_vlan_members[4096];
 	u16 bridge_vlan_untagged[4096];
+	/* Direct 802.1Q upper ownership; members holds one user-port bit. */
+	u16 direct_vlan_members[4096];
+	u16 direct_vlan_count[YT921X_PORT_NUM];
 	int primary_cpu_port;
 	int secondary_cpu_port;
 	u8 cycle_ns;

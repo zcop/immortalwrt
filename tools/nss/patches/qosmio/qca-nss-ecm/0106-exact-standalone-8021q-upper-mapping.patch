@@ -1,0 +1,179 @@
+Resolve registered standalone YT921x802.1Q uppers without guessing a leaf.
+
+Keep the base standalone leaf explicit when other customer leaves exist.
+Reject stale, bridged, stacked, S-tagged and unrelated VLAN hierarchies.
+
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -25,6 +25,7 @@
+ #include <linux/if_vlan.h>
+ #if IS_ENABLED(CONFIG_NET_DSA)
+ #include <linux/dsa/8021q.h>
++#include <linux/dsa/yt921x_qinq.h>
+ #include <net/dsa.h>
+ #endif
+ 
+@@ -72,7 +73,7 @@
+ 	struct ecm_db_iface_instance *ifaces[], int first,
+ 	struct ecm_nss_qinq_side *side)
+ {
+-	struct net_device *port = NULL, *dev, *br, *conduit;
++	struct net_device *port = NULL, *direct = NULL, *dev, *br, *conduit;
+ 	struct bridge_vlan_info vinfo;
+ 	struct dsa_port *dp;
+ 	int (*resolve)(struct net_device *, u16, u16 *);
+@@ -87,9 +88,13 @@
+ 			goto out;
+ 		}
+ 		if (ecm_nss_qinq_is_upper(dev)) {
+-			dev_put(dev);
+-			ret = -EOPNOTSUPP;
+-			goto out;
++			if (direct || vlan_dev_vlan_proto(dev) != htons(ETH_P_8021Q)) {
++				dev_put(dev);
++				ret = -EOPNOTSUPP;
++				goto out;
++			}
++			direct = dev;
++			continue;
+ 		}
+ 		if (!ecm_nss_qinq_is_port(dev)) {
+ 			dev_put(dev);
+@@ -102,12 +107,12 @@
+ 		}
+ 		port = dev;
+ 	}
+-	if (!port)
+-		return 0;
+-
+-	/* This first native mapping supports plain routed Ethernet/bridge/VLAN
+-	 * hierarchies. Do not mistake a PPP/tunnel next hop for the QinQ leaf.
+-	 */
++	if (!port) {
++		ret = direct ? -EOPNOTSUPP : 0;
++		goto out;
++	}
++
++	/* Only plain routed Ethernet/bridge/one-customer-VLAN hierarchies. */
+ 	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+ 		ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
+ 
+@@ -131,7 +136,16 @@
+ 	conduit = dp->cpu_dp->conduit;
+ 	svid = dsa_tag_8021q_standalone_vid(dp);
+ 	br = dsa_port_bridge_dev_get(dp);
+-	if (!br) {
++	if (direct) {
++		cvid = vlan_dev_vlan_id(direct);
++		if (vlan_dev_real_dev(direct) != port ||
++		    netdev_master_upper_dev_get_rcu(direct) ||
++		    !dsa_yt921x_qinq_direct_vid_valid(dp, cvid)) {
++			ret = -EOPNOTSUPP;
++			goto unlock;
++		}
++	} else if (!br) {
++		/* Explicit base leaf remains correct when direct uppers also exist. */
+ 		cvid = svid;
+ 	} else if (!br_vlan_enabled(br)) {
+ 		int bridge_num = dsa_port_bridge_num_get(dp);
+@@ -141,46 +155,50 @@
+ 			goto unlock;
+ 		}
+ 		cvid = dsa_tag_8021q_bridge_vid(bridge_num);
+-	} else {
+-		/* A VLAN upper of this bridge gives the exact side-specific VID.
+-		 * Otherwise require one current bridge-port VLAN, not merely one
+-		 * cached firmware leaf that might precede a topology resync.
+-		 */
+-		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+-			dev = dev_get_by_index(&init_net, ecm_db_iface_interface_identifier_get(ifaces[i]));
+-			if (!dev) {
+-				ret = -ENODEV;
++	}
++
++	/* Every customer VLAN in the hierarchy must be the exact direct upper
++	 * or one upper of the VLAN-aware bridge. Reject stacked/unrelated tags.
++	 */
++	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++		if (ecm_db_iface_type_get(ifaces[i]) != ECM_DB_IFACE_TYPE_VLAN)
++			continue;
++		dev = dev_get_by_index(&init_net, ecm_db_iface_interface_identifier_get(ifaces[i]));
++		if (!dev) {
++			ret = -ENODEV;
++			goto unlock;
++		}
++		if (!is_vlan_dev(dev) || vlan_dev_vlan_proto(dev) != htons(ETH_P_8021Q) ||
++		    (direct ? dev != direct :
++		     (!br || !br_vlan_enabled(br) || vlan_dev_real_dev(dev) != br))) {
++			dev_put(dev);
++			ret = -EOPNOTSUPP;
++			goto unlock;
++		}
++		if (cvid && cvid != vlan_dev_vlan_id(dev)) {
++			dev_put(dev);
++			ret = -EOPNOTSUPP;
++			goto unlock;
++		}
++		cvid = vlan_dev_vlan_id(dev);
++		dev_put(dev);
++	}
++	if (br && br_vlan_enabled(br) && !cvid) {
++		u16 vid;
++
++		/* Rule setup only: require one CURRENT bridge-port VLAN. */
++		for (vid = 1; vid < VLAN_VID_MASK; vid++) {
++			if (br_vlan_get_info_rcu(port, vid, &vinfo))
++				continue;
++			if (cvid) {
++				ret = -EOPNOTSUPP;
+ 				goto unlock;
+ 			}
+-			if (is_vlan_dev(dev)) {
+-				u16 vid = vlan_dev_vlan_id(dev);
+-
+-				if (vlan_dev_real_dev(dev) != br || (cvid && cvid != vid)) {
+-					dev_put(dev);
+-					ret = -EOPNOTSUPP;
+-					goto unlock;
+-				}
+-				cvid = vid;
+-			}
+-			dev_put(dev);
++			cvid = vid;
+ 		}
+ 		if (!cvid) {
+-			u16 vid;
+-
+-			/* Rule setup only; this bounded scan is not per packet. */
+-			for (vid = 1; vid < VLAN_VID_MASK; vid++) {
+-				if (br_vlan_get_info_rcu(port, vid, &vinfo))
+-					continue;
+-				if (cvid) {
+-					ret = -EOPNOTSUPP;
+-					goto unlock;
+-				}
+-				cvid = vid;
+-			}
+-			if (!cvid) {
+-				ret = -ENOENT;
+-				goto unlock;
+-			}
++			ret = -ENOENT;
++			goto unlock;
+ 		}
+ 	}
+ 	side->physical = nss_cmn_get_interface_number_by_dev(conduit);
+@@ -209,10 +227,13 @@
+ unlock:
+ 	rcu_read_unlock();
+ out:
++	if (direct)
++		dev_put(direct);
+ 	if (port)
+ 		dev_put(port);
+ 	return ret;
+ }
++
+ #else
+ bool ecm_nss_qinq_is_port(struct net_device *dev) { return false; }
+ bool ecm_nss_qinq_is_upper(struct net_device *dev) { return false; }

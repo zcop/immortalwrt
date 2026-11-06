@@ -74,7 +74,7 @@ struct dsa_port {
     int stp_state;
     unsigned int bridge_num;
 };
-struct vlan_cfg { int enabled, pvid_fail, member_count; u16 pvid; u16 members[4]; };
+struct vlan_cfg { int enabled, pvid_fail, member_count; u16 pvid; u16 members[4]; u16 direct_vid; };
 struct net_device { struct dsa_port *dsa_ptr; struct vlan_cfg cfg; };
 struct ethhdr { u8 h_dest[6], h_source[6]; __be16 h_proto; } __attribute__((packed));
 struct vlan_ethhdr { u8 h_dest[6], h_source[6]; __be16 h_vlan_proto, h_vlan_TCI, h_vlan_encapsulated_proto; } __attribute__((packed));
@@ -113,6 +113,10 @@ static unsigned int dsa_port_bridge_num_get(const struct dsa_port *dp) { return 
 static bool dsa_yt921x_qinq_customer_vid_valid(struct dsa_switch *ds, u16 vid) {
     (void)ds;
     return vid == 100 || vid == 200;
+}
+
+static bool dsa_yt921x_qinq_direct_vid_valid(struct dsa_port *dp, u16 vid) {
+    return dp->user->cfg.direct_vid && dp->user->cfg.direct_vid == vid;
 }
 
 static struct dsa_switch ds0, ds1;
@@ -295,6 +299,17 @@ static void test_rx_vlan(void) {
     }
 }
 
+static void test_direct_rx(void) {
+    wan_user.cfg.direct_vid = 35;
+    check_rx("direct RX retains customer tag", yt921x_qinq_rx_vlan(&wan_dp, NULL, 35, false, false), 0);
+    check_rx("direct control retains customer tag", yt921x_qinq_rx_vlan(&wan_dp, NULL, 35, true, true), 0);
+    check_rx("direct wrong VID rejected", yt921x_qinq_rx_vlan(&wan_dp, NULL, 36, false, false), -1);
+    check_rx("direct membership cannot admit unaware bridge", yt921x_qinq_rx_vlan(&wan_dp, &br_off, 35, false, false), -1);
+    wan_user.cfg.direct_vid = 0;
+    check_rx("unregistered direct RX rejected", yt921x_qinq_rx_vlan(&wan_dp, NULL, 35, false, false), -1);
+    check_rx("base standalone remains stripped", yt921x_qinq_rx_vlan(&wan_dp, NULL, 0xc03, false, false), 1);
+}
+
 int main(void) {
     setup();
     test_control_cpu();
@@ -302,6 +317,7 @@ int main(void) {
     test_find_dp();
     test_internal_vid();
     test_rx_vlan();
+    test_direct_rx();
     printf("PASS %d FAIL %d\n", passed, failed);
     return failed != 0;
 }

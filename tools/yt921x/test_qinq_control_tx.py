@@ -119,6 +119,7 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint16_t __be16;
 
+#define NETIF_F_HW_VLAN_CTAG_FILTER 1U
 #define ETH_ALEN 6
 #define ETH_HLEN 14
 #define VLAN_HLEN 4
@@ -172,6 +173,10 @@ struct dsa_switch {
 
 struct net_device {
 	int dummy;
+	u32 features;
+	bool bridge_port, lag_port;
+	struct net_device *direct_upper, *direct_real;
+	u16 direct_vid;
 };
 
 struct dsa_port {
@@ -242,6 +247,8 @@ static void reset_fakes(void)
 	fake_standalone_vid = 3004;
 	fake_pvid = 0;
 	fake_tc = 0;
+	memset(&test_netdev, 0, sizeof(test_netdev));
+	test_netdev.features = NETIF_F_HW_VLAN_CTAG_FILTER;
 
 	memset(&test_dp, 0, sizeof(test_dp));
 	test_dp.index = 0;
@@ -393,6 +400,16 @@ dsa_yt921x_qinq_customer_vid_valid(struct dsa_switch *ds, u16 vid)
 	(void)vid;
 	return true;
 }
+
+static inline bool netif_is_bridge_port(struct net_device *d) { return d->bridge_port; }
+static inline bool netif_is_lag_port(struct net_device *d) { return d->lag_port; }
+static inline struct net_device *__vlan_find_dev_deep_rcu(struct net_device *d, __be16 proto, u16 vid) {
+	return proto == htons(ETH_P_8021Q) && d->direct_upper &&
+	       d->direct_upper->direct_vid == vid ? d->direct_upper : NULL;
+}
+static inline struct net_device *vlan_dev_real_dev(struct net_device *d) { return d->direct_real; }
+
+@@DIRECT_HELPER@@
 
 static inline int br_vlan_get_info_rcu(struct net_device *dev, u16 vid,
 				       struct bridge_vlan_info *vinfo)
@@ -947,6 +964,51 @@ static void test_error_paths(void)
 	skb_free(skb);
 }
 
+static void test_direct_customer_vlan(void)
+{
+	unsigned char frame[80];
+	struct net_device upper = { .direct_vid = 35, .direct_real = &test_netdev };
+	struct sk_buff *skb;
+	reset_fakes();
+	test_netdev.direct_upper = &upper;
+	memset(frame, 0, sizeof(frame));
+	memcpy(frame, unicast, 12);
+	frame[12] = 0x81; frame[13] = 0;
+	frame[14] = 0; frame[15] = 35;
+	frame[16] = 0x08; frame[17] = 0;
+	skb = new_skb(frame, sizeof(frame), 32);
+	CHECK(yt921x_qinq_xmit(skb, &test_netdev) == skb, "direct_registered_upper_TX");
+	CHECK(((u16)skb->data[12] << 8 | skb->data[13]) == ETH_P_8021AD &&
+	      ((u16)skb->data[14] << 8 | skb->data[15]) == fake_standalone_vid &&
+	      ((u16)skb->data[16] << 8 | skb->data[17]) == ETH_P_8021Q &&
+	      ((u16)skb->data[18] << 8 | skb->data[19]) == 35, "direct_exact_port_and_customer_tags");
+	skb_free(skb);
+	reset_fakes();
+	skb = new_skb(frame, sizeof(frame), 32);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev), "direct_unregistered_upper_drops");
+	skb_free(skb);
+	reset_fakes();test_netdev.direct_upper = &upper;upper.direct_vid = 36;
+	skb = new_skb(frame, sizeof(frame), 32);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev), "direct_wrong_vid_drops");
+	skb_free(skb);upper.direct_vid = 35;
+	reset_fakes();test_netdev.direct_upper = &upper;test_netdev.bridge_port = true;
+	skb = new_skb(frame, sizeof(frame), 32);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev), "direct_software_bridge_rejected");
+	skb_free(skb);
+	reset_fakes();test_netdev.direct_upper = &upper;test_netdev.lag_port = true;
+	skb = new_skb(frame, sizeof(frame), 32);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev), "direct_lag_rejected");
+	skb_free(skb);
+	reset_fakes();test_netdev.direct_upper = &upper;upper.direct_real = &upper;
+	skb = new_skb(frame, sizeof(frame), 32);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev), "direct_wrong_real_device_rejected");
+	skb_free(skb);upper.direct_real = &test_netdev;
+	reset_fakes();test_netdev.direct_upper = &upper;test_netdev.features = 0;
+	skb = new_skb(frame, sizeof(frame), 32);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev), "direct_without_hardware_VLAN_hook_rejected");
+	skb_free(skb);
+}
+
 int main(void)
 {
 	test_control_predicate();
@@ -955,6 +1017,7 @@ int main(void)
 	test_ordinary_data();
 	test_error_paths();
 	test_control_conduit();
+	test_direct_customer_vlan();
 
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
@@ -983,6 +1046,8 @@ def main() -> int:
 
     harness = HARNESS.replace("@@MACROS@@", macros)
     harness = harness.replace("@@FUNCTIONS@@", "\n\n".join(bodies))
+    shared = (SOURCE.parents[2] / "include/linux/dsa/yt921x_qinq.h").read_text()
+    harness = harness.replace("@@DIRECT_HELPER@@", extract_function(shared, "dsa_yt921x_qinq_direct_vid_valid"))
 
     cc = shlex.split(os.environ.get("CC", "cc"))
     with tempfile.TemporaryDirectory(prefix="yt921x-qinq-test-") as tmp:

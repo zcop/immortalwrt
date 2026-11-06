@@ -12,7 +12,8 @@
  * The inner C-tag is the payload VLAN. In a VLAN-aware bridge it is the
  * customer tag, or the port PVID for untagged traffic. On standalone and
  * VLAN-unaware bridge ports it is the internal transport VLAN and is stripped
- * before the frame reaches Linux.
+ * before the frame reaches Linux. A registered standalone 802.1Q upper uses
+ * its own customer VID instead; its C-tag is retained for Linux VLAN demux.
  *
  * Link-local control exception (DA 01:80:c2:00:00:00..0f):
  *   DA | SA | 9988 | 0000 | code/prio | tx port | [8100 | C-TCI] | ethertype
@@ -190,7 +191,12 @@ static int yt921x_qinq_rx_vlan(struct dsa_port *dp, struct net_device *br,
 	if (control && control_cpu && vid == VLAN_VID_MASK)
 		return 1;
 
-	if (!br || !br_vlan_enabled(br))
+	if (!br) {
+		if (yt921x_qinq_internal_vid(dp, br, vid))
+			return 1;
+		return dsa_yt921x_qinq_direct_vid_valid(dp, vid) ? 0 : -EINVAL;
+	}
+	if (!br_vlan_enabled(br))
 		return yt921x_qinq_internal_vid(dp, br, vid) ? 1 : -EINVAL;
 
 	if (control && br_vlan_get_pvid_rcu(dp->user, &pvid))
@@ -438,17 +444,19 @@ static struct sk_buff *yt921x_qinq_xmit(struct sk_buff *skb,
 
 		inner_vid = ntohs(veh->h_vlan_TCI) & VLAN_VID_MASK;
 
-		/* Tagged traffic on standalone or unaware bridge ports is
-		 * deliberately unsupported at this stage.
-		 */
-		if (!vlan_aware)
-			return NULL;
-
 		if (!dsa_yt921x_qinq_customer_vid_valid(dp->ds, inner_vid))
 			return NULL;
 
-		if (br_vlan_get_info_rcu(dp->user, inner_vid, &vinfo))
+		if (vlan_aware) {
+			if (br_vlan_get_info_rcu(dp->user, inner_vid, &vinfo))
+				return NULL;
+		} else if (br ||
+			   !dsa_yt921x_qinq_direct_vid_valid(dp, inner_vid)) {
+			/* Unaware tagged bridges stay unsupported. Standalone tags
+			 * require the exact registered customer VLAN upper.
+			 */
 			return NULL;
+		}
 	} else {
 		if (yt921x_qinq_is_vlan_tpid(veh->h_vlan_proto))
 			return NULL;

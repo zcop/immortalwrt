@@ -523,6 +523,10 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 	ds->num_tx_queues = YT921X_PRIO_NUM;
 	priv->tag_8021q = experimental_8021q || experimental_qinq;
 	priv->qinq = experimental_qinq;
+	/* QinQ keeps ingress VLAN filtering active on standalone ports.
+	 * Enable the kernel's VLAN callbacks before creating user netdevs.
+	 */
+	ds->needs_standalone_vlan_filtering = priv->qinq;
 
 	mdiodev_set_drvdata(mdiodev, priv);
 

@@ -342,7 +342,8 @@ int yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid);
 int yt921x_8021q_port_enter(struct yt921x_priv *priv, int port);
 int yt921x_8021q_standalone(struct yt921x_priv *priv, int port);
 void yt921x_8021q_fault(struct yt921x_priv *priv, int port);
-int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable);
+int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable,
+			   struct netlink_ext_ack *extack);
 int yt921x_8021q_bridge_vlan(struct yt921x_priv *priv, int port,
 		const struct switchdev_obj_port_vlan *vlan, bool add,
 		struct netlink_ext_ack *extack);

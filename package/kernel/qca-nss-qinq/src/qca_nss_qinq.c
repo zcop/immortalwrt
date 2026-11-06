@@ -330,9 +330,8 @@ static bool dsa_nss_want_add(struct dsa_nss_want *want, int *n, int max,
 /*
  * Port-ID mode: the outer tag is the physical port's standalone VID, so
  * every port gets its own root, and the leaf VIDs are the ones the QinQ
- * tagger puts inside. A VLAN upper has no wire path in this transport (the
- * tagger refuses tagged frames outside a VLAN-aware bridge), so uppers are
- * skipped.
+ * tagger puts inside. A registered standalone 802.1Q upper adds its own
+ * customer leaf, alongside the base port's untagged standalone leaf.
  */
 static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 {
@@ -347,8 +346,19 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 		u16 svid;
 
 		dp = dsa_nss_port_of(dev, &upper);
-		if (!dp || upper)
+		if (!dp)
 			continue;
+		if (upper) {
+			bool valid;
+
+			rcu_read_lock();
+			valid = vlan_dev_vlan_proto(dev) == htons(ETH_P_8021Q) &&
+				!netdev_master_upper_dev_get_rcu(dev) &&
+				dsa_yt921x_qinq_direct_vid_valid(dp, vlan_dev_vlan_id(dev));
+			rcu_read_unlock();
+			if (!valid)
+				continue;
+		}
 
 		conduit = dp->cpu_dp->conduit;
 		phys_if = nss_cmn_get_interface_number_by_dev(conduit);
@@ -358,8 +368,14 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 		}	/* conduit not armed as a firmware port */
 
 		svid = dsa_tag_8021q_standalone_vid(dp);
-		if (!dsa_nss_want_add(want, &n, max, svid, 0, phys_if, dev))
+		if (!dsa_nss_want_add(want, &n, max, svid, 0, phys_if, dp->user))
 			return n;
+		if (upper) {
+			if (!dsa_nss_want_add(want, &n, max, svid,
+					      vlan_dev_vlan_id(dev), phys_if, dev))
+				return n;
+			continue;
+		}
 
 		if (dp->bridge &&
 		    br_vlan_enabled(dsa_port_bridge_dev_get(dp))) {
