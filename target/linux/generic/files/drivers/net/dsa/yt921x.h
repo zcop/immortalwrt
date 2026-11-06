@@ -456,18 +456,20 @@ struct yt921x_priv;
 #define  YT921X_STORM_CONFIG_EN		BIT(0)
 
 /* Stock table-id 0xa3 (RMA control), reverse-mapped from yt_switch.ko.
- * Kept for header parity; not wired into active DSA path yet.
+ * Bit 9 is DROP, bit 8 is COPY_TO_CPU, and bits 5:0 carry the CPU
+ * reason code. TRAP/COPY select63; FORWARD/DROP preserve the prior code.
  */
 #define YT921X_RMA_CTRLn(n)		(0x1805d0 + 4 * (n))
 #define  YT921X_RMA_CTRL_F0		BIT(12)
 #define  YT921X_RMA_CTRL_F1		BIT(11)
 #define  YT921X_RMA_CTRL_F2		BIT(10)
-#define  YT921X_RMA_CTRL_F3		BIT(9)		/* action bit 1 (field3) */
-#define  YT921X_RMA_CTRL_F4		BIT(8)		/* action bit 0 (field4) */
+#define  YT921X_RMA_CTRL_F3		BIT(9)		/* DROP (field3) */
+#define  YT921X_RMA_CTRL_F4		BIT(8)		/* COPY_TO_CPU (field4) */
 #define  YT921X_RMA_CTRL_F5		BIT(7)		/* bypass vlan filter (field5) */
 #define  YT921X_RMA_CTRL_F6		BIT(6)		/* bypass port isolation (field6) */
-#define  YT921X_RMA_CTRL_FWD_MASK_M	GENMASK(5, 0)	/* forward/copy portmask (field7) */
-#define   YT921X_RMA_CTRL_FWD_MASK_ALL	YT921X_RMA_CTRL_FWD_MASK_M
+#define  YT921X_RMA_CTRL_CPU_CODE_M	GENMASK(5, 0)	/* CPU reason code (field7) */
+#define   YT921X_RMA_CTRL_CPU_CODE(x)	FIELD_PREP(YT921X_RMA_CTRL_CPU_CODE_M, (x))
+#define  YT921X_RMA_CTRL_CPU_CODE_DEFAULT	0x3f
 
 /* Additional stock table bases (reverse-mapped from yt_switch.ko).
  * These are kept for header parity and further reverse-engineering.

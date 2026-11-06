@@ -1671,29 +1671,34 @@ int yt921x_loop_detect_setup_locked(struct yt921x_priv *priv)
 static int yt921x_rma_ctrl_action_set(u32 *ctrl,
 					    enum yt921x_rma_action action)
 {
-	*ctrl &= ~(YT921X_RMA_CTRL_F3 |
-		   YT921X_RMA_CTRL_F4 |
-		   YT921X_RMA_CTRL_FWD_MASK_M);
+	u32 val = *ctrl & ~(YT921X_RMA_CTRL_F3 | YT921X_RMA_CTRL_F4);
 
 	switch (action) {
 	case YT921X_RMA_ACT_FORWARD:
-		*ctrl |= YT921X_RMA_CTRL_FWD_MASK_ALL;
 		break;
 	case YT921X_RMA_ACT_TRAP_TO_CPU:
-		*ctrl |= YT921X_RMA_CTRL_F3 |
-			 YT921X_RMA_CTRL_F4;
+		val |= YT921X_RMA_CTRL_F3 | YT921X_RMA_CTRL_F4;
 		break;
 	case YT921X_RMA_ACT_COPY_TO_CPU:
-		*ctrl |= YT921X_RMA_CTRL_F4 |
-			 YT921X_RMA_CTRL_FWD_MASK_ALL;
+		val |= YT921X_RMA_CTRL_F4;
 		break;
 	case YT921X_RMA_ACT_DROP:
-		*ctrl |= YT921X_RMA_CTRL_F3;
+		val |= YT921X_RMA_CTRL_F3;
 		break;
 	default:
 		return -EINVAL;
 	}
 
+	/* CR881x stock fal_tiger_rma_action_set assigns field7=63 for
+	 * TRAP/COPY; FORWARD and DROP leave the prior reason code intact.
+	 */
+	if (action == YT921X_RMA_ACT_TRAP_TO_CPU ||
+	    action == YT921X_RMA_ACT_COPY_TO_CPU) {
+		val &= ~YT921X_RMA_CTRL_CPU_CODE_M;
+		val |= YT921X_RMA_CTRL_CPU_CODE(YT921X_RMA_CTRL_CPU_CODE_DEFAULT);
+	}
+
+	*ctrl = val;
 	return 0;
 }
 
