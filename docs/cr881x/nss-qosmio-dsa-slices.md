@@ -174,7 +174,7 @@ firmware counters did not establish UDP acceleration; no such claim is made.
 Evidence for Slice04: original ignored `logs/nss-slices-20261105/slice04/`.
 
 
-## Physical-loop gate: not accepted; protection state needs separation
+## Physical-loop attempts before build13: not accepted
 
 A spare cable joined LAN1 andLAN2 in a dedicated VLAN-unaware STP bridge;
 LAN3 management and WAN were outside it. Both ports reached listening/learning,
@@ -281,8 +281,278 @@ two-second foreground restore and independent five-second fallback completed
 with protection en1 throughout. See bpdu-cpu-target-results.json in the same log
 directory. No physical loop or firmware change was involved.
 
-Source review also identified a separate RMA mapping error: vendor bits5:0 are
-CPU_CODE, while the current driver calls them FWD_MASK and overwrites them in
-both action helpers. The vendor action API preserves these bits. This is a
-source-backed correction candidate, not an established cause of BPDU loss;
-no guessed CPU reason code or permanent RMA change was applied in this run.
+Source review also identified a separate RMA mapping error: bits5:0 are
+CPU_CODE, while the driver called them FWD_MASK. The newer RB SDK preserves
+these bits for every action, but that behavior must not be substituted for the
+target stock ABI. The target-module check below supersedes that initial proposal.
+
+## Slice 08: RMA ABI and BPDU transport
+
+The stock YT9215S module was extracted alone from the saved squashfs and its
+`fal_tiger_rma_action_set/get` disassembled. Its SHA256 is
+`90ae5c0dd6eb2fa5b66b91d391f02a1fa7b6095bff698b7569f4fdfd4929bb93`.
+Unlike the newer RB source, target stock sets CPU_CODE to63 for TRAP/COPY,
+and preserves the prior code for FORWARD/DROP. The correction in both Linux
+API helpers now follows that target behavior. Invalid actions leave the input
+unchanged; bypass flags and unrelated bits survive. The actual-C harness covers
+all64 prior codes, existing action bits, both helpers, wrapper read/write
+failures, bypass changes and invalid inputs. It and the existing transport test
+pass; kernel compilation also passes. At that stage the correction was not installed; it is included in build12
+below. It is not established as the cause of the BPDU transport fault.
+
+No-loop tests on running build11 narrowed the fault further:
+
+| Test | Result |
+| --- | --- |
+| Enable external CPU port8 without proprietary RX tagging (`0x8000c=0x4008`) | Marked inferior BPDUs reach eth1 with SVID3074/CVID3088 and decode to LAN3; the original disabled CPU block delivered none |
+| Host BPDU TX through ordinary QinQ | Seen on eth1-out; returns on eth1-in while CPU mode is enabled, with no BPDU seen on the workstation wire |
+| Hardware ingress mirror of CPU8 to LAN3 | Host sees a router BPDU: NSS does physically transmit it to the switch |
+| Padding comparison: CPU frames60/68/128bytes | No group-address BPDU exits; the identical LLC payload with unicast DA passes at every size. Padding is not the cause |
+| RMA FORWARD/TRAP/DROP encodings, VLAN-edit bypass, ACL control-bypass bit/full-block commits | None establishes working group BPDU TX; these temporary settings are not source fixes |
+| Hardware loop detector temporarily disabled with no loop cable | Same failure; exact guard value restored by2-second foreground/five-second independent watchdog |
+| Existing eight-byte CPU forwarding tag for control TX | With external CPU mode enabled and TAG_EN clear, all9 marked BPDUs (three each at60/68/128bytes) reach physical LAN3, with the private header removed; unicast controls also pass |
+| Native routed NSS with that CPU mode enabled |936.69Mbps forward /936.60Mbps reverse,98.56/98.40% idle, two active ECM connections,587724/585752 firmware IPv4 TX increments; baseline936.50Mbps |
+
+The working control-TX frame is
+`DA | SA | 9988 | 0000 | 0080 | 8004 | original length/EtherType | payload`
+for LAN3 (hardware port2). Linux inserts the eight-byte switch command and the
+switch removes it on egress. This is a host control-packet exception, not an
+NSS flow using the proprietary tag. Ordinary accelerated data retains QinQ.
+These raw-register tests preceded the build12 installation recorded below.
+
+All register experiments restore the saved mode, RMA, mirror and steering state.
+Loop protection remains enabled except the explicitly bounded no-loop control
+above. LAN1/LAN2 are back up without carrier, the spare loop cable is removed,
+and management stayed on LAN3. Configuration hashes and boot identity are
+unchanged. The raw injection probes establish the candidate transport; they do
+not establish automatic kernel BPDU TX, STP convergence, VLAN-aware blocked-port
+BPDU reception or WAN control reception across the two CPU conduits.
+
+Evidence: original ignored `logs/nss-slices-20261105/slice08-rma/`, especially
+`cpu-padding-trace/`, `cpu-proprietary-retry-trace/` and `cpu-enabled-nss/`.
+An external stock ACL review returned unsupported field-to-action inferences;
+those were not accepted as register or source changes. The bounded TX framing draft was delegated; primary integration added the
+required secondary-conduit dispatch and corrected the test scaffolding before
+acceptance, as recorded below.
+
+
+### Build12: installed control TX exception, 2026-11-06
+
+The tagger uses the proprietary eight-byte forwarding command only for
+01:80:c2:00:00:00..0f host control TX. Data keeps its existing QinQ framing and
+NSS resolution. QinQ CPU setup now enables external CPU8 without TAG_EN, on
+both CPU-port setup paths. Single-tag mode retains its earlier configuration.
+Both RMA API helpers use the verified target-stock CPU_CODE semantics above.
+
+Hardware tests also showed that the forwarding command does not work through
+CPU4. WAN control TX therefore clones the original skb and sends the framed
+clone through CPU8 with the exact WAN destination mask. The normal DSA caller
+still releases its original skb. Primary-conduit control TX follows normal DSA
+enqueue; data is never redirected. The driver already restricts this transport
+to the CR881x CPU8/CPU4 mapping. One existing customer C-tag is preserved;
+stacked/unsupported control tags are rejected.
+
+The helper's initial harness omitted substitution markers/a mock constant and
+modeled DSA tags as a prepend ahead of DA/SA. Those results were not accepted.
+The primary corrected the mocks and expected wire layout, added actual callback
+coverage of primary/secondary dispatch, unchanged data forwarding, allocation
+failure and clone cleanup. All112 actual-C checks pass with address/undefined
+behavior sanitizers, including LeakSanitizer outside the sandbox (its ptrace
+restriction prevented the sandboxed run). RMA/transport/actual ECM resolver
+checks and the complete firmware build pass. The initial ECM integration check
+ran while its prepared-package fixture was absent during the full build; its
+post-build rerun passed.
+
+Build12 sysupgrade SHA256:
+`1f2a05c4dbfcc33c2fea5b819387e21c10c4031b6499f13b977da721596075e2`.
+It was installed once in slot1/mtd19. The checked, unchanged build11 remains
+in slot0/mtd18, with a verified private full-slot backup and configuration
+archive. Boot ID: `ee2f991c-a3bd-4fb7-8531-43e9c0a2601c`.
+The final read-only check shows STP enabled, LAN3/WAN up, LAN1/LAN2 up
+without carrier, CPU links2500/1000Mbps, and no UCI changes.
+Six installed modules match the candidate image; all five critical prepared
+kernel source files matched the frozen source manifest. Configuration hashes
+are preserved, UCI changes are empty, and eight QinQ nodes start automatically.
+
+| Installed build12 check | Result |
+| --- | --- |
+| Marked host BPDUs injected through lan3, allowing the actual DSA tagger to frame them |9/9 at physical LAN3; CPU8 capture shows9988/0000/0080/8004; private header removed before host wire |
+| Marked host BPDUs injected through wan |9/9 observed by WAN hardware egress mirror; CPU8 shows9988/0000/0080/8008; zero group control packets on CPU4 |
+| External LAN3 BPDUs decoded to Linux during those runs |24 and23 seen on lan3-in;24 ARP replies in each run |
+| Passive capture of actual bridge-generated BPDUs, without probe injection |3 untagged BPDUs in6.5seconds, at2.00/2.08second intervals; automatic STP TX works |
+| Fresh routed NSS forward |936.66Mbps,98.31% CPU idle,761034 firmware IPv4 TX increment, two active ECM connections |
+| Fresh routed NSS reverse |936.38Mbps,98.67% CPU idle,755933 firmware IPv4 TX increment, two active ECM connections |
+| Protection and restoration |Loop detector enabled throughout; WAN egress mirror returned to0; persistent configuration unchanged |
+
+These are packet tests through the installed DSA callback, not a physical-loop
+STP convergence test. WAN egress is proven by the switch's egress mirror; no
+Windows packet capture is claimed. WAN ingress control copies across CPU
+conduits, VLAN-aware listening/blocking BPDU reception, and physical-loop
+convergence remain open. The RX tagger has not been changed in this slice.
+No new source commit, push or release was made.
+
+Evidence: original ignored `logs/nss-slices-20261105/slice08-rma/build12-accept/`,
+`build12-artifacts.json`, the once-only upgrade records, and active-worktree
+`logs/qosmio-native/build-12-control-{kernel,image}.log`.
+
+
+### Build13: control RX and safe checkpoint, 2026-11-06
+
+Build12 physical LAN1-to-WAN probes exposed two RX requirements: RMA control
+copies from either user port reach CPU8 with their exact outer source-port VID,
+but an inner private unaware VID4095. The old RX policy rejected them. Ordinary
+unicast still followed its natural CPU conduit and decoded normally. A separate
+RMA VLAN-leaky-bit experiment lacked its ordinary-data positive control in one
+direction and is inconclusive; no source change is based on it.
+
+The RX tagger now permits this CPU8 exception only for recognized destination
+and protocol pairs: LLC42:42:03 BPDUs, slow protocols, EAPOL, and LLDP. The exact
+outer switch/port VID remains mandatory, and CPU8 must belong to the same
+switch. A destination MAC alone cannot admit IPv4, wrong LLC, PAUSE, or other
+ordinary traffic. Recognized control can discard the private CVID4095, reach
+its correct Linux user port across the CPU conduits, and bypass the ordinary
+LEARNING/FORWARDING state requirement. Native PVID control tags are removed;
+admitted non-PVID customer tags are retained. Ordinary data retains the
+existing conduit, VLAN-membership and STP-state checks. This adds no ACL rules.
+
+A bounded helper drafted the RX decision harness; primary review corrected its
+endianness, DSA VID namespace and protocol-negative coverage. All74 actual-C RX
+decision checks pass with address/undefined/leak sanitizers, and the112 TX
+regressions pass. Kernel and full image builds pass. These harnesses do not
+replace the installed callback and physical packet checks below.
+
+Build13 sysupgrade SHA256:
+`e8d4c9d49492b90f988863c9425efcd61af41477cbd50159e72a3c554f13c954`.
+Installed once in slot0/mtd18; build12 remains in slot1/mtd19 with a verified
+private full-slot backup. Six installed modules match the image and the five
+critical prepared kernel files match the frozen source manifest. Boot ID:
+`f67f834d-a9d3-488f-b547-1e77c60ab3db`.
+
+| Installed build13 check | Result |
+| --- | --- |
+| Normal routed NSS before physical probes |936.57Mbps forward /936.29Mbps reverse,98.56/98.91% CPU idle;780811/755933 firmware IPv4 TX increments, two ECM connections |
+| Standalone physical LAN1-to-WAN and reverse |BPDU, slow and EAPOL3/3 each reach the correct child in both directions; ordinary unicast3/3 each also passes |
+| Protocol-negative probes |BPDU destination with IPv4 or wrong LLC is seen on CPU8 but never admitted as control on the child |
+| VLAN-aware LAN1, PVID100, forwarding |Controls delivered untagged; ordinary data retains customer VID100 |
+| VLAN-aware LAN1, PVID100, LISTENING |Controls3/3 each; ordinary data0; Linux root ID changes to the injected superior BPDU root |
+| VLAN-aware LAN1, no PVID, LISTENING |Controls3/3 each; ordinary data0; Linux root ID changes to the injected superior root |
+| VLAN-aware LAN1, non-PVID customer VID200, LISTENING |BPDU/slow/EAPOL3/3 each preserve C-tag200 on the child; CPU8 has outer3072/inner200; wrong-protocol controls with that same valid customer tag are rejected |
+| Safeguards |Loop protection disabled only for1.06–1.11seconds per short probe, then restored; independent five-second restore and port shutdown safeguards |
+
+The first listening attempt used15 timer ticks rather than1500 and had already
+advanced to LEARNING. It is not accepted as held-LISTENING evidence. The rerun
+reads back forward_delay1500, and state1 before and after injection. The tagged
+VID200 test proves preservation, not tagged BPDU consumption by kernel STP;
+root-learning proof is from the native and no-PVID tests. LLDP was absent even
+on the parent in the before/after physical runs; its established hardware-path
+gap remains open. At this checkpoint, actual physical-loop STP convergence had not been tested.
+
+**Historical user-requested safe stop:** no physical-loop test had been started. The spare cable
+remains connected LAN1-to-WAN, Windows is disconnected from WAN, both test ports
+are administratively down and detached, and the temporary test bridge is gone.
+LAN3 management is reachable; loop protection reads0x03266624. No test jobs are
+running. Persistent network/wireless/firewall hashes are unchanged and UCI
+changes are empty. WAN service is intentionally down in this isolated test
+state. Do not bring these ports up, restore normal routing, or reboot until the
+spare cable is removed. On resume, either prepare the bounded isolated STP
+convergence test, or remove the spare cable, return Windows to WAN, restore
+LAN1 to br-lan, explicitly bring WAN up and restart its DHCP interface. Perform
+fresh routed NSS checks after normal restoration. No new commit, push or
+release was made; original reference files remain unchanged.
+
+Evidence: original ignored `logs/nss-slices-20261106/slice09-rx/`, especially
+`build12-physical-baseline-r2/`, `build13-physical-standalone/`,
+`build13-aware-{forward,listening-fd15,no-pvid,tagged}/`, `build13-accept/`,
+`build13-artifacts.json`, and `SAFE-CHECKPOINT.json`. Source/build logs are in
+the active worktree under `logs/qosmio-native/build-13-*`.
+
+
+### Build13 resumed: physical STP loop accepted at100Mbps
+
+The user confirmed the spare cable directly connected LAN1 to WAN, with Linux
+management on LAN3 and Windows disconnected. A guarded six-second link wait
+failed before STP could be tested. A standalone negotiation trace then showed
+repeated1Gbps link loss, eventually downshifting to100Mbps; the loop detector
+flag stayed0. This does not establish the cause of the PHY instability or prove
+that hardware loop protection cut the link. No driver change was based on it.
+
+For the control-plane acceptance, only LAN1/WAN advertised100Mbps full duplex
+with autonegotiation. The temporary change had independent recovery, and both
+ports' original advertised modes and pause settings were verified identical
+after restoration. The100Mbps standalone link stayed up for the final eight
+samples. No other user or CPU port changed its PHY configuration.
+
+A dedicated VLAN-aware bridge joined LAN1 and WAN in PVID100 with no management
+interface. Kernel STP ran with forward_delay1500 ticks (15seconds), hello100,
+max_age2000, and an explicit bridge MAC. Hardware loop protection stayed on for
+the complete test; no protection-off window was used. Independent initial and
+hard shutdowns bounded the test, and loss of the blocking role would immediately
+close both ports.
+
+| Physical loop check | Accepted result |
+| --- | --- |
+| Linux roles |WAN remained BLOCKING in all32 samples; LAN1 advanced LISTENING -> LEARNING -> FORWARDING |
+| Switch MST0 state |LAN1 hardware2 ->1 ->3; WAN remained hardware2 (blocked) |
+| Converged state |Four consecutive samples with Linux3/4 and hardware3/2, spanning3.08seconds after the normal STP timers |
+| Actual received bridge BPDUs |35 on CPU8/eth1:34 with source-port SVID3075 and one with SVID3072; both use private inner VID4095, and advertised bridge/port IDs match the test bridge |
+| Secondary CPU conduit |Zero test-bridge BPDUs on eth0, confirming the CPU8 RX exception is exercised |
+| Protection and load |Guard0x03266624 throughout; loop flag0; CPU96.26% idle over the bounded test |
+
+This closes the physical STP convergence gate at100Mbps for the tested
+VLAN-aware cross-conduit bridge. It does not establish stable1Gbps negotiation
+on this spare loop cable. Full-duplex1Gbps WAN negotiation recovered normally
+when Windows was returned to WAN. The cause of the spare-link1Gbps instability
+remains unconfirmed; no source fix or cable-fault diagnosis is claimed.
+
+Both test ports were shut down before removing the temporary bridge. The user
+removed the spare cable and returned Windows to WAN. LAN1 was restored to
+br-lan, the original PHY advertisements restored, and WAN explicitly brought up.
+DHCP Discover packets were observed on WAN/eth0 with no replies; Windows ICS
+restart then restored its DHCP lease. Persistent configuration hashes and UCI
+state stayed unchanged. Fresh routed NSS restoration results are recorded in
+the final acceptance note below.
+
+Evidence: original ignored `logs/nss-slices-20261106/slice09-rx/`, especially
+`build13-link-negotiation/`, `build13-link-negotiation-100m/`,
+`build13-100m-wrapper/`, `build13-stp-convergence-100m/acceptance.json`,
+`build13-stp-convergence-100m/packet-summary.json` and `build13-restored/`.
+
+
+#### Build13 final restored acceptance
+
+Windows ICS restart restored WAN DHCP at192.168.137.65/24. Final fresh routed
+NSS tests delivered936.49Mbps forward and936.64Mbps reverse, with99.03/98.31%
+CPU idle,760247/753765 firmware IPv4 TX increments and two active ECM
+connections in each run. Eight QinQ nodes are present, with zero allocation
+failures. WAN is1Gbps and the LAN CPU link remains2.5Gbps. Original loop guard,
+CPU mode, BPDU RMA and disabled mirror values match the baseline. Network,
+wireless and firewall hashes are unchanged and UCI changes are empty.
+
+The spare loop cable is removed, Windows is back on WAN, LAN1 is back in br-lan,
+and management remains on LAN3. No reboot, flash, driver-source change, new
+commit, push or release occurred during the resumed physical-STP test. Build12
+and13 source changes remain uncommitted as recorded above; no claim of complete
+DSA feature parity is made. Direct VLAN uppers, full customer-QinQ fallback,
+flow regeneration/node-pool stress and the remaining packet policy tests keep
+their separate acceptance gates.
+
+Evidence: `logs/nss-slices-20261106/slice09-rx/build13-final-smoke/results.json`
+in the original repository.
+
+
+### Source commits after build13 acceptance
+
+At the user's request, the validated changes were committed separately:
+
+- `27e4076277`: correct the RMA CPU reason-code ABI and debug readout.
+- `012b027c4f`: enable external CPU control mode and host link-local TX through CPU8.
+- `43e47afb48`: receive recognized QinQ control copies across CPU conduits while preserving ordinary VLAN/data checks.
+
+The split TX commit uses the exact frozen build12 tagger, verified against the
+build12 artifact manifest. The RX commit then adds the build13 changes. The RMA
+header comment was clarified to describe TRAP/COPY versus FORWARD/DROP; register
+encodings are unchanged from the tested image. Focused RMA,112-check TX,
+74-check RX, transport and actual ECM resolver tests pass before committing.
+This does not include a push or release. The original Kuncy reference worktree
+and its30 saved source hashes remain unchanged. Direct VLAN interfaces are the
+next planned source slice; the normal router configuration remains restored.

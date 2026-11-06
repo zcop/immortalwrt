@@ -3,6 +3,12 @@
 Date: 2026-11-05. Branch: `nss-qosmio-qinq`. Firmware build08, kernel6.18.55.
 This is a test report and implementation plan; it does not deploy fixes.
 
+Subsequent implementation and device results through build13 are recorded in
+[the execution report](nss-qosmio-dsa-slices.md#build13-resumed-physical-stp-loop-accepted-at100mbps).
+They include control TX/RX and physical STP convergence at100Mbps with the
+hardware loop guard on. The comparison below remains the original build08
+snapshot; later accepted results are recorded in that execution report.
+
 `README.yt921x.md` DONE entries remain the established driver baseline.
 This audit checks the selected native image and QinQ integration against it.
 A missing image package, a kernel integration requirement, and a limitation
