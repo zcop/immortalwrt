@@ -133,11 +133,25 @@ cache cannot resolve an ambiguous port. Missing membership/node/parent
 rejects the acceleration attempt.
 
 Initial native mapping covers ordinary routed Ethernet/bridge/VLAN
-hierarchies. Direct VLAN uppers of QinQ ports, QinQ PPP/tunnel hierarchies,
-L2/multicast/non-ported acceleration and ambiguous customer VLANs stay on the
-host. PPPoE packages compile, but PPPoE acceleration through this QinQ adapter
-is not implemented. YT921x hardware switching and its established DONE
-baseline remain separate from these NSS limitations.
+hierarchies. The subsequent [direct-VLAN slice](nss-qosmio-dsa-slices.md#slice10-direct-customer-vlan-interfaces-on-standalone-qinq-ports)
+adds exact mappings for registered standalone `wan.N`/`lanN.N` interfaces.
+Build16 passes hardware membership, ownership, bridge lifecycle, native
+coexistence and bidirectional routed NSS on tagged `wan.35`, including hardware
+mirror confirmation of customer tags. A900Mbps-paced test measured900Mbps
+forward and591Mbps reverse at about99% CPU idle. Subsequent hardware isolation
+identified missing customer-tag receive headroom on user ports: increasing
+WAN's frame limit from1518 to1522 bytes restores936.6/936.3Mbps unpaced. The
+source correction and actual-callback regression are validated, including an
+AArch64 compilation with the kernel module flags. Build16 still has the
+original limit; rebuilding/installing the image is the remaining deployment step.
+Direct LAN uppers have membership/lifecycle coverage but still
+need tagged endpoint traffic tests. Bridged, stacked and S-tagged direct
+interfaces are not admitted to that transport.
+QinQ PPP/tunnel hierarchies, L2/multicast/non-ported acceleration and ambiguous
+customer VLANs remain outside this mapping. PPPoE packages compile, but PPPoE
+acceleration through this QinQ adapter is not implemented. YT921x hardware
+switching and its established DONE baseline remain separate from these NSS
+limitations.
 
 Wire format remains:
 

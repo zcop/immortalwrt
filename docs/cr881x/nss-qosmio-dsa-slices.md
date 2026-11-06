@@ -530,9 +530,9 @@ wireless and firewall hashes are unchanged and UCI changes are empty.
 
 The spare loop cable is removed, Windows is back on WAN, LAN1 is back in br-lan,
 and management remains on LAN3. No reboot, flash, driver-source change, new
-commit, push or release occurred during the resumed physical-STP test. Build12
-and13 source changes remain uncommitted as recorded above; no claim of complete
-DSA feature parity is made. Direct VLAN uppers, full customer-QinQ fallback,
+commit, push or release occurred during the resumed physical-STP test. At that checkpoint, build12
+and13 source changes were uncommitted; the separate source commits are listed
+below. No claim of complete DSA feature parity is made. Direct VLAN uppers, full customer-QinQ fallback,
 flow regeneration/node-pool stress and the remaining packet policy tests keep
 their separate acceptance gates.
 
@@ -556,3 +556,246 @@ encodings are unchanged from the tested image. Focused RMA,112-check TX,
 This does not include a push or release. The original Kuncy reference worktree
 and its30 saved source hashes remain unchanged. Direct VLAN interfaces are the
 next planned source slice; the normal router configuration remains restored.
+
+## Slice10: direct customer VLAN interfaces on standalone QinQ ports
+
+This slice adds explicit `wan.N` / `lanN.N` interfaces on standalone user
+ports. Their wire pair is the existing per-port SVID plus customer CVID;
+the base untagged interface keeps its native PVID and separate firmware leaf.
+The switch programs tagged membership for the user port and its actual CPU
+conduit. A customer VID has one owner across direct interfaces and bridge
+domains because the hardware customer VLAN table is global. Conflicting
+ownership, reserved transport VIDs and bridge/LAG joins with direct uppers
+are rejected. Direct hardware/NSS membership requires a standalone non-LAG
+base port. Remove the uppers before changing that role.
+
+Tagger TX/RX, the NSS node collector and ECM share the registered direct-upper
+check. Base leaves remain explicit when additional leaves exist; stale,
+stacked, S-tagged or upper-master mappings do not authorize acceleration.
+Kernel patch764 removes user membership if later host registration fails.
+Partial driver I/O failure retains the VID reservation and closes that port.
+Transparent tagged VLAN-unaware bridges and full customer QinQ remain separate
+unsupported cases.
+
+### Build14/15 hardware checks and the bridge transition correction
+
+Build14 booted and passed normal routed NSS, but creating `wan.35` did not
+program the VTU: standalone `rx-vlan-filter` was off, so Linux never invoked
+the VLAN registration hooks. Linux upper creation and a firmware node alone
+were therefore insufficient evidence. No Windows VLAN setting was changed.
+
+Build15 enables DSA standalone VLAN filtering for QinQ only, admits direct
+uppers only with that hardware feature enabled, and clears private customer
+bridge awareness on bridge leave. It was installed once into slot0 and its
+six module hashes matched the frozen image; slot1's build14 fallback and the
+persistent configuration were verified unchanged.
+
+| Installed build15 gate | Result |
+| --- | --- |
+| Native routed NSS, forward/reverse |936.57 /936.56 Mbps,98.91 /98.92% CPU idle; firmware counters advanced |
+| `wan.35` switch membership | Port3 + actual CPU4, both tagged; native PVID3075 unchanged |
+| Additional `wan.36` leaf and removal | Exact SVID3075/CVID36 leaf added and removed independently |
+| Reserved VID, bridge-owned VID, direct upper on bridged port | Rejected without a surviving interface |
+| Bridge join with direct upper; bridge VID colliding with direct owner | Rejected |
+| Base WAN while `wan.35` also exists |936.56 /936.38 Mbps; firmware counters advanced in both directions |
+| Direct `lan2.36` after detaching idle LAN2 | Port1 + actual CPU8 tagged; SVID3073/CVID36 firmware leaf; native PVID3073 retained |
+| Same direct CVID on two standalone ports | Rejected |
+| Cleanup | Temporary uppers removed, eight nodes, VTU35 empty, normal config and loop guard retained |
+
+The idle LAN2 aware-bridge transition then exposed a second defect. Linux
+reported VLAN100/PVID100, but hardware retained PVID3104 and VLAN100 contained
+CPU8 only. DSA skips `port_vlan_filtering()` when its logical state remains
+true from standalone mode to an aware bridge, while the driver's private
+customer-awareness state still needed updating. The test restored LAN2 to
+`br-lan`; management and normal WAN remained reachable.
+
+The next candidate synchronizes that private state in the bridge-join callback.
+The actual callback regression fails with build15's source and passes with the
+correction, including aware/unaware joins and the direct-ownership guard.
+
+Build16 was then installed once into slot1. Only `yt921x_l2.c` and the switch
+module differ from build15; the other five frozen modules, ECM source and
+build configuration match. The installed modules and preserved build15 slot0
+were verified. Fresh native routed NSS delivered936.64Mbps in both directions,
+with97.49/98.67% CPU idle and762951/753515 firmware IPv4 TX increments.
+
+The same idle LAN2 lifecycle test now passes: direct CVID36 programs tagged
+port1/CPU8 membership and retains PVID3073; aware bridge join programs
+PVID100 and user+CPU8 membership, with only the user port untagged. Bridge
+leave removes VLAN100 and restores PVID3073. Returning to normal `br-lan`
+restores PVID3088, empty test VLANs and eight firmware nodes. Configuration
+hashes are unchanged, UCI changes empty and loop protection stays enabled.
+These are hardware membership/lifecycle checks on an unplugged port, not a
+tagged LAN endpoint traffic test. The subsequent tagged WAN test is recorded
+below; tagged endpoint coverage on direct LAN uppers remains separate.
+
+The final negative test also distinguishes Linux interface creation from
+transport admission. After a role transition, an unaware-bridge port has
+`rx-vlan-filter: off [fixed]`; Linux can then create a VLAN upper without
+calling the driver's registration hook. That is not a supported direct-VLAN
+data path. The tagger/controller/ECM checks must still refuse it. The build15
+initial-boot rejection above must not be generalized into a guarantee that
+every such Linux interface creation fails. Build16's repeated check confirmed
+that the created `lan2.36` has neither a VLAN36 hardware entry nor an NSS leaf;
+the temporary interface was then removed.
+
+The final build16 coexistence run also passed: `wan.35` programs port3/CPU4
+tagged membership without changing native PVID3075, ownership conflicts and
+bridge joins are rejected, and additional `wan.36` adds/removes independently.
+Base routed NSS while `wan.35` exists delivers936.58/936.32Mbps with
+98.30/98.43% CPU idle and766852/755960 firmware TX increments. Cleanup leaves
+eight nodes, empty VLAN35, normal WAN up and unchanged persistent config.
+
+Evidence: original ignored `logs/nss-slices-20261106/slice10-direct-vlan/`,
+especially `build15-accept/`, `direct-api-coexistence-build15/`,
+`idle-port-lifecycle-build15/`, `build16-accept/` and
+`idle-port-lifecycle-build16/` and `direct-api-coexistence-build16-r2/`.
+The earlier `direct-api-coexistence-build16/` aborted on the invalid assumption
+that bridged upper creation must always fail; it cleaned up and is not counted
+as a full pass. Source snapshots and frozen artifact manifests
+distinguish each installed candidate from subsequent source corrections.
+
+### Build16: real VLAN35 WAN traffic and restored native acceptance
+
+Windows Ethernet was temporarily set to customer VLAN35. Initially it had an
+APIPA address instead of192.168.137.1, and the WAN hardware mirror showed
+correctly tagged DHCP/ARP requests without replies. Tagged ARP/ping later
+worked, and a static router address was used briefly for diagnosis. The first
+unpaced TCP attempt advanced firmware counters but timed out returning the
+iperf result; it is not an accepted throughput result. The independent watchdog
+restored that temporary setup later; it did not cause the earlier timeout.
+
+Windows DHCP subsequently recovered. A fresh bounded run obtained
+192.168.137.45 on `wan.35` from192.168.137.1 and retained DHCP for the accepted
+tests. There were nine firmware nodes, including the exact standalone WAN
+SVID3075/CVID35 leaf. No driver or firmware source changed during endpoint
+diagnosis. One intermediate harness attempt stopped when DHCP recovered
+between its checks; that aborted attempt cleaned up and is not counted as a
+traffic pass.
+
+Both routed TCP directions then completed with a requested900Mbps pace,
+one-second omission and eight measured seconds:
+
+| VLAN35 routed NSS measurement | LAN → Windows WAN | Windows WAN → LAN |
+| --- | --- | --- |
+| Receiver throughput |899.96Mbps |591.42Mbps |
+| Router CPU idle |99.03% |98.79% |
+| Firmware IPv4 TX increment |737389 |1145840 |
+| Active ECM connections |2 |2 |
+| VLAN/interface mismatch increments |0 /0 |0 /0 |
+
+The lower reverse rate was unresolved at this checkpoint. The subsequent MTU
+investigation below identifies the user-port receive-frame limit as its cause.
+The original unpaced result timeout was not independently reproduced. These
+earlier measurements alone did not establish performance parity.
+
+The WAN hardware mirror was tested with `matchall skip_sw` rules confirmed
+`in_hw`, using paced100Mbps TCP and an AF_PACKET capture on LAN3. AUXDATA was
+included because the workstation NIC strips VLAN headers into metadata.
+
+| WAN physical-port mirror gate | No mirror | Mirror enabled | Mirror removed |
+| --- | --- | --- | --- |
+| Egress matching TCP packets |0 |24056 |0 |
+| Ingress matching TCP packets |0 |25491 |0 |
+
+Every matching enabled-capture frame had a single customer `0x8100 / VID35`
+tag at that mirror point, with the expected router/Windows source MAC. Each
+phase also had positive NSS firmware packet increments and two accelerated
+ECM connections. This observes customer tags at the user-port mirror point;
+it is not a native CPU-link capture of the private outer S-tag.
+
+The bounded runner reverted its owned temporary UCI device/interface options
+and removed mirrors on completion. Windows was then restored to VLAN ID0 and
+SharedAccess restarted. Final native WAN DHCP and fresh routed NSS passed:
+936.68/936.35Mbps,98.79/98.92% CPU idle,766529/755945 firmware TX increments,
+and two accelerated ECM connections in each direction. Eight nodes remain;
+`wan.35` and its temporary netifd section are absent, UCI changes are empty,
+and network/wireless/firewall hashes match the saved baseline. Installed
+module hashes and the preserved build15 fallback slot also match. Loop guard,
+CPU control mode, BPDU RMA, disabled hardware mirror and the2.5Gbps LAN CPU
+link match their expected values. Linux remains on LAN3 and Windows on WAN.
+
+Evidence in the original ignored slice10 directory: `tagged-wan-build16/`,
+`vlan35-wire-diagnostic/`, `vlan35-nss-wire-r2/`,
+`bounded16-r2-results.json` and `build16-restored-accept/`. Source revisions and deployment status are recorded below.
+
+### Tagged reverse asymmetry: user-port MTU headroom confirmed
+
+Matched native controls first ruled out pacing alone:900Mbps-paced TCP reached
+900.02/900.07Mbps, while unpaced reverse reached936.74Mbps. A second control
+kept Windows at VLAN0 but temporarily made WAN an access port for customer
+VLAN35. Linux still used `wan.35` and the same NSS SVID3075/CVID35 mapping;
+only WAN's default CVID and VLAN35 untagged-member bit were changed. That
+control reached899.94/900.11Mbps paced and936.51Mbps unpaced reverse. Exact
+register values and normal routing were restored afterwards. Thus the direct
+VLAN35 firmware mapping can run at native throughput.
+
+Source and live registers then showed the missing allowance:
+
+- `yt921x_dsa_port_change_mtu()` budgets MTU +14-byte Ethernet header +4-byte
+  FCS on user ports:1518 bytes for MTU1500.
+- CPU ports add eight bytes, correctly allowing the internal S+C pair:1526.
+- A user-port customer C-tag also consumes four bytes. Its full MTU1500 frame
+  is1522 bytes including FCS, exceeding the programmed1518-byte RX limit.
+
+The live WAN MAC3 register is `0x84008`; its frame-size field occupies bits21:8.
+The experiment changed only that field from1518 to1522, preserving all other
+register bits. Windows stayed on VLAN35 and the same `wan.35` DHCP topology
+remained active throughout this comparison.
+
+| Receive-limit check |1518-byte limit |1522-byte limit |1518 restored |
+| --- | --- | --- | --- |
+| ICMP payload1468: IP1496, tagged wire1518 including FCS |2/2 |2/2 |2/2 |
+| ICMP payload1472: IP1500, tagged wire1522 including FCS |0/2 |2/2 |0/2 |
+
+Each rejected full-size pair incremented the switch's `rx_crc_errors` counter
+by2, rather than the oversize counter. Increasing the receive limit accepted
+the same frame size; restoring it reproduced rejection. This counter labeling
+must therefore not be used to dismiss the frame-length defect as cable noise.
+
+With the1522-byte limit, unpaced routed NSS completed at936.64Mbps forward
+and936.25Mbps reverse,98.43/99.04% CPU idle,765717/755039 firmware TX increments,
+and two accelerated ECM connections per run. VLAN/interface mismatch increments
+were zero. No CRC, drop, overflow or NSS error counters increased during these
+corrected transfers; normal PAUSE traffic was counted during reverse load.
+
+The direction follows the receive path: Windows-to-router data enters the
+1518-byte user-port filter carrying the customer tag. Router-to-Windows data
+leaves that port, and its small return ACKs fit the filter. Dropping full-size
+reverse packets explains the stalled start and lower TCP result without a
+firmware or per-port identity change.
+
+The test restored the original frame limit and native WAN, and Windows was
+returned to VLAN0. Fresh native NSS reached936.68/936.64Mbps with about99% CPU
+idle, zero VLAN/interface mismatch increments and unchanged persistent config.
+Build16 remains installed. The source correction now reserves one customer
+C-tag on QinQ user ports while retaining the CPU's existing total allowance,
+legacy-mode behavior and maximum MTU. The actual-callback regression passes
+with this correction and fails on the original code. It also checks jumbo
+bounds, non-frame register bits and I/O error propagation. The complete source
+file cross-compiles using the existing kernel module's AArch64 compiler flags.
+These checks produced a separate object only; a new image must be built and
+installed before this correction persists on the router. Source revisions are
+listed below.
+
+Evidence: original ignored `logs/nss-asymmetry-20261106/`, especially
+`native-matched/`, `access35-matrix-r2/`, `frame-limits-live.json`,
+`mtu35-boundary-r1/{ping-probes,verdict,results}.json` and `native-restored/`.
+The first access-control attempt stopped on an unsupported optional ethtool
+flag before data traffic and restored its setup; it is not a throughput pass.
+
+### Committed standalone-VLAN and MTU changes
+
+The source changes are committed separately on `nss-qosmio-qinq`:
+
+| Commit | Change |
+| --- | --- |
+| `b2e0cb82f564` | Roll back user VLAN membership after failed host registration |
+| `0ad4d2a6367f` | Support standalone QinQ VLAN uppers across driver, tagger, NSS and ECM |
+| `fa5afef6586c` | Reserve customer-tag receive headroom on QinQ user ports |
+
+Focused kernel rollback, driver transport, tagger TX/RX, NSS/ECM and MTU
+regressions pass before committing. The MTU cross-compilation result matches
+the committed source bytes. The installed image remains build16; a new image
+build and installation are required to make its MTU correction persistent.
+No push or release is included.
