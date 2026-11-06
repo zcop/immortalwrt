@@ -1,0 +1,28 @@
+net: dsa: undo user VLAN setup when CPU-side registration fails
+
+The user-port VLAN is programmed before dsa_port_host_vlan_add(). If host
+registration fails, release the earlier user-port membership rather than
+returning with hardware state for a VLAN device which was never created.
+Keep the original host error and do not delete a host entry that failed
+registration. Later address-filter allocation failures retain the existing
+host-then-user unwind path.
+
+--- a/net/dsa/user.c
++++ b/net/dsa/user.c
+@@ -1825,7 +1825,7 @@
+ 		if (extack._msg)
+ 			netdev_err(dev, "CPU port %d: %s\n", dp->cpu_dp->index,
+ 				   extack._msg);
+-		return ret;
++		goto rollback_user;
+ 	}
+ 
+ 	if (!dsa_switch_supports_uc_filtering(ds) &&
+@@ -1865,6 +1865,7 @@
+ 
+ rollback:
+ 	dsa_port_host_vlan_del(dp, &vlan);
++rollback_user:
+ 	dsa_port_vlan_del(dp, &vlan);
+ 
+ 	return ret;
