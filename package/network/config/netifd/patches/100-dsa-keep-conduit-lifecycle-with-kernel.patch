@@ -1,0 +1,37 @@
+netifd: keep DSA conduit lifecycle with the kernel
+
+A DSA user port reports its conduit as iflink, but the kernel DSA core
+owns that conduit: dsa_user_open() opens it and a conduit
+NETDEV_GOING_DOWN closes every user port using it. If netifd holds the
+conduit as a parent, stopping the last user port brings the conduit
+down and closes the other users sharing it.
+
+On kernels >= 6.1 identify DSA user ports with the existing
+system_if_get_master_ifindex() helper and return no parent. Ordinary
+VLAN/other netdev parent discovery and the pre-6.1 path are unchanged.
+
+--- a/system-linux.c
++++ b/system-linux.c
+@@ -3478,9 +3478,22 @@
+ {
+ 	char buf[64], *devname;
+ 	int ifindex, iflink;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
++	/*
++	 * A DSA user port reports its conduit as iflink, but the kernel DSA
++	 * core owns that conduit: dsa_user_open() opens it and a conduit
++	 * NETDEV_GOING_DOWN closes every user port using it. If netifd holds
++	 * the conduit as a parent, stopping the last user port brings the
++	 * conduit down and closes the other users sharing it, so leave the
++	 * conduit lifecycle to the kernel.
++	 */
++	if (system_if_get_master_ifindex(dev) > 0)
++		return NULL;
++#endif
++
+ 	if (system_get_dev_sysfs("iflink", dev->ifname, buf, sizeof(buf)) < 0)
+ 		return NULL;
+ 
+ 	iflink = strtoul(buf, NULL, 0);
+ 	ifindex = system_if_resolve(dev);
