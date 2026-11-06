@@ -653,8 +653,10 @@ static int yt921x_proc_apply_vlan_fid_mode(struct yt921x_priv *priv)
 
 		fid = (priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL) ?
 			svl_fid : vid;
-		ctrl64 &= ~YT921X_VLAN_CTRL_FID_M;
+		ctrl64 &= ~(YT921X_VLAN_CTRL_FID_M | YT921X_VLAN_CTRL_SVL_EN);
 		ctrl64 |= YT921X_VLAN_CTRL_FID(fid);
+		if (priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL)
+			ctrl64 |= YT921X_VLAN_CTRL_SVL_EN;
 
 		res = yt921x_reg64_write(priv, YT921X_VLANn_CTRL(vid), ctrl64);
 		if (res)

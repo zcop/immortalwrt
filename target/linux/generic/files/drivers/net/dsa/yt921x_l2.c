@@ -901,8 +901,8 @@ yt921x_vlan_aware_set(struct yt921x_priv *priv, int port, bool vlan_aware)
 {
 	u32 ctrl;
 
-	/* Abuse SVLAN for PCP parsing without polluting the FDB - it just works
-	 * despite YT921X_VLAN_CTRL_SVLAN_EN never being set
+	/* S-tag parsing and PCP classification do not require shared VLAN
+	 * learning.
 	 */
 	if (priv->qinq) {
 		/* Both tag layers stay parseable for the whole port lifetime:
@@ -993,7 +993,8 @@ yt921x_vlan_del(struct yt921x_priv *priv, int port, u16 vid)
 	 * Keep VID 0 untouched for priority-tagged traffic semantics.
 	 */
 	if (vid && !(ctrl64 & YT921X_VLAN_CTRL_PORTS_M))
-		ctrl64 &= ~YT921X_VLAN_CTRL_FID_M;
+		ctrl64 &= ~(YT921X_VLAN_CTRL_FID_M |
+			    YT921X_VLAN_CTRL_SVL_EN);
 
 	return yt921x_reg64_write(priv, YT921X_VLANn_CTRL(vid), ctrl64);
 }
@@ -1015,9 +1016,11 @@ yt921x_vlan_add(struct yt921x_priv *priv, int port, u16 vid, bool untagged)
 	 * bridges. Leave VID 0 unchanged.
 	 */
 	if (vid) {
-		mask64 |= YT921X_VLAN_CTRL_FID_M;
+		mask64 |= YT921X_VLAN_CTRL_FID_M | YT921X_VLAN_CTRL_SVL_EN;
 		ctrl64 |= YT921X_VLAN_CTRL_FID(yt921x_vlan_fid_for_vid(priv,
 									vid));
+		if (priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL)
+			ctrl64 |= YT921X_VLAN_CTRL_SVL_EN;
 	}
 
 	return yt921x_reg64_update_bits(priv, YT921X_VLANn_CTRL(vid),
