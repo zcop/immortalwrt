@@ -503,13 +503,13 @@ static int yt921x_proc_reply_port_status(struct yt921x_priv *priv, u32 port)
 
 	speed = FIELD_GET(YT921X_PORT_SPEED_M, st);
 	duplex = (st & YT921X_PORT_DUPLEX_FULL) ? "full" : "half";
-	speed_name = (st & YT921X_PORT_LINK) ? yt921x_proc_port_speed_name(speed) :
+	speed_name = (st & YT921X_PORT_STATUS_LINK) ? yt921x_proc_port_speed_name(speed) :
 					     "down";
 
 	yt921x_proc_reply_append(
 		priv,
 		"p%u ctrl=0x%08x status=0x%08x link=%u an=%u speed=%s duplex=%s rx_pause=%u tx_pause=%u rx_mac=%u tx_mac=%u\n",
-		port, ctrl, st, !!(st & YT921X_PORT_LINK),
+		port, ctrl, st, !!(st & YT921X_PORT_STATUS_LINK),
 		!!(ctrl & YT921X_PORT_LINK), speed_name, duplex,
 		!!(st & YT921X_PORT_RX_PAUSE), !!(st & YT921X_PORT_TX_PAUSE),
 		!!(st & YT921X_PORT_RX_MAC_EN), !!(st & YT921X_PORT_TX_MAC_EN));

@@ -160,6 +160,7 @@ struct yt921x_priv;
 #define YT921X_PORTn_CTRL(port)		(0x80100 + 4 * (port))
 #define  YT921X_PORT_CTRL_PAUSE_AN		BIT(10)
 #define YT921X_PORTn_STATUS(port)	(0x80200 + 4 * (port))
+#define  YT921X_PORT_STATUS_LINK		BIT(8)
 #define  YT921X_PORT_LINK			BIT(9)  /* CTRL: auto negotiation */
 #define  YT921X_PORT_HALF_PAUSE			BIT(8)  /* Half-duplex back pressure mode */
 #define  YT921X_PORT_DUPLEX_FULL		BIT(7)
