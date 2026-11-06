@@ -24,8 +24,9 @@ assert join
 functions = []
 for name in ['yt921x_vlan_fid_for_vid', 'yt921x_vlan_aware_set',
              'yt921x_port_set_pvid', 'yt921x_vlan_add', 'yt921x_vlan_del',
-             'yt921x_direct_vlan_join_check']:
-    match = re.search(r'^(?:static )?(?:int|u16)\s+' + name + r'\(.*?^\}', common, re.M | re.S)
+             'yt921x_direct_vlan_join_check',
+             'yt921x_dsa_port_bridge_leave']:
+    match = re.search(r'^(?:static )?(?:int|u16|void)\s+' + name + r'\(.*?^\}', common, re.M | re.S)
     assert match, name
     functions.append(match.group(0))
 transport = (DRIVER / 'yt921x_8021q.c').read_text().replace('#include "yt921x_internal.h"', '').replace('#include <linux/dsa/yt921x_qinq.h>', '')
@@ -59,11 +60,12 @@ typedef uint64_t u64;
 #define BRIDGE_VLAN_INFO_UNTAGGED 4
 struct net_device { int id; bool bridge_port, lag_port, vlan_filtering; };
 struct netlink_ext_ack { int unused; };
-struct bridge { struct net_device *dev; };
+struct bridge { struct net_device *dev; unsigned int num; };
 struct dsa_bridge { struct net_device *dev; unsigned int num; };
 struct dsa_switch;
+struct device;
 struct dsa_port { int index; struct dsa_switch *ds; struct net_device *user; struct bridge *bridge; struct dsa_port *cpu_dp; };
-struct dsa_switch { struct dsa_port ports[11]; int num_ports; unsigned int max_num_bridges; };
+struct dsa_switch { struct device *dev; struct dsa_port ports[11]; int num_ports; unsigned int max_num_bridges; };
 struct switchdev_obj_port_vlan {
  struct { struct net_device *orig_dev; } obj;
  u16 vid, flags;
@@ -79,6 +81,7 @@ struct yt921x_priv {
  u16 direct_vlan_members[4096], direct_vlan_count[11];
  u8 vlan_fid_mode;
  u16 vlan_svl_fid;
+ struct { bool mrouter; } ports[11];
 };
 #define YT921X_VLAN_FID_MODE_SVL 1
 #define YT921X_ACL_TYPE_VLAN 4
@@ -87,12 +90,15 @@ struct yt921x_priv {
 #define dsa_is_cpu_port(ds,p) ((p) == 4 || (p) == 8)
 #define netif_is_bridge_port(dev) ((dev) && (dev)->bridge_port)
 #define netif_is_lag_port(dev) ((dev) && (dev)->lag_port)
+#define br_vlan_enabled(dev) ((dev) && (dev)->vlan_filtering)
+#define dsa_port_bridge_dev_get(dp) ((dp)->bridge ? (dp)->bridge->dev : NULL)
 #define dsa_switch_for_each_user_port(dp,s) \
  for ((dp)=&(s)->ports[0]; (dp)<&(s)->ports[4]; (dp)++)
 #define mutex_lock(x) ((void)0)
 #define mutex_unlock(x) ((void)0)
 static uint32_t registers[0x400000/4];
-static int writes, fail_write, flushes, fail_flush;
+static u32 read_regs[1<<16];
+static int writes, fail_write, flushes, fail_flush, reads, fail_read;
 static int yt921x_reg_write(struct yt921x_priv *p, u32 reg, u32 val) {
  assert(reg % 4 == 0 && reg < sizeof(registers));
  if (++writes == fail_write) return -EIO;
@@ -101,10 +107,13 @@ static int yt921x_reg_write(struct yt921x_priv *p, u32 reg, u32 val) {
 }
 static int yt921x_reg_read(struct yt921x_priv *p, u32 reg, u32 *val) {
  assert(reg % 4 == 0 && reg < sizeof(registers));
+ if (++reads == fail_read) return -EIO;
+ read_regs[(reads-1) % ARRAY_SIZE(read_regs)] = reg;
  *val=registers[reg/4]; return 0;
 }
 static int yt921x_reg_update_bits(struct yt921x_priv *p,u32 r,u32 m,u32 v) {
- u32 old=registers[r/4]; return yt921x_reg_write(p,r,(old & ~m)|(v & m));
+ u32 old; int e=yt921x_reg_read(p,r,&old); if(e)return e;
+ return yt921x_reg_write(p,r,(old & ~m)|(v & m));
 }
 static int yt921x_reg_set_bits(struct yt921x_priv *p,u32 r,u32 m) {
  return yt921x_reg_update_bits(p,r,m,m);
@@ -116,13 +125,16 @@ static int yt921x_reg_toggle_bits(struct yt921x_priv *p,u32 r,u32 m,bool v) {
  return yt921x_reg_update_bits(p,r,m,v ? m : 0);
 }
 static int yt921x_reg64_read(struct yt921x_priv *p,u32 r,u64 *v) {
- *v=registers[r/4] | ((u64)registers[r/4+1]<<32); return 0;
+ u32 lo,hi; int e=yt921x_reg_read(p,r,&lo); if(e)return e;
+ e=yt921x_reg_read(p,r+4,&hi); if(e)return e;
+ *v=lo|((u64)hi<<32); return 0;
 }
 static int yt921x_reg64_write(struct yt921x_priv *p,u32 r,u64 v) {
  int e=yt921x_reg_write(p,r,v); return e ? e : yt921x_reg_write(p,r+4,v>>32);
 }
 static int yt921x_reg64_update_bits(struct yt921x_priv *p,u32 r,u64 m,u64 v) {
- u64 old; yt921x_reg64_read(p,r,&old); return yt921x_reg64_write(p,r,(old & ~m)|(v & m));
+ u64 old; int e=yt921x_reg64_read(p,r,&old); if(e)return e;
+ return yt921x_reg64_write(p,r,(old & ~m)|(v & m));
 }
 static u16 dsa_tag_8021q_standalone_vid(struct dsa_port *p) {return 3072+p->index;}
 static u16 dsa_tag_8021q_bridge_vid(unsigned int n) {return 3072|((n&3)<<4)|((n&4)<<7);}
@@ -132,15 +144,22 @@ static int yt921x_reg96_write(struct yt921x_priv *p,u32 r,const u32 *v) {
 static u32 yt921x_non_cpu_port_mask(struct yt921x_priv *p) { return 0x7ff & ~p->cpu_ports_mask; }
 static bool yt921x_is_secondary_cpu_port(struct yt921x_priv *p,int port) { return port==p->secondary_cpu_port; }
 static int yt921x_port_isolation_set(struct yt921x_priv *p,int port,u32 mask) { return 0; }
+static int last_flush_static;
 static int yt921x_fdb_flush_port(struct yt921x_priv *p,int port,bool all) {
+ last_flush_static=all;
  if (++flushes == fail_flush) return -EIO;
  return 0;
 }
 int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable, struct netlink_ext_ack *extack);
+int yt921x_8021q_standalone(struct yt921x_priv *priv, int port);
+void yt921x_8021q_fault(struct yt921x_priv *priv, int port);
+static int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv);
+static int yt921x_sync_mrouter_masks_locked(struct yt921x_priv *priv);
+static int yt921x_bridge_leave(struct yt921x_priv *priv,int port);
+static void dsa_tag_8021q_bridge_leave(struct dsa_switch *ds,int port,struct dsa_bridge bridge);
 '''
 join_stubs = r'''
 #define dsa_port_offloads_bridge_dev(dp,bdev) ((dp)->bridge && (dp)->bridge->dev==(bdev))
-#define br_vlan_enabled(dev) ((dev)->vlan_filtering)
 static int bridge_join_calls, bridge_leave_calls;
 static int dsa_tag_8021q_bridge_join(struct dsa_switch *ds,int port,struct dsa_bridge bridge,bool *tx,struct netlink_ext_ack *extack) {
  bridge_join_calls++;
@@ -149,18 +168,21 @@ static int dsa_tag_8021q_bridge_join(struct dsa_switch *ds,int port,struct dsa_b
 static void dsa_tag_8021q_bridge_leave(struct dsa_switch *ds,int port,struct dsa_bridge bridge) {bridge_leave_calls++;}
 static u32 yt921x_dsa_bridge_ports(struct dsa_switch *ds,const struct net_device *bdev) {return BIT(0);}
 static int yt921x_bridge_join(struct yt921x_priv *priv,int port,u16 mask) {return 0;}
+static int yt921x_bridge_leave(struct yt921x_priv *priv,int port) {return 0;}
 static int yt921x_refresh_flood_masks_locked(struct yt921x_priv *priv) {return 0;}
+static int yt921x_sync_mrouter_masks_locked(struct yt921x_priv *priv) {return 0;}
 '''
 tests = r'''
 static struct yt921x_priv priv;
 static struct net_device brdev[2];
 static struct net_device userdev[11];
-static struct bridge bridges[2] = {{&brdev[0]}, {&brdev[1]}};
+static struct bridge bridges[2] = {{&brdev[0], 2}, {&brdev[1], 3}};
 static struct switchdev_obj_port_vlan v = {{&brdev[0]}, 10, BRIDGE_VLAN_INFO_PVID|BRIDGE_VLAN_INFO_UNTAGGED};
 static void reset(void) {
  memset(&priv,0,sizeof(priv)); memset(registers,0,sizeof(registers)); writes=0; fail_write=-1;
- flushes=0; fail_flush=-1; memset(userdev,0,sizeof(userdev));
+ flushes=0; fail_flush=-1; reads=0; fail_read=-1; memset(userdev,0,sizeof(userdev));
  memset(brdev,0,sizeof(brdev));bridge_join_calls=0;bridge_leave_calls=0;
+ bridges[0].num=2; bridges[1].num=3;
  priv.cpu_ports_mask=BIT(4)|BIT(8); priv.primary_cpu_port=8; priv.secondary_cpu_port=4;
  priv.dt_secondary_conduit_user_mask=BIT(3); priv.dt_secondary_conduit_user_mask_valid=true;
  for (int i=0;i<11;i++) {priv.ds.ports[i].index=i;priv.ds.ports[i].ds=&priv.ds;priv.ds.ports[i].user=&userdev[i];priv.ds.ports[i].cpu_dp=&priv.ds.ports[i==3?4:8];}
@@ -180,6 +202,29 @@ static int direct_vlan(int port,int vid,bool add) {
 static u64 vlan(int vid) {u64 value;yt921x_reg64_read(&priv,YT921X_VLANn_CTRL(vid),&value);return value;}
 static u16 pvid(int port) {return FIELD_GET(YT921X_PORT_VLAN_CTRL_CVID_M,registers[YT921X_PORTn_VLAN_CTRL(port)/4]);}
 static int tag(int port,int vid) {return yt921x_tag_8021q_vlan_add(&priv.ds,port,vid,BRIDGE_VLAN_INFO_UNTAGGED|BRIDGE_VLAN_INFO_PVID);}
+static u64 root_expect(u64 members,u64 untag,u16 fid,bool svl) {
+ return FIELD_PREP(YT921X_VLAN_CTRL_PORTS_M,members)|
+        FIELD_PREP(YT921X_VLAN_CTRL_UNTAG_PORTS_M,untag)|
+        FIELD_PREP(YT921X_VLAN_CTRL_FID_M,fid)|(svl?YT921X_VLAN_CTRL_SVL_EN:0);
+}
+static u32 root_members(u16 vid) {return FIELD_GET(YT921X_VLAN_CTRL_PORTS_M,vlan(vid));}
+static u32 root_untag(u16 vid) {return FIELD_GET(YT921X_VLAN_CTRL_UNTAG_PORTS_M,vlan(vid));}
+static u32 root_fid(u16 vid) {return FIELD_GET(YT921X_VLAN_CTRL_FID_M,vlan(vid));}
+static void assert_users_closed(void) {
+ const u32 gate=YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_TAGGED|YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_UNTAGGED;
+ for (int p=0;p<4;p++) {
+  assert(priv.bridge_vlan_fault[p]);
+  assert((registers[YT921X_PORTn_VLAN_CTRL1(p)/4]&gate)==gate);
+  assert(!(registers[YT921X_PORTn_CTRL(p)/4]&(YT921X_PORT_RX_MAC_EN|YT921X_PORT_TX_MAC_EN)));
+ }
+}
+static void svid_setup(void) {
+ reset();priv.qinq=true;
+ assert(!tag(0,3072));assert(!tag(1,3073));assert(!tag(2,3074));assert(!tag(3,3075));
+ registers[YT921X_PORTn_VLAN_CTRL1(0)/4]=YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED;
+ registers[YT921X_PORTn_VLAN_CTRL1(1)/4]=YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED;
+ registers[YT921X_PORTn_VLAN_CTRL1(2)/4]=YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED|YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED;
+}
 int main(void) {
  reset();
  assert(!yt921x_8021q_port_enter(&priv,8)); assert(!yt921x_8021q_port_enter(&priv,4));
@@ -503,6 +548,156 @@ int main(void) {
   assert(yt921x_dsa_port_bridge_join(&priv.ds,0,bridge,&tx,NULL)==-EBUSY);
   assert(writes==previous && bridge_join_calls==0);
   puts("PASS: actual bridge callback rejects direct VLAN ownership before tagger or hardware work");
+ }
+
+ {
+  /* Private-SVID domains: VLAN-unaware QinQ bridge ports. */
+  reset();priv.qinq=true;
+  assert(!tag(0,3072));assert(!tag(1,3073));
+  assert(!yt921x_tag_8021q_vlan_add(&priv.ds,8,3072,0));
+  assert(!yt921x_tag_8021q_vlan_add(&priv.ds,8,3073,0));
+  u64 taint=YT921X_VLAN_CTRL_STP_ID(5)|YT921X_VLAN_CTRL_PRIO_EN|YT921X_VLAN_CTRL_PRIO(3)|
+             YT921X_VLAN_CTRL_BYPASS_1X_AC|YT921X_VLAN_CTRL_METER_EN|FIELD_PREP(YT921X_VLAN_CTRL_METER_ID_M,7);
+  registers[(YT921X_VLANn_CTRL(3072)+4)/4]|=taint>>32;
+  registers[YT921X_VLANn_CTRL(3072)/4]|=(u32)taint;
+  u32 pvid_before[4];
+  for(int p=0;p<4;p++) pvid_before[p]=registers[YT921X_PORTn_VLAN_CTRL(p)/4];
+  registers[YT921X_PORTn_VLAN_CTRL1(0)/4]=YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED;
+  registers[YT921X_PORTn_VLAN_CTRL1(1)/4]=YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED;
+  registers[YT921X_PORTn_VLAN_CTRL1(2)/4]=YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED|YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED;
+  registers[YT921X_LOOK_UP_VLAN_SEL/4]=BIT(5)|BIT(9);
+  registers[YT921X_VLAN_EGR_FILTER/4]=BIT(5);
+  flushes=0;writes=0;
+  assert(!yt921x_qinq_svid_sync(&priv));
+  assert(writes>0);
+  assert(flushes==4&&!last_flush_static);
+  u16 b0=dsa_tag_8021q_bridge_vid(2),b1=dsa_tag_8021q_bridge_vid(3);
+  assert(b0!=b1);
+  assert(vlan(3072)==(root_expect(0x113,3,b0,true)|(taint&~YT921X_QINQ_VTU_FIELDS)));
+  assert(vlan(3073)==root_expect(0x113,3,b0,true));
+  assert(vlan(3074)==root_expect(0x114,4,3074,false));
+  assert(vlan(3075)==root_expect(0x118,8,b1,true));
+  assert(registers[YT921X_LOOK_UP_VLAN_SEL/4]==(BIT(5)|BIT(9)|BIT(0)|BIT(1)|BIT(3)));
+  assert(registers[YT921X_VLAN_EGR_FILTER/4]==(BIT(5)|BIT(2)));
+  assert(!vlan(35));
+  for(int p=0;p<4;p++) assert(registers[YT921X_PORTn_VLAN_CTRL(p)/4]==pvid_before[p]);
+  assert(registers[YT921X_PORTn_VLAN_CTRL1(0)/4]==YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED);
+  assert(registers[YT921X_PORTn_VLAN_CTRL1(1)/4]==YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED);
+  assert(registers[YT921X_PORTn_VLAN_CTRL1(2)/4]==(YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED|YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED));
+  puts("PASS: unaware QinQ ports share one SVID FID domain and preserve unrelated VTU/PVID state");
+
+  /* DSA clears dp->bridge before the leave callback. */
+  priv.tag_8021q=true;
+  standalone(1);
+  yt921x_dsa_port_bridge_leave(&priv.ds,1,(struct dsa_bridge){&brdev[0],2});
+  assert(bridge_leave_calls==1);
+  assert(root_members(3072)==(BIT(0)|BIT(4)|BIT(8)));
+  assert(root_untag(3072)==BIT(0));
+  assert(root_members(3073)==(BIT(1)|BIT(4)|BIT(8)));
+  assert(root_untag(3073)==BIT(1));
+  assert(root_fid(3073)==3073);
+  assert(!(vlan(3073)&YT921X_VLAN_CTRL_SVL_EN));
+  assert(!(registers[YT921X_LOOK_UP_VLAN_SEL/4]&BIT(1)));
+  assert(registers[YT921X_VLAN_EGR_FILTER/4]&BIT(1));
+  puts("PASS: actual bridge leave shrinks the peer SVID domain back to native roots");
+
+  priv.ds.ports[1].bridge=&bridges[0];userdev[1].bridge_port=1;
+  assert(!yt921x_qinq_svid_sync(&priv));
+  assert(root_members(3072)==0x113&&root_untag(3072)==3);
+  assert(root_members(3073)==0x113&&root_untag(3073)==3);
+  assert(root_fid(3072)==b0&&root_fid(3073)==b0);
+  puts("PASS: peer roots expand again when the unaware bridge port returns");
+
+  /* Two independent bridges never merge FIDs or membership. */
+  reset();priv.qinq=true;
+  assert(!yt921x_qinq_svid_sync(&priv));
+  assert(root_fid(3072)==b0&&root_fid(3073)==b0);
+  assert(root_fid(3075)==b1&&b0!=b1);
+  assert(!(root_members(3072)&BIT(3)));
+  assert((root_members(3075)&BIT(3))&&!(root_members(3075)&(BIT(0)|BIT(1))));
+  bridges[1].num=2;writes=0;
+  assert(yt921x_qinq_svid_sync(&priv)==-EBUSY);
+  assert(writes==0&&!priv.bridge_vlan_fault[0]);
+  bridges[1].num=3;
+  puts("PASS: separate bridges keep distinct FIDs and a shared FID is rejected before writes");
+
+  /* Aware and direct-mode roots keep C-VLAN lookup and egress filtering. */
+  reset();priv.qinq=true;
+  brdev[0].vlan_filtering=true;priv.bridge_vlan_filtering[0]=true;
+  assert(!tag(0,3072));
+  assert(!direct_vlan(2,200,true));
+  assert(!yt921x_qinq_svid_sync(&priv));
+  assert(vlan(3072)==root_expect((BIT(0)|BIT(4)|BIT(8)),BIT(0),3072,false));
+  assert(vlan(3074)==root_expect((BIT(2)|BIT(4)|BIT(8)),BIT(2),3074,false));
+  assert(vlan(200)==root_expect((BIT(2)|BIT(8)),0,200,false));
+  assert(!(registers[YT921X_LOOK_UP_VLAN_SEL/4]&(BIT(0)|BIT(2))));
+  assert((registers[YT921X_VLAN_EGR_FILTER/4]&(BIT(0)|BIT(2)))==(BIT(0)|BIT(2)));
+  puts("PASS: aware and direct roots keep C-VLAN lookup, normal FID and egress membership");
+ }
+
+ {
+  /* The single-tag transport must never touch the SVID domain fields. */
+  reset();
+  writes=0;reads=0;
+  assert(!yt921x_qinq_svid_sync(&priv));
+  assert(writes==0&&reads==0);
+  assert(!tag(0,3072));
+  registers[YT921X_LOOK_UP_VLAN_SEL/4]=BIT(5);
+  registers[YT921X_VLAN_EGR_FILTER/4]=BIT(5);
+  assert(!yt921x_8021q_filtering(&priv,0,false,NULL));
+  assert(registers[YT921X_LOOK_UP_VLAN_SEL/4]==BIT(5));
+  assert(registers[YT921X_VLAN_EGR_FILTER/4]==BIT(5));
+  assert(!priv.bridge_vlan_filtering[0]);
+  puts("PASS: non-QinQ filtering never enters the SVID lookup domain mode");
+
+  /* QinQ CPU setup clears only its own ingress membership bit. */
+  reset();priv.qinq=true;
+  registers[YT921X_VLAN_IGR_FILTER/4]=BIT(0)|BIT(1)|BIT(10)|BIT(5);
+  assert(!yt921x_8021q_port_enter(&priv,8));
+  assert(!(registers[YT921X_VLAN_IGR_FILTER/4]&BIT(8)));
+  assert((registers[YT921X_VLAN_IGR_FILTER/4]&(BIT(0)|BIT(1)|BIT(10)|BIT(5)))==(BIT(0)|BIT(1)|BIT(10)|BIT(5)));
+  assert(!yt921x_8021q_port_enter(&priv,4));
+  assert(!(registers[YT921X_VLAN_IGR_FILTER/4]&(BIT(4)|BIT(8))));
+  assert((registers[YT921X_VLAN_IGR_FILTER/4]&(BIT(0)|BIT(1)|BIT(10)|BIT(5)))==(BIT(0)|BIT(1)|BIT(10)|BIT(5)));
+  assert(!(registers[YT921X_LOOK_UP_VLAN_SEL/4]&(BIT(4)|BIT(8))));
+  assert(!registers[YT921X_VLAN_EGR_FILTER/4]);
+  assert(registers[YT921X_PORTn_VLAN_CTRL1(8)/4]&YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED);
+  puts("PASS: QinQ CPU setup clears only CPU ingress membership bits and keeps C-VLAN lookup");
+ }
+
+ {
+  /* Fault injection over every read, write and flush of the shared transaction. */
+  svid_setup();reads=0;writes=0;
+  assert(!yt921x_qinq_svid_sync(&priv));
+  int sw=writes,sr=reads;
+  assert(sr<64&&sw>0);
+  u32 rr[64];
+  for(int i=0;i<sr;i++) rr[i]=read_regs[i];
+  bool saw_vtu_read=false,saw_gate_read=false;
+  for(int i=0;i<sr;i++) {
+   if(rr[i]==YT921X_VLANn_CTRL(3072)) saw_vtu_read=true;
+   if(i>=4&&rr[i]==YT921X_PORTn_VLAN_CTRL1(0)) saw_gate_read=true;
+  }
+  assert(saw_vtu_read&&saw_gate_read);
+  for(int fail=1;fail<=sw;fail++) {
+   svid_setup();writes=0;fail_write=fail;
+   assert(yt921x_qinq_svid_sync(&priv)==-EIO);
+   assert_users_closed();
+   assert(registers[YT921X_PORTn_VLAN_CTRL1(0)/4]&YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED);
+  }
+  printf("PASS: all %d shared-transaction write failure points latch every user port\n",sw);
+  for(int fail=1;fail<=sr;fail++) {
+   svid_setup();reads=0;fail_read=fail;
+   assert(yt921x_qinq_svid_sync(&priv)==-EIO);
+   assert_users_closed();
+  }
+  printf("PASS: all %d shared-transaction read failure points (snapshot, update_bits, reg64) latch every user port\n",sr);
+  for(int fail=1;fail<=4;fail++) {
+   svid_setup();flushes=0;fail_flush=fail;
+   assert(yt921x_qinq_svid_sync(&priv)==-EIO);
+   assert_users_closed();
+  }
+  puts("PASS: all shared-transaction flush failure points latch every user port");
  }
 
  return 0;

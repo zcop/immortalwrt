@@ -257,6 +257,16 @@ static int yt921x_qinq_cpu_port_enter(struct yt921x_priv *priv, int port)
 	if (res)
 		return res;
 
+	/* The private SVID domains select their exact destination user port
+	 * through the reserved ACL block, so the CPU ingress membership filter
+	 * must not reject SVID-classified frames. Only the CPU bit is cleared;
+	 * user ingress membership filtering stays intact.
+	 */
+	res = yt921x_reg_clear_bits(priv, YT921X_VLAN_IGR_FILTER,
+				    YT921X_VLAN_IGR_FILTER_PORTn(port));
+	if (res)
+		return res;
+
 	res = yt921x_qinq_port_tpid_sel(priv, port);
 	if (res)
 		return res;
@@ -465,6 +475,179 @@ int yt921x_8021q_standalone(struct yt921x_priv *priv, int port)
 	return yt921x_reg_set_bits(priv, YT921X_PORTn_LEARN(port), mask);
 }
 
+/* A VLAN-unaware bridge on a QinQ user port forwards through the port's
+ * standalone SVID. Every port of one bridge must share the same FID, so all
+ * standalone roots, the SVID lookup selectors and the per-port egress
+ * membership filters are rewritten as one transaction. Requires reg_lock.
+ */
+struct yt921x_qinq_svid_plan {
+	u16 root;
+	u16 fid;
+	u64 members;
+	u64 untag;
+	bool svl;
+	bool svid;
+};
+
+#define YT921X_QINQ_VTU_FIELDS \
+	(YT921X_VLAN_CTRL_PORTS_M | YT921X_VLAN_CTRL_UNTAG_PORTS_M | \
+	 YT921X_VLAN_CTRL_FID_M | YT921X_VLAN_CTRL_SVL_EN)
+
+static void yt921x_qinq_svid_fault_users(struct yt921x_priv *priv)
+{
+	struct dsa_port *dp;
+
+	dsa_switch_for_each_user_port(dp, &priv->ds) {
+		if (!priv->bridge_vlan_fault[dp->index])
+			yt921x_8021q_fault(priv, dp->index);
+	}
+}
+
+static int yt921x_qinq_svid_sync(struct yt921x_priv *priv)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct dsa_port *dp, *peer;
+	struct yt921x_qinq_svid_plan plan[YT921X_PORT_NUM] = {};
+	u32 saved_ctrl1[YT921X_PORT_NUM] = {};
+	u32 ingress_drop = YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_TAGGED |
+			   YT921X_PORT_VLAN_CTRL1_CVLAN_DROP_UNTAGGED;
+	u32 user_mask = 0;
+	u32 svid_mask = 0;
+	int res;
+
+	/* The single-tag transport keeps its C-VLAN lookup untouched. */
+	if (!priv->qinq)
+		return 0;
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		struct yt921x_qinq_svid_plan *pl = &plan[dp->index];
+		u16 root = dsa_tag_8021q_standalone_vid(dp);
+
+		user_mask |= BIT(dp->index);
+		/* The tagger owns the roots; VID 0 must never be programmed. */
+		if (!root)
+			continue;
+
+		pl->root = root;
+		if (dp->bridge && dp->bridge->dev &&
+		    !br_vlan_enabled(dp->bridge->dev) &&
+		    !priv->bridge_vlan_filtering[dp->index]) {
+			pl->svid = true;
+			pl->svl = true;
+			pl->fid = dsa_tag_8021q_bridge_vid(dp->bridge->num);
+			pl->members = priv->cpu_ports_mask;
+			pl->untag = 0;
+
+			dsa_switch_for_each_user_port(peer, ds) {
+				if (!peer->bridge ||
+				    peer->bridge->dev != dp->bridge->dev ||
+				    br_vlan_enabled(peer->bridge->dev) ||
+				    priv->bridge_vlan_filtering[peer->index])
+					continue;
+				pl->members |= BIT_ULL(peer->index);
+				pl->untag |= BIT_ULL(peer->index);
+			}
+			svid_mask |= BIT(dp->index);
+			continue;
+		}
+
+		/* Standalone, direct and aware ports keep C-VLAN lookups and
+		 * their normal IVL/SVL root semantics.
+		 */
+		pl->fid = priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL ?
+			  (priv->vlan_svl_fid ? : 1) : root;
+		pl->svl = priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL;
+		pl->members = BIT_ULL(dp->index) | priv->cpu_ports_mask;
+		pl->untag = BIT_ULL(dp->index);
+	}
+
+	/* Distinct bridge devices must never end up in the same FID domain. */
+	dsa_switch_for_each_user_port(dp, ds) {
+		if (!plan[dp->index].svid)
+			continue;
+		dsa_switch_for_each_user_port(peer, ds) {
+			if (peer->index >= dp->index ||
+			    !plan[peer->index].svid)
+				continue;
+			if (plan[peer->index].fid == plan[dp->index].fid &&
+			    peer->bridge->dev != dp->bridge->dev)
+				return -EBUSY;
+		}
+	}
+
+	/* Snapshot every gate before quenching so a successful transaction
+	 * can restore the exact pre-existing ingress state, S-tag bits
+	 * included.
+	 */
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_reg_read(priv, YT921X_PORTn_VLAN_CTRL1(dp->index),
+				      &saved_ctrl1[dp->index]);
+		if (res)
+			goto fault;
+	}
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_reg_update_bits(priv,
+					     YT921X_PORTn_VLAN_CTRL1(dp->index),
+					     ingress_drop, ingress_drop);
+		if (res)
+			goto fault;
+	}
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		struct yt921x_qinq_svid_plan *pl = &plan[dp->index];
+		u64 ctrl;
+
+		if (!pl->root)
+			continue;
+		ctrl = FIELD_PREP(YT921X_VLAN_CTRL_PORTS_M, pl->members) |
+		       FIELD_PREP(YT921X_VLAN_CTRL_UNTAG_PORTS_M, pl->untag) |
+		       FIELD_PREP(YT921X_VLAN_CTRL_FID_M, pl->fid);
+		if (pl->svl)
+			ctrl |= YT921X_VLAN_CTRL_SVL_EN;
+		res = yt921x_reg64_update_bits(priv,
+					       YT921X_VLANn_CTRL(pl->root),
+					       YT921X_QINQ_VTU_FIELDS, ctrl);
+		if (res)
+			goto fault;
+	}
+
+	res = yt921x_reg_update_bits(priv, YT921X_LOOK_UP_VLAN_SEL, user_mask,
+				     svid_mask);
+	if (res)
+		goto fault;
+	res = yt921x_reg_update_bits(priv, YT921X_VLAN_EGR_FILTER, user_mask,
+				     user_mask & ~svid_mask);
+	if (res)
+		goto fault;
+
+	/* Lookup/FID semantics changed for whole bridge domains; only
+	 * dynamic entries are flushed, static entries are preserved.
+	 */
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_fdb_flush_port(priv, dp->index, false);
+		if (res)
+			goto fault;
+	}
+
+	dsa_switch_for_each_user_port(dp, ds) {
+		res = yt921x_reg_update_bits(priv,
+					     YT921X_PORTn_VLAN_CTRL1(dp->index),
+					     ingress_drop,
+					     saved_ctrl1[dp->index] & ingress_drop);
+		if (res)
+			goto fault;
+	}
+
+	return 0;
+
+fault:
+	/* A partial shared transaction cannot be rolled back; keep every
+	 * affected user port closed until reboot.
+	 */
+	yt921x_qinq_svid_fault_users(priv);
+	return res;
+}
+
 int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable,
 			   struct netlink_ext_ack *extack)
 {
@@ -535,7 +718,13 @@ int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable,
 		return res;
 
 	priv->bridge_vlan_filtering[port] = enable;
-	res = yt921x_8021q_pvid_apply(priv, port);
+	/* Shared SVID domains follow the cached filtering state, so the
+	 * synchronizer must run after it is updated and before the PVID
+	 * apply reopens ingress.
+	 */
+	res = yt921x_qinq_svid_sync(priv);
+	if (!res)
+		res = yt921x_8021q_pvid_apply(priv, port);
 	if (res)
 		priv->bridge_vlan_filtering[port] = old;
 	/* On an I/O failure ingress stays blocked, rather than leaking VLANs. */
