@@ -20,10 +20,11 @@
  * These frames bypass the QinQ transport tags and carry the legacy 8-byte
  * YT921x CPU forwarding tag instead. Zero or one existing customer C-tag is
  * preserved verbatim; no S-tag or synthetic C-tag is added. This is a TX host
- * slowpath exception only: data traffic retains the accelerated QinQ path,
- * Control TX uses CPU8, including WAN; RX handling is unchanged.
- * It does not claim complete STP or
- * control-plane support.
+ * slowpath exception: data traffic retains the accelerated QinQ path.
+ * Control TX uses CPU8, including WAN. Supported RMA RX copies may also
+ * arrive there with the CPU port's private unaware CVID (4095). Only a
+ * recognized control protocol may discard that private C-tag or cross
+ * from CPU8 to a user port assigned to the other conduit.
  *
  * Only zero or one customer VLAN is supported, and CPU-originated bridge
  * traffic is replicated by Linux per destination port. Switch bridge joins
@@ -90,8 +91,48 @@ static int yt921x_qinq_pop_outer(struct sk_buff *skb, u16 *tci)
 	return 0;
 }
 
+static bool yt921x_qinq_control_cpu(struct net_device *conduit,
+				  struct dsa_port *dp)
+{
+	struct dsa_port *cpu = conduit->dsa_ptr;
+
+	return cpu && cpu->ds == dp->ds &&
+	       cpu->index == YT921X_QINQ_CPU_TAG_CONTROL_PORT &&
+	       dsa_is_cpu_port(dp->ds, cpu->index) && cpu->conduit == conduit;
+}
+
+/* Called after validating the inner C-tag; skb->data starts at its TCI.
+ * A link-local DA alone is insufficient: it can also carry ordinary data.
+ */
+static bool yt921x_qinq_is_rx_control(struct sk_buff *skb)
+{
+	const u8 *dest = eth_hdr(skb)->h_dest;
+	__be16 proto = vlan_eth_hdr(skb)->h_vlan_encapsulated_proto;
+
+	if (!is_link_local_ether_addr(dest))
+		return false;
+
+	switch (dest[ETH_ALEN - 1]) {
+	case 0x00:
+		return ntohs(proto) >= 3 && ntohs(proto) <= ETH_DATA_LEN &&
+		       pskb_may_pull(skb, VLAN_HLEN + 3) &&
+		       !memcmp(skb->data + VLAN_HLEN, "\x42\x42\x03", 3);
+	case 0x02:
+		return proto == htons(ETH_P_SLOW) &&
+		       pskb_may_pull(skb, VLAN_HLEN + 2);
+	case 0x03:
+		return proto == htons(ETH_P_PAE) &&
+		       pskb_may_pull(skb, VLAN_HLEN + 4);
+	case 0x0e:
+		return proto == htons(ETH_P_LLDP) &&
+		       pskb_may_pull(skb, VLAN_HLEN + 2);
+	default:
+		return false;
+	}
+}
+
 static struct dsa_port *yt921x_qinq_find_dp(struct net_device *conduit,
-					    u16 outer_vid)
+					    u16 outer_vid, bool control)
 {
 	struct net_device *user;
 	struct dsa_port *dp;
@@ -110,7 +151,8 @@ static struct dsa_port *yt921x_qinq_find_dp(struct net_device *conduit,
 
 	dp = dsa_user_to_port(user);
 
-	if (dp->cpu_dp != conduit->dsa_ptr)
+	if (dp->cpu_dp != conduit->dsa_ptr &&
+	    !(control && yt921x_qinq_control_cpu(conduit, dp)))
 		return NULL;
 
 	/* Exact match rejects VBID and reserved-bit aliases. */
@@ -135,6 +177,45 @@ static bool yt921x_qinq_internal_vid(struct dsa_port *dp,
 	return vid == dsa_tag_8021q_standalone_vid(dp);
 }
 
+/* Return 1 to strip the C-tag, 0 to retain it, or a negative error to drop.
+ * Hardware RMA copies on CPU8 can use its private unaware VID even when
+ * the source port has a real PVID. That value never admits ordinary data.
+ */
+static int yt921x_qinq_rx_vlan(struct dsa_port *dp, struct net_device *br,
+			       u16 vid, bool control, bool control_cpu)
+{
+	struct bridge_vlan_info vinfo;
+	u16 pvid = 0;
+
+	if (control && control_cpu && vid == VLAN_VID_MASK)
+		return 1;
+
+	if (!br || !br_vlan_enabled(br))
+		return yt921x_qinq_internal_vid(dp, br, vid) ? 1 : -EINVAL;
+
+	if (control && br_vlan_get_pvid_rcu(dp->user, &pvid))
+		return -EINVAL;
+
+	if (control && control_cpu && !vid && !pvid)
+		return 1;
+
+	if (!dsa_yt921x_qinq_customer_vid_valid(dp->ds, vid))
+		return -EINVAL;
+
+	if (!control && dp->stp_state != BR_STATE_LEARNING &&
+	    dp->stp_state != BR_STATE_FORWARDING)
+		return -EINVAL;
+
+	if (br_vlan_get_info_rcu(dp->user, vid, &vinfo))
+		return -EINVAL;
+
+	/* Native PVID tags are equivalent to untagged ingress. In particular,
+	 * LLC/STP consumers need this artificial tag removed. Preserve an
+	 * admitted non-PVID customer tag, and leave all data handling alone.
+	 */
+	return control && vid == pvid ? 1 : 0;
+}
+
 static int yt921x_qinq_pop_inner(struct sk_buff *skb)
 {
 	u16 tci;
@@ -152,14 +233,14 @@ static int yt921x_qinq_pop_inner(struct sk_buff *skb)
 static struct sk_buff *yt921x_qinq_rcv(struct sk_buff *skb,
 				       struct net_device *netdev)
 {
-	struct bridge_vlan_info vinfo;
 	struct vlan_ethhdr *veh;
 	struct net_device *br;
 	struct dsa_port *dp;
-	bool vlan_aware;
+	bool control;
 	u16 outer_tci;
 	u16 inner_tci;
 	u16 inner_vid;
+	int strip;
 
 	/* The conduit is promiscuous, so MAC control frames reach us too. */
 	if (unlikely(eth_hdr(skb)->h_proto == htons(ETH_P_PAUSE)))
@@ -180,35 +261,24 @@ static struct sk_buff *yt921x_qinq_rcv(struct sk_buff *skb,
 
 	inner_tci = ntohs(veh->h_vlan_TCI);
 	inner_vid = inner_tci & VLAN_VID_MASK;
+	control = yt921x_qinq_is_rx_control(skb);
 
-	dp = yt921x_qinq_find_dp(netdev, outer_tci & VLAN_VID_MASK);
+	dp = yt921x_qinq_find_dp(netdev, outer_tci & VLAN_VID_MASK, control);
 	if (!dp)
 		return NULL;
 
 	br = dsa_port_bridge_dev_get(dp);
-	vlan_aware = br && br_vlan_enabled(br);
-
-	if (vlan_aware) {
-		if (!dsa_yt921x_qinq_customer_vid_valid(dp->ds, inner_vid))
-			return NULL;
-
-		if (dp->stp_state != BR_STATE_LEARNING &&
-		    dp->stp_state != BR_STATE_FORWARDING)
-			return NULL;
-
-		if (br_vlan_get_info_rcu(dp->user, inner_vid, &vinfo))
-			return NULL;
-	} else {
-		if (!yt921x_qinq_internal_vid(dp, br, inner_vid))
-			return NULL;
-
-		if (yt921x_qinq_pop_inner(skb))
-			return NULL;
-	}
+	strip = yt921x_qinq_rx_vlan(dp, br, inner_vid, control,
+				  yt921x_qinq_control_cpu(netdev, dp));
+	if (strip < 0 || (strip && yt921x_qinq_pop_inner(skb)))
+		return NULL;
 
 	skb->dev = dp->user;
 	skb->priority = (outer_tci & VLAN_PRIO_MASK) >> VLAN_PRIO_SHIFT;
-	dsa_default_offload_fwd_mark(skb);
+	if (control)
+		skb->offload_fwd_mark = 0;
+	else
+		dsa_default_offload_fwd_mark(skb);
 
 	return skb;
 }
