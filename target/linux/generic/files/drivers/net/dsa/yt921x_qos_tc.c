@@ -665,8 +665,14 @@ yt921x_dsa_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 	int res;
 
 	frame_size = new_mtu + ETH_HLEN + ETH_FCS_LEN;
-	if (dsa_port_is_cpu(dp))
+	if (dsa_port_is_cpu(dp)) {
 		frame_size += YT921X_TAG_LEN;
+	} else if (priv->qinq) {
+		/* User frames may carry a customer C-tag. The CPU allowance
+		 * already covers the internal S+C pair.
+		 */
+		frame_size += VLAN_HLEN;
+	}
 
 	mutex_lock(&priv->reg_lock);
 	res = yt921x_reg_update_bits(priv, YT921X_MACn_FRAME(port),
