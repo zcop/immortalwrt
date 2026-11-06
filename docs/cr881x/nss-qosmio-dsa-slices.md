@@ -1001,3 +1001,109 @@ Evidence: original ignored
 `logs/nss-slices-20261106/slice13-qinq-retry/`, including source/negative-control
 logs, exact source/artifact manifests, `build19-accept/` and
 `flow-reload19-accept/`.
+
+
+## Slice14: tagged unaware-bridge hardware prerequisites
+
+The next slice first separates customer-tag preservation from hardware
+MAC-learning domain selection. Build19 remains installed. A bounded experiment
+uses only otherwise-unused customer VID35 and three marked frames per case;
+normal LAN/WAN configuration and loop protection stay in place.
+
+The vendor field called `L2_VLAN_TBL_SVL_EN` is bit35 of the VTU entry. The
+Linux header had named that bit `SVLAN_EN`. The hardware probe establishes its
+shared-learning function rather than inferring it from the name:
+
+| VID35 entry | Observed external-source hardware FID |
+| --- | --- |
+| No VTU membership | No learned entry |
+| LAN3/CPU8 members, FID35, bit35 clear |35 |
+| Same members, FID3088, bit35 clear |35 |
+| Same members, FID3088, bit35 set |3088 |
+| Restored FID35, bit35 clear |35 |
+
+Untagged baseline traffic learns in bridge FID3088. Therefore writing only the
+FID field does not remap VID35; bit35 must select shared VLAN learning.
+The test uses paired VTU writes through the driver's table API. An earlier
+single-word write/read attempt did not commit the entry and supplies no FID
+remapping result. The earlier workstation ping check followed its Wi-Fi policy
+route; subsequent readiness checks use the pinned Ethernet SSH path without
+changing workstation routing.
+
+With VID35 mapped to FID3088 and only LAN3/CPU8 as tagged members, packet
+captures then show three frames in each direction:
+
+- LAN3 ingress reaches the CPU conduit as outer0x88a8/SVID3074 followed by
+  inner0x8100/CVID35. The marked external source learns in FID3088.
+- Explicit CPU-conduit TX with that pair reaches the Linux endpoint on LAN3
+  with only the customer0x8100/CVID35 tag. The internal S-tag is removed.
+
+These are switch wire-path checks using ordinary marked Ethernet frames;
+they do not establish Linux tagger admission, automatic configuration, or NSS
+acceleration for tagged unaware bridges. An extra script assertion expected a
+synthetic CPU-originated source to appear in the hardware FDB; it did not.
+That expectation is not required for these packet observations, and the reason
+for the absent CPU-source learning remains unestablished. CPU8's inspected
+learning register is zero, so no learning-disable-bit explanation is claimed.
+
+All synthetic FDB entries, temporary bridge VLAN metadata and the VID35 VTU
+entry were removed. Saved config hashes match, UCI changes are empty, eight
+NSS nodes remain without allocation failures, and protection stayed enabled.
+Fresh routed native NSS after restoration reaches936.57Mbps,98.91% CPU idle,
+775254 firmware TX increments and two active ECM connections.
+
+The source prerequisite now corrects bit35 naming/programming in the existing
+SVL control paths. Nonzero-VID adds and mode application set or clear the bit
+with FID; last-member deletion clears both. VID0, partial-member removal and
+unrelated VTU fields retain their existing behavior. The actual-C regression
+passes, and restoring the old add, delete or mode-apply function separately
+fails the emitted-bit checks. Existing transport and MST fast-age regressions
+pass. Both changed driver objects cross-compile with the real AArch64 kernel
+module flags. This source change is committed separately and is not installed; build19
+remains on the router. Full tagged unaware-bridge support still needs coherent
+VTU ownership, tagger admission and exact NSS/ECM leaves. One VTU entry per
+customer VID cannot simultaneously hold different FID mappings for separate
+bridges. This experiment does not resolve that ownership constraint or enable
+an arbitrary transparent VLAN trunk.
+
+Evidence: original ignored
+`logs/nss-slices-20261106/slice14-unaware-tags/`, especially
+`fid-probe-v3/result.json`, `wire-probe/observations.json`,
+`wire-probe/primary-acceptance.json`, `wire-probe/restored.txt` and
+`restored-nss-result.json`. Earlier stopped harness attempts are retained
+separately and are not counted as complete passes.
+
+The alternate private-SVID lookup experiment leaves customer VID35 absent from
+the VTU and selects each port's transport SVID for lookup. The single-port
+wire check preserves the customer tag in both directions and learns the
+external source in FID3088. Earlier two-port LAN1/LAN3 probes received no ARP
+replies while the Windows address was changing. LAN1's egress mirror captured
+three requests and its TX broadcast counter increased by three. That
+diagnostic harness's generic `replies` field counts captured requests; it is
+not evidence of replies.
+
+A fresh Windows readback subsequently confirms192.168.137.1/24 Preferred,
+superseding the earlier link-local address169.254.206.204/16. Retesting that
+current address gives three of three actual ARP replies in both the broadcast
+learning and learned-unicast phases. All replies carry one0x8100/CVID35 tag;
+Windows's MAC learns in hardware FID3088. The simultaneous CPU-conduit capture
+contains zero marked unicast requests. Customer VID35 remains absent from the
+VTU throughout. Two further three-request phases also pass with the per-source
+C-tag transparency overrides disabled and restored, so this test does not
+establish that those overrides are required. This accepts the bounded two-port
+switch packet test, not automatic Linux/NSS support for tagged unaware bridges.
+
+Direct LAN1 register inspection finds PHY BMSR0x796d with link and
+autonegotiation complete, MAC status0x1fa at0x80200 (link bit8, full duplex,
+1Gbps), RX/TX enabled, STP forwarding, learning enabled and LAN3 permitted by
+the isolation mask. Neither loop protection nor 802.1X blocks it. This also
+exposes a debug display bug: the status reader used control-register bit9
+instead of status-register bit8 for link. The source now uses a separate
+`YT921X_PORT_STATUS_LINK` mask without changing control-register bit9. This
+display fix alone is committed as28d529d178. The changed debug object
+cross-compiles for AArch64; it is not installed. Live
+readback confirms link up, mirror register zero, no temporary clsact and no
+UCI changes after restoration. Loop protection stays on. The final retest
+restores all register/table snapshots, leaves eight NSS nodes with no
+allocation failures, and preserves configuration hashes. Evidence:
+`svid-lan-switch-current-ip/result.json`, `learned-fdb.txt` and `cpu.pcap`.
