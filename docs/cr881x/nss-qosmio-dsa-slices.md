@@ -1107,3 +1107,93 @@ UCI changes after restoration. Loop protection stays on. The final retest
 restores all register/table snapshots, leaves eight NSS nodes with no
 allocation failures, and preserves configuration hashes. Evidence:
 `svid-lan-switch-current-ip/result.json`, `learned-fdb.txt` and `cpu.pcap`.
+
+## Slice15: automatic private-SVID switch domains
+
+The QinQ switch backend now programs private-SVID learning domains during
+normal bridge joins, leaves and VLAN filtering changes. Unaware bridge ports
+use their per-port SVID for lookup; their private VTU entries share the bridge
+FID and contain only the bridge's eligible user ports plus the CPU ports.
+Standalone/direct and aware ports retain C-VLAN lookup and egress membership
+filtering. CPU ingress membership filtering is bypassed after setup; the four
+existing rules still require the exact CPU conduit and destination SVID, and
+unmatched CPU traffic remains denied. No additional ACL slots are consumed.
+
+The shared update closes user ingress while rewriting roots, lookup selectors
+and egress filters, flushes dynamic FDB entries, then restores the saved gates.
+A partial I/O failure latches affected ports closed using the existing fault
+path. Customer VID entries, native PVIDs and unrelated VTU fields are preserved.
+The actual-C harness checks bridge peer expansion/shrink, independent FIDs,
+aware/direct behavior, unrelated fields and all18 write,22 read and4 flush
+failure points. Existing FID and MST regressions pass. Replacing synchronization
+with a no-op, or removing shared fault closure, causes runtime assertion failures.
+The changed driver objects also cross-compile with the actual AArch64 flags.
+
+Build20 completes with the existing configuration and12 jobs reported by
+`nproc`. Its sysupgrade SHA256 is
+`28ad08eae6e95c029cf97efb171c1ac8abff75a0f24003c1c900461c60f658cb`.
+Only `yt921x_driver.ko` differs among the compared modules; NSS, ECM, the tagger
+and netifd match build19. The unstripped driver contains the new implementation
+and reproduces the exact packaged bytes after normal OpenWrt stripping.
+One sysupgrade installs build20 in slot1/mtd19, preserving verified build19 in
+slot0/mtd18 and a private host backup. New boot ID:
+`d557a8db-e94f-4609-9818-309821fca738`.
+
+With Linux on LAN3 and Windows on LAN1/VLAN35 at192.168.137.1, the installed
+driver passes these checks without manual hardware register writes:
+
+| Normal Linux configuration | Actual ARP replies to three probes |
+| --- | --- |
+| Same unaware bridge, broadcast |3 |
+| Same unaware bridge, learned unicast |3 |
+| Separate unaware bridges, broadcast |0 |
+| Separate unaware bridges, unicast |0 |
+| LAN1 in a separate aware bridge admitting VLAN35 |0 |
+| LAN1 restored to the original unaware bridge |3 |
+
+Replies retain the customer0x8100/CVID35 tag. VID35 is absent from the VTU in
+the final unaware configuration, and private roots restore automatically.
+The existing STP forward delay is observed before the rejoin packet check.
+CPU8 remains at2.5Gbps, user/CPU frame limits remain1522/1526, loop protection
+stays on, configuration hashes match, and eight NSS nodes remain without
+allocation failures. The link-status display fix is confirmed on the installed
+driver (`link=1`, speed1000).
+
+After Windows returns to WAN, a hardware mirror first finds untagged DHCP
+Discover packets answered by Windows with VLAN35-tagged Offers. Fresh Windows
+VLAN0 readback resolves that endpoint mismatch; the initial DHCP timeout is
+retained separately and is not a firmware throughput result. The temporary
+mirror is removed, and the router's configuration is preserved.
+
+Native routed NSS then reaches936.59/936.40Mbps forward/reverse with
+98.55/98.33% CPU idle,774371/755974 firmware TX increments and two active ECM
+connections in each direction. Installed module hashes, fallback build19,
+configuration, CPU link speed, frame limits and protection settings pass.
+
+One55s TCP session also completes through netifd-driven LAN1 detach, standalone
+`lan1.35` creation/removal and bridge rejoin. Every post-change sample has
+accel_mode2 and increasing firmware counters; the node count follows8/9/8/8
+with no allocation failures. The conduit, LAN2 and LAN3 retain flags0x1303,
+and continuous netlink capture records zero administrative-down events for
+those interfaces. No manual LAN restart or TCP reconnection is used.
+
+This run averages884.84Mbps and has temporary throughput dips during reload,
+including two one-second intervals near98.5Mbps around upper removal, before
+returning to roughly936Mbps. The older build19 run averaged926.66Mbps in the
+same test. These are individual runs, so they do not establish the cause or
+size of a performance regression. They establish recovery at the sampled
+times; uninterrupted acceleration and reload performance remain separate
+optimization work. Configuration hashes match after restoration, temporary
+interfaces and mirrors are absent, eight NSS nodes remain healthy, and loop
+protection stays enabled. Windows is left on WAN/VLAN0 and Linux on LAN3.
+
+This slice changes switch programming only. Tagged unaware-bridge traffic
+through Linux/NSS still needs tagger admission and exact customer VLAN leaf
+ownership; the switch packet results do not establish that host/firmware path.
+
+Evidence: original ignored
+`logs/nss-slices-20261106/slice15-svid-domains/`, especially
+`source-checks.json`, `arm-build-candidate/result.json`, `build20-artifacts.json`,
+`driver-strip-check.json`, `build20-lan-accept/result.json`,
+`wan-wire-readiness/result.json`, `build20-native-accept-v2/results.json`,
+`flow-reload20-accept/results.json` and `restored-final.json`.
