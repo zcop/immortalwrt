@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /* QinQ transport for the Motorcomm YT921x switch.
  *
- * Wire format:
+ * Data wire format:
  *   DA | SA | 88a8 | outer S-TCI | 8100 | inner C-TCI | ethertype | payload
  *
  * The outer S-tag is owned by the CPU transport. The switch inserts it on
@@ -14,6 +14,17 @@
  * VLAN-unaware bridge ports it is the internal transport VLAN and is stripped
  * before the frame reaches Linux.
  *
+ * Link-local control exception (DA 01:80:c2:00:00:00..0f):
+ *   DA | SA | 9988 | 0000 | code/prio | tx port | [8100 | C-TCI] | ethertype
+ *
+ * These frames bypass the QinQ transport tags and carry the legacy 8-byte
+ * YT921x CPU forwarding tag instead. Zero or one existing customer C-tag is
+ * preserved verbatim; no S-tag or synthetic C-tag is added. This is a TX host
+ * slowpath exception only: data traffic retains the accelerated QinQ path,
+ * Control TX uses CPU8, including WAN; RX handling is unchanged.
+ * It does not claim complete STP or
+ * control-plane support.
+ *
  * Only zero or one customer VLAN is supported, and CPU-originated bridge
  * traffic is replicated by Linux per destination port. Switch bridge joins
  * therefore have to leave tx_fwd_offload false; frames arriving with
@@ -21,6 +32,7 @@
  */
 #include <linux/dsa/8021q.h>
 #include <linux/dsa/yt921x_qinq.h>
+#include <linux/etherdevice.h>
 #include <linux/if_bridge.h>
 #include <linux/if_vlan.h>
 #include <net/dsa.h>
@@ -28,6 +40,19 @@
 #include "tag.h"
 
 #define YT921X_QINQ_NAME "yt921x-qinq"
+
+#define YT921X_QINQ_CPU_TAG_LEN		8
+#define YT921X_QINQ_CPU_TAG_CONTROL_PORT	8
+
+#define YT921X_QINQ_CPU_TAG_PORT_EN		BIT(15)
+#define YT921X_QINQ_CPU_TAG_PRIO_M		GENMASK(10, 8)
+#define  YT921X_QINQ_CPU_TAG_PRIO(x)		FIELD_PREP(YT921X_QINQ_CPU_TAG_PRIO_M, (x))
+#define YT921X_QINQ_CPU_TAG_CODE_EN		BIT(7)
+#define YT921X_QINQ_CPU_TAG_CODE_M		GENMASK(6, 1)
+#define  YT921X_QINQ_CPU_TAG_CODE(x)		FIELD_PREP(YT921X_QINQ_CPU_TAG_CODE_M, (x))
+#define YT921X_QINQ_CPU_TAG_TX_PORTn(port)	BIT(port)
+
+#define YT921X_QINQ_CPU_TAG_CODE_FORWARD	0x00
 
 static bool yt921x_qinq_is_vlan_tpid(__be16 proto)
 {
@@ -188,6 +213,107 @@ static struct sk_buff *yt921x_qinq_rcv(struct sk_buff *skb,
 	return skb;
 }
 
+static bool yt921x_qinq_is_control_frame(struct sk_buff *skb)
+{
+	if (!pskb_may_pull(skb, ETH_HLEN))
+		return false;
+
+	return is_link_local_ether_addr(eth_hdr(skb)->h_dest);
+}
+
+/* Frame a link-local control packet with the legacy YT921x CPU tag. The
+ * caller owns the skb on both success and error.
+ */
+static struct sk_buff *
+yt921x_qinq_xmit_control(struct sk_buff *skb, struct dsa_port *dp)
+{
+	struct vlan_ethhdr *veh;
+	__be16 *tag;
+	u16 tx;
+
+	if (skb_vlan_tag_present(skb)) {
+		if (skb->vlan_proto != htons(ETH_P_8021Q))
+			return NULL;
+
+		if (__vlan_insert_tag(skb, skb->vlan_proto,
+				      skb_vlan_tag_get(skb)))
+			return NULL;
+
+		__vlan_hwaccel_clear_tag(skb);
+		skb->protocol = htons(ETH_P_8021Q);
+	}
+
+	if (!pskb_may_pull(skb, ETH_HLEN))
+		return NULL;
+
+	veh = skb_vlan_eth_hdr(skb);
+	if (veh->h_vlan_proto == htons(ETH_P_8021Q)) {
+		if (!pskb_may_pull(skb, VLAN_ETH_HLEN))
+			return NULL;
+
+		veh = skb_vlan_eth_hdr(skb);
+		if (yt921x_qinq_is_vlan_tpid(veh->h_vlan_encapsulated_proto))
+			return NULL;
+	} else if (yt921x_qinq_is_vlan_tpid(veh->h_vlan_proto)) {
+		return NULL;
+	}
+
+	if (skb->ip_summed == CHECKSUM_PARTIAL && skb_checksum_help(skb))
+		return NULL;
+
+	if (unlikely(skb_cow_head(skb, YT921X_QINQ_CPU_TAG_LEN) < 0))
+		return NULL;
+
+	skb_push(skb, YT921X_QINQ_CPU_TAG_LEN);
+	dsa_alloc_etype_header(skb, YT921X_QINQ_CPU_TAG_LEN);
+
+	tag = dsa_etype_header_pos_tx(skb);
+
+	tag[0] = htons(ETH_P_YT921X);
+	tag[1] = 0;
+	tag[2] = htons(YT921X_QINQ_CPU_TAG_CODE(YT921X_QINQ_CPU_TAG_CODE_FORWARD) |
+		       YT921X_QINQ_CPU_TAG_CODE_EN |
+		       YT921X_QINQ_CPU_TAG_PRIO(skb->priority));
+	tx = YT921X_QINQ_CPU_TAG_PORT_EN |
+	     YT921X_QINQ_CPU_TAG_TX_PORTn(dp->index);
+	tag[3] = htons(tx);
+
+	return skb;
+}
+
+/* The driver restricts QinQ to the CR881x CPU8/CPU4 topology. The
+ * proprietary command parser is on CPU8, even for a WAN destination.
+ * Clone secondary-conduit control TX so dsa_user_xmit still owns its skb;
+ * dev_queue_xmit consumes only our clone. Data keeps its normal conduit.
+ */
+static struct sk_buff *
+yt921x_qinq_xmit_control_port(struct sk_buff *skb, struct dsa_port *dp)
+{
+	struct dsa_switch *ds = dp->ds;
+	struct dsa_port *cpu;
+	struct sk_buff *control;
+
+	if (ds->num_ports <= YT921X_QINQ_CPU_TAG_CONTROL_PORT ||
+	    !dsa_is_cpu_port(ds, YT921X_QINQ_CPU_TAG_CONTROL_PORT))
+		return NULL;
+	cpu = dsa_to_port(ds, YT921X_QINQ_CPU_TAG_CONTROL_PORT);
+	if (!cpu->conduit)
+		return NULL;
+	if (dp->cpu_dp == cpu)
+		return yt921x_qinq_xmit_control(skb, dp);
+
+	control = skb_clone(skb, GFP_ATOMIC);
+	if (!control)
+		return NULL;
+	if (!yt921x_qinq_xmit_control(control, dp)) {
+		kfree_skb(control);
+		return NULL;
+	}
+	control->dev = cpu->conduit;
+	dev_queue_xmit(control);
+	return NULL;
+}
+
 static struct sk_buff *yt921x_qinq_xmit(struct sk_buff *skb,
 					struct net_device *netdev)
 {
@@ -206,6 +332,9 @@ static struct sk_buff *yt921x_qinq_xmit(struct sk_buff *skb,
 	 */
 	if (unlikely(skb->offload_fwd_mark))
 		return NULL;
+
+	if (yt921x_qinq_is_control_frame(skb))
+		return yt921x_qinq_xmit_control_port(skb, dp);
 
 	br = dsa_port_bridge_dev_get(dp);
 	vlan_aware = br && br_vlan_enabled(br);

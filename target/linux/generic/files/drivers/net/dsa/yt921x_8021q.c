@@ -291,10 +291,22 @@ static int yt921x_qinq_cpu_port_enter(struct yt921x_priv *priv, int port)
 	/* An S-untagged CPU frame would fall back to the default SVID (VLAN
 	 * 1, every port) and could flood outside the conduit. Drop it.
 	 */
-	return yt921x_reg_update_bits(priv, YT921X_PORTn_VLAN_CTRL1(port),
+	res = yt921x_reg_update_bits(priv, YT921X_PORTn_VLAN_CTRL1(port),
 				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_TAGGED |
 				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED,
 				      YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED);
+	if (res)
+		return res;
+
+	/* Reserved multicast needs the CPU control path even though ordinary
+	 * traffic uses VLAN transport. Keep TAG_EN clear: ingress control
+	 * copies retain the SVID/CVID pair, and host control TX uses an explicit
+	 * forwarding command. On CR881x this mode preserves routed NSS traffic
+	 * while allowing BPDUs to reach the host and the selected user port.
+	 */
+	return yt921x_reg_write(priv, YT921X_EXT_CPU_PORT,
+		YT921X_EXT_CPU_PORT_PORT_EN |
+		YT921X_EXT_CPU_PORT_PORT(priv->primary_cpu_port));
 }
 
 static int yt921x_qinq_user_port_enter(struct yt921x_priv *priv, int port)

@@ -152,6 +152,15 @@ int main(void) {
  assert((a & (BIT(4)|BIT(8)|BIT(3)))==(BIT(4)|BIT(8)|BIT(3))); assert(!(a & 7));
  assert((b & (BIT(4)|BIT(8)|7))==(BIT(4)|BIT(8)|7));assert(!(b & BIT(3)));
  puts("PASS: both CPU links retain opposite LAN/WAN isolation");
+ reset();priv.qinq=true;
+ assert(!yt921x_8021q_port_enter(&priv,8));
+ assert(registers[YT921X_EXT_CPU_PORT/4]==(BIT(14)|8));
+ assert(!yt921x_8021q_port_enter(&priv,4));
+ assert(registers[YT921X_EXT_CPU_PORT/4]==(BIT(14)|8));
+ assert(!(registers[YT921X_EXT_CPU_PORT/4]&BIT(15)));
+ assert(registers[YT921X_PORTn_VLAN_CTRL1(8)/4]&YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED);
+ assert(registers[YT921X_PORTn_VLAN_CTRL1(4)/4]&YT921X_PORT_VLAN_CTRL1_SVLAN_DROP_UNTAGGED);
+ puts("PASS: QinQ keeps untagged CPU control mode across either conduit setup");
  reset();assert(!tag(0,3072));assert(!yt921x_tag_8021q_vlan_add(&priv.ds,8,3072,0));
  assert(pvid(0)==3072);assert(vlan(3072)&YT921X_VLAN_CTRL_UNTAG_PORTn(0));assert(!(vlan(3072)&YT921X_VLAN_CTRL_UNTAG_PORTn(8)));
  assert(!tag(0,3089));assert(!yt921x_tag_8021q_vlan_del(&priv.ds,0,3072));assert(pvid(0)==3089);
