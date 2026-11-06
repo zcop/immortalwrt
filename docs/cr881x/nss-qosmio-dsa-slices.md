@@ -799,3 +799,205 @@ regressions pass before committing. The MTU cross-compilation result matches
 the committed source bytes. The installed image remains build16; a new image
 build and installation are required to make its MTU correction persistent.
 No push or release is included.
+
+### Build17: installed MTU correction and tagged LAN acceptance
+
+Build17 was built from committed HEAD `e88a0992a9dc` with the existing Qosmio
+profile and unchanged `.config` hash. The twelve build jobs came from `nproc`.
+Its frozen sysupgrade SHA256 is
+`6faa572dff6196548052eba36512d98dfaf80d8e5c1f9696c12c323e7eccccaf`.
+The one-time sysupgrade installed slot0, preserving and hash-checking build16
+in slot1/mtd19. The new boot ID is
+`0d103c66-d194-4356-bd26-3ae77af7be19`; installed module hashes match the
+frozen image. Only `yt921x_driver.ko` differs from build16's six recorded
+NSS/DSA modules.
+
+All four user MACs now receive1522-byte frames automatically; CPU4/CPU8 retain
+1526 bytes. The2.5Gbps LAN CPU link and normal protections remain enabled.
+The following tests did not change raw frame-limit registers. Each tagged
+case passed three full-size ICMP probes with1472-byte payloads.
+
+| Build17 routed TCP, unpaced | Forward Mbps | Reverse Mbps | CPU idle forward/reverse | Firmware TX increments forward/reverse |
+| --- | --- | --- | --- | --- |
+| Native WAN after boot |936.62 |936.38 |95.94 /98.80% |773019 /754873 |
+| Real tagged `wan.35` |936.54 |936.64 |98.21 /98.68% |770971 /753338 |
+| Real tagged `lan1.35` |879.67 |938.71 |98.67 /98.07% |752823 /757804 |
+| Real tagged `lan1.4094` |882.23 |939.00 |98.43 /98.07% |765568 /755532 |
+| Native WAN after restoration |936.60 |936.35 |98.55 /98.55% |763228 /757018 |
+
+Every run recorded two active ECM connections. Tagged runs had zero VLAN and
+interface mismatch increments. Linux stayed on LAN3. Windows used a real
+customer tag on the physical endpoint port; LAN1 tests exercised
+SVID3072/CVID35 or4094 on `phys_if=1`, with tagged user0/CPU8 VTU membership
+`0x101`. WAN35 used `phys_if=0`. The LAN forward rate remains below the WAN
+result; these short runs establish functional offload, not full throughput
+parity between the topologies.
+
+WAN35 obtained DHCP. The LAN tests used temporary static192.168.137.254 on
+the router after DHCP did not complete. Windows remained192.168.137.1.
+All temporary devices/interface settings were removed, the three saved config
+hashes match, and UCI changes are empty. Windows is restored to WAN/VLAN0;
+normal WAN DHCP obtained192.168.137.134. Eight firmware nodes remain with no
+allocation failures. No new unfinished-feature guards were added.
+
+### Shared-conduit reload failure: reproduced and traced
+
+The first LAN preparation attempts lost management during netifd reload.
+Serial confirmed the kernel remained alive. A later explicit `ifup lan`
+restored management; accepted LAN packet measurements required that recovery
+and do not establish automatic lifecycle correctness.
+
+A bounded idle-port test reproduced both triggers without cable changes:
+remove LAN1 from the unaware bridge, then create a standalone `lan1.35`
+interface. Temporary matching-build udebug tools captured netifd's existing
+DEVICE/SYSTEM ring without restarting the daemon. Netlink events and sysfs
+flags were recorded alongside netifd device status.
+
+The detach releases LAN1's netifd parent claim, reducing `eth1`'s active count
+to zero and calling `system_if_down(eth1)`. Kernel DSA closes all user ports
+sharing that CPU conduit. LAN2/LAN3 then lack `IFF_UP` while netifd still
+reports `up=true`. Creating the VLAN upper creates/reopens the conduit and
+LAN1; LAN2/LAN3 remain down until explicitly reapplied. This is an
+administrative lifecycle failure, distinct from the successful tagged-frame
+and firmware-forwarding checks above. A focused source correction is being
+prepared; it is not installed or accepted yet.
+
+The bounded worker restored the saved network, LAN/WAN carrier and eight
+firmware nodes. Temporary tracing was stopped, persistent config hashes match,
+and loop protection stayed enabled throughout. Transparent tagged unaware
+bridges and the broader policy/recovery matrix remain open.
+
+Evidence: original ignored
+`logs/nss-slices-20261106/slice11-mtu-image/`, including frozen build17 source
+and artifact manifests, `build17-accept/`, `tagged-wan-build17/`,
+`direct-lan1-build17/`, `high-vid-lan1-build17/`,
+`build17-restored-accept/` and `lifecycle-trace/`. Failed preparation attempts
+are retained separately and are not counted as automatic recovery passes.
+
+### Build18: shared-conduit lifecycle correction accepted
+
+The netifd patch
+`package/network/config/netifd/patches/100-dsa-keep-conduit-lifecycle-with-kernel.patch`
+excludes DSA user ports from automatic parent-device ownership on kernels
+where the existing DSA-conduit query is available. Kernel DSA already opens
+the conduit when opening a user port. Ordinary parent discovery and the
+pre-6.1 path retain their existing behavior. This fixes the administrative
+lifetime problem without changing switch registers, firmware tags or the
+NSS/DSA modules.
+
+The actual-C regression exercises the patched parent-discovery function with
+6.18 and5.15 paths; the original source fails the required DSA-parent check.
+The full netifd package cross-compilation and image build passed, and prepared
+source bytes match the reviewed patch applied to the pinned pristine source.
+Source changes remain uncommitted at this checkpoint.
+
+Build18's frozen sysupgrade SHA256 is
+`d26fac777e93dd06cbd61a76fc7071f3933de3e528b9dd3734842d0657d47c8c`.
+A one-time sysupgrade installed slot1 and preserved the verified build17
+slot0/mtd18. Boot ID is `6c4a9387-b1e1-409e-b3dc-02d089e594c4`.
+The installed `sbin/netifd` SHA256 matches
+`6ce26d2fad14d6031e4712a97682d8eaefe9cca81ee1765e3aa41756140e419d`;
+all six recorded DSA/NSS module hashes are identical to build17. The profile,
+config hashes and automatic1522/1526-byte frame limits are preserved.
+Native NSS reached933.01/936.66Mbps,98.30/98.21% CPU idle,764000/752907
+firmware TX increments and two active ECM connections per direction.
+
+The complete formerly failing sequence then passed without a manual LAN
+restart: detach idle LAN1 from `br-lan`, create a configured standalone
+`lan1.35` interface, remove it, and rejoin LAN1. In all five sampled phases,
+`eth1`, LAN2 and LAN3 retain flags `0x1303`; the continuous netlink capture
+records zero administrative-down events for those devices. Firmware nodes
+transition8→9→8, with no allocation failures. Fresh routed NSS traffic while
+the upper exists reaches927.25Mbps/99.04% idle with767962 firmware TX
+increments; after restoration it reaches936.56Mbps/97.30% idle with756699
+increments. Each fresh transfer has two active ECM connections.
+
+The separate existing-flow regression is not accepted: a TCP connection
+started before the LAN1 detach has two active ECM rules before the change,
+then none three seconds after it. Host forwarding continues as its rate
+falls toward450Mbps. A subsequent35-second diagnostic confirms zero active
+ECM rules at both3 and13 seconds after the change, with unchanged firmware
+packet counts between those samples. The replacement TCP connection's ECM
+state reports `can_accel=1` and `accel_mode=-2` (`FAIL_RULE`) at both times.
+Host forwarding continues; the675.75Mbps whole-run average includes the
+initial accelerated period and is not a software-path benchmark. Fresh flows
+after the same topology changes accelerate normally. A bounded source review
+supports separating transient QinQ lookup failures from permanent bad-rule
+classification; its implementation and candidate validation remain pending.
+The netifd lifecycle fix and existing-flow reacceleration are therefore
+tracked as separate results.
+
+All temporary interface settings are restored, UCI changes are empty, original
+config hashes match, and Linux remains LAN3 with Windows WAN/VLAN0. Loop
+protection remains enabled. No new feature guards, commit, push or release
+are included.
+
+Evidence: original ignored
+`logs/nss-slices-20261106/slice12-dsa-conduit/`, including exact source and
+artifact manifests, `build18-accept/`, `reload18-accept/` (combined check
+failed on existing-flow acceleration) and `port-reload18-accept/` (complete
+port-lifecycle and fresh-flow checks passed).
+
+
+### Build19: existing-flow NSS reacceleration accepted
+
+Build18's surviving TCP flow remained in `FAIL_RULE` after topology changes.
+Build19 distinguishes temporary QinQ resolver unavailability (`-EAGAIN`) from
+invalid/missing/ambiguous mappings. Only the ECM resolver receives this new
+result; the root and lookup APIs retain their old negative-result contract.
+A terminal retry flag keeps allocation give-up and shutdown hard, while a
+lock-protected generation prevents stale give-up from closing a fresh retry
+window. The new `0107-retry-transient-qinq-resolution.patch` preserves exact
+`-EAGAIN` through ECM and leaves IPv4/IPv6 attempts decelerated for a later
+packet. Both acquired interface lists, the message and pending acceleration
+state are released exactly once. Mixed hard errors retain the bad-rule path.
+Firmware tags, port maps and the NSS command ABI are unchanged.
+
+The actual-C controller, side resolver, collector and IPv4/IPv6 cleanup tests
+pass. Semantic negative controls restore the old controller result, old ECM
+normalization, or omit a list release; each fails its required C assertion.
+The new patch applies with zero fuzz. Both kernel packages and the full image
+cross-compile, with prepared ECM source matching the reviewed bytes. The same
+profile/config and twelve jobs from `nproc` are used.
+
+Frozen sysupgrade SHA256:
+`31be739699cbf03f9dd3e0adce877100bd62b5b8a26bfb8fb64f7bd2d4fa8213`.
+The once-only upgrade installed slot0/mtd18. Build18 remains in slot1/mtd19,
+verified against its pre-upgrade raw hash and host backup. Build19 boot ID is
+`4d455fc6-455d-4615-b7df-2b5cfe381a42`. Installed hashes match the image;
+only `qca-nss-qinq.ko` and `ecm.ko` differ among the six recorded modules.
+Netifd and the other NSS/DSA modules match build18. Configuration, guards,
+2.5Gbps LAN conduit and automatic1522/1526-byte frame limits are preserved.
+
+Fresh unpaced NSS traffic reaches936.65/936.31Mbps forward/reverse,
+98.55/98.92% CPU idle,759147/757170 firmware TX increments and two active
+ECM connections per direction.
+
+A single55-second TCP test then spans LAN1 detach, creation of configured
+`lan1.35`, removal of that upper, and LAN1 rejoin. At each sample three seconds
+after the reload, the data flow is accelerated (`accel_mode=2`), without
+`FAIL_RULE`. Firmware TX increments between adjacent samples are:
+
+| Transition | Firmware TX increment | Firmware nodes |
+| --- | --- | --- |
+| LAN1 detached |368670 |8 |
+| VLAN upper created |371726 |9 |
+| VLAN upper removed |337750 |8 |
+| LAN1 rejoined |361322 |8 |
+
+The same TCP session completes at926.66Mbps over the entire test, including
+the transitions. This establishes recovery at the sampled times, not zero
+transient software forwarding. `eth1`, LAN2 and LAN3 retain flags0x1303;
+continuous netlink capture records zero administrative-down events for them.
+No manual LAN restart or iperf reconnection is used. Allocation failures stay
+zero. Saved config hashes match, UCI changes are empty, and temporary devices
+are removed. Linux stays LAN3; Windows stays WAN/VLAN0. No new feature guard,
+commit, push or release is included.
+
+Remaining gates include transparent customer tags on VLAN-unaware bridges,
+the broader NSS policy/recovery matrix, cold/warm boot, native host restore
+and live IPv6 traffic. IPv6 retry paths have source and build coverage only.
+Evidence: original ignored
+`logs/nss-slices-20261106/slice13-qinq-retry/`, including source/negative-control
+logs, exact source/artifact manifests, `build19-accept/` and
+`flow-reload19-accept/`.

@@ -4,11 +4,15 @@ Status: native CR881x DT, phylink dataplane adapter, automatic QinQ node
 provisioning and routed IPv4/IPv6 ECM mapping are implemented and build on
 Linux 6.18.55. Native sysupgrade, automatic NSS/QinQ startup and routed IPv4
 acceleration are now hardware-validated (2026-11-05): 935–936 Mbps TCP in
-both directions and 900 Mbps UDP without loss. Build11 now runs in slot0 and
-tested native build10 remains in slot1; the Kuncy7 source and host backups
+both directions and 900 Mbps UDP without loss. Build19 now runs in slot0 and
+tested build18 remains in slot1; the Kuncy7 source and host backups
 remain references. See [device test details](nss-qosmio-device-test.md) for
 the initial migration and [subsequent slices](nss-qosmio-dsa-slices.md) for
-the current image, RAM-only capture fix and remaining gates.
+the current image, tagged WAN/LAN traffic, persistent MTU fix and remaining
+gates. The shared-conduit netifd reload failure is corrected and validated in
+build18. Build19 also validates existing TCP flow reacceleration after LAN1
+detach, direct VLAN-interface creation/removal and rejoin. The same connection
+returns to NSS after each transition, without restarting LAN or the test.
 
 ## Sources and branch ownership
 
@@ -109,14 +113,23 @@ VID. ECM lookups see only configured nodes with a ready matching parent.
 Topology events block new lookups immediately, and resync invalidates ECM
 connections before rebuilding stale nodes. Module teardown cancels work and
 withdraws lookup readiness before unregistering nodes.
+Build19 distinguishes a retryable resolver outage during rebuilding from hard
+lookup failures. ECM keeps IPv4/IPv6 acceleration attempts decelerated during
+that window, releases both interface lists and the message, and retries on a
+later packet. Terminal exhaustion and mixed hard errors remain failures; a
+generation check prevents an older give-up from closing a new retry window.
+IPv4 behavior is device-tested; IPv6 has source tests and cross-compilation
+coverage, with live IPv6 traffic still pending.
 
 A recoverable sysupgrade boot, automatic startup, link inspection and
 bidirectional routed IPv4 flows with firmware counters have passed. The
 slice report adds cross-conduit switching/isolation, high customer VIDs,
 MST state/FID flushing and hardware ACL/mirror/rate-control evidence.
-Captures with the rebuilt libpcap work from RAM; that patch is not in build11.
-Remaining gates include physical-loop/STP control delivery, surviving-flow
-reacceleration, cold/warm boot, native host restore and IPv6 traffic.
+Build17 includes the libpcap correction, and physical-loop/STP control delivery
+passed in build13. Native and standalone tagged WAN/LAN NSS, including
+customer VID4094, now have packet-level evidence. Remaining gates include
+transparent tagged unaware bridges, cold/warm boot, native host restore
+and IPv6 traffic.
 Compilation or a rule ACK alone does not prove packet fate. Wi-Fi NSS remains
 disabled; no radio acceleration is claimed.
 
@@ -143,9 +156,9 @@ identified missing customer-tag receive headroom on user ports: increasing
 WAN's frame limit from1518 to1522 bytes restores936.6/936.3Mbps unpaced. The
 source correction and actual-callback regression are validated, including an
 AArch64 compilation with the kernel module flags. Build16 still has the
-original limit; rebuilding/installing the image is the remaining deployment step.
-Direct LAN uppers have membership/lifecycle coverage but still
-need tagged endpoint traffic tests. Bridged, stacked and S-tagged direct
+original limit. Build17 installed the correction and passed real tagged WAN35,
+LAN1.35 and LAN1.4094 endpoint traffic in both directions, as recorded in the
+slice report. Bridged, stacked and S-tagged direct
 interfaces are not admitted to that transport.
 QinQ PPP/tunnel hierarchies, L2/multicast/non-ported acceleration and ambiguous
 customer VLANs remain outside this mapping. PPPoE packages compile, but PPPoE
