@@ -122,6 +122,8 @@ static unsigned int dsa_nss_retries;
 static bool dsa_nss_waiting_phys;
 static bool dsa_nss_reconfiguring;
 static bool dsa_nss_stopping;
+static bool dsa_nss_retry_exhausted;	/* reconfiguring is no longer retryable */
+static unsigned int dsa_nss_generation;	/* bumped by every schedule */
 static atomic_t dsa_nss_changed = ATOMIC_INIT(1);
 
 /* Optional ECM module: invalidate accelerated rules before topology changes. */
@@ -575,6 +577,10 @@ EXPORT_SYMBOL_GPL(qca_nss_qinq_lookup);
 /*
  * Resolve an exact leaf. A zero customer VID is accepted only if this
  * port has one ready leaf; never guess among several customer VLANs.
+ *
+ * -EAGAIN while a resync is still retryable: ECM can leave the rule
+ * decelerated and try again on a later packet. After give-up or during
+ * shutdown the legacy negative result applies.
  */
 int qca_nss_qinq_resolve(struct net_device *conduit, u16 svid, u16 *vid);
 int qca_nss_qinq_resolve(struct net_device *conduit, u16 svid, u16 *vid)
@@ -586,8 +592,11 @@ int qca_nss_qinq_resolve(struct net_device *conduit, u16 svid, u16 *vid)
 	if (phys_if < 0)
 		return -1;
 	spin_lock_bh(&dsa_nss_table_lock);
-	if (dsa_nss_reconfiguring)
+	if (dsa_nss_reconfiguring) {
+		if (!dsa_nss_retry_exhausted && !READ_ONCE(dsa_nss_stopping))
+			result = -EAGAIN;
 		goto out;
+	}
 	for (i = 0; i < DSA_NSS_MAX_NODES; i++) {
 		struct dsa_nss_node *n = &dsa_nss_nodes[i];
 
@@ -780,10 +789,23 @@ static bool dsa_nss_resync(void)
 	return again;
 }
 
+static void dsa_nss_mark_exhausted(unsigned int generation)
+{
+	spin_lock_bh(&dsa_nss_table_lock);
+	if (dsa_nss_generation == generation)
+		dsa_nss_retry_exhausted = true;
+	spin_unlock_bh(&dsa_nss_table_lock);
+}
+
 static void dsa_nss_work_fn(struct work_struct *work)
 {
+	unsigned int generation;
+
 	if (READ_ONCE(dsa_nss_stopping))
 		return;
+	spin_lock_bh(&dsa_nss_table_lock);
+	generation = dsa_nss_generation;
+	spin_unlock_bh(&dsa_nss_table_lock);
 	if (dsa_nss_resync()) {
 		if (!READ_ONCE(dsa_nss_stopping) &&
 		    dsa_nss_retries++ < DSA_NSS_MAX_RETRIES) {
@@ -792,6 +814,11 @@ static void dsa_nss_work_fn(struct work_struct *work)
 			schedule_delayed_work(&dsa_nss_work,
 					      msecs_to_jiffies(DSA_NSS_RETRY_MS));
 		} else {
+			/*
+			 * A topology event may have started a fresh retry
+			 * window while this resync was running.
+			 */
+			dsa_nss_mark_exhausted(generation);
 			pr_warn("qca-nss-qinq: giving up after %u retries; write 1 to debugfs 'resync' to try again\n",
 				dsa_nss_retries);
 		}
@@ -807,6 +834,8 @@ static void dsa_nss_schedule(void)
 	/* Stop new rule lookups immediately, before the coalesced work runs. */
 	spin_lock_bh(&dsa_nss_table_lock);
 	dsa_nss_reconfiguring = true;
+	dsa_nss_retry_exhausted = false;
+	dsa_nss_generation++;
 	spin_unlock_bh(&dsa_nss_table_lock);
 	atomic_set(&dsa_nss_changed, 1);
 	WRITE_ONCE(dsa_nss_retries, 0);

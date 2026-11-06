@@ -1,0 +1,111 @@
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -213,6 +213,10 @@
+ 	}
+ 	side->leaf = resolve(conduit, svid, &cvid);
+ 	symbol_put(qca_nss_qinq_resolve);
++	if (side->leaf == -EAGAIN) {
++		ret = -EAGAIN;
++		goto unlock;
++	}
+ 	if (side->leaf < 0 || !cvid || cvid == VLAN_VID_MASK) {
+ 		ret = -ENOENT;
+ 		goto unlock;
+--- a/frontends/nss/ecm_nss_ported_ipv4.c
++++ b/frontends/nss/ecm_nss_ported_ipv4.c
+@@ -311,6 +311,34 @@
+ 	ecm_db_connection_deref(ci);
+ }
+ 
++/*
++ * Leave a QinQ flow decelerated when the resolver is temporarily unable to
++ * name its leaf. Both interface lists are held here; no NSS rule or
++ * connection ref exists yet.
++ */
++static bool ecm_nss_qinq_ipv4_rule_retry(struct ecm_front_end_connection_instance *feci,
++					 struct nss_ipv4_msg *nim,
++					 struct ecm_db_iface_instance *from_ifaces[],
++					 int32_t from_first,
++					 struct ecm_db_iface_instance *to_ifaces[],
++					 int32_t to_first,
++					 int qinq_from_status, int qinq_to_status,
++					 int32_t from_iface_id, int32_t to_iface_id)
++{
++	if (qinq_from_status != -EAGAIN && qinq_to_status != -EAGAIN)
++		return false;
++	if ((qinq_from_status < 0 && qinq_from_status != -EAGAIN) ||
++	    (qinq_to_status < 0 && qinq_to_status != -EAGAIN) ||
++	    (qinq_from_status != -EAGAIN && from_iface_id < 0) ||
++	    (qinq_to_status != -EAGAIN && to_iface_id < 0))
++		return false;
++	ecm_db_connection_interfaces_deref(from_ifaces, from_first);
++	ecm_db_connection_interfaces_deref(to_ifaces, to_first);
++	kfree(nim);
++	ecm_nss_ipv4_accel_pending_clear(feci, ECM_FRONT_END_ACCELERATION_MODE_DECEL);
++	return true;
++}
++
+ /*
+  * ecm_nss_ported_ipv4_connection_accelerate()
+  *	Accelerate a connection
+@@ -426,6 +454,11 @@
+ 		from_nss_iface_id = qinq_from.physical;
+ 	if (qinq_to_status > 0)
+ 		to_nss_iface_id = qinq_to.physical;
++	if (ecm_nss_qinq_ipv4_rule_retry(feci, nim, from_ifaces, from_ifaces_first,
++					 to_ifaces, to_ifaces_first,
++					 qinq_from_status, qinq_to_status,
++					 from_nss_iface_id, to_nss_iface_id))
++		return;
+ 	if (qinq_from_status < 0 || qinq_to_status < 0 ||
+ 	    (from_nss_iface_id < 0) || (to_nss_iface_id < 0)) {
+ 		DEBUG_TRACE("%px: from_nss_iface_id: %d, to_nss_iface_id: %d\n", feci, from_nss_iface_id, to_nss_iface_id);
+--- a/frontends/nss/ecm_nss_ported_ipv6.c
++++ b/frontends/nss/ecm_nss_ported_ipv6.c
+@@ -318,6 +318,34 @@
+ 	ecm_db_connection_deref(ci);
+ }
+ 
++/*
++ * Leave a QinQ flow decelerated when the resolver is temporarily unable to
++ * name its leaf. Both interface lists are held here; no NSS rule or
++ * connection ref exists yet.
++ */
++static bool ecm_nss_qinq_ipv6_rule_retry(struct ecm_front_end_connection_instance *feci,
++					 struct nss_ipv6_msg *nim,
++					 struct ecm_db_iface_instance *from_ifaces[],
++					 int32_t from_first,
++					 struct ecm_db_iface_instance *to_ifaces[],
++					 int32_t to_first,
++					 int qinq_from_status, int qinq_to_status,
++					 int32_t from_iface_id, int32_t to_iface_id)
++{
++	if (qinq_from_status != -EAGAIN && qinq_to_status != -EAGAIN)
++		return false;
++	if ((qinq_from_status < 0 && qinq_from_status != -EAGAIN) ||
++	    (qinq_to_status < 0 && qinq_to_status != -EAGAIN) ||
++	    (qinq_from_status != -EAGAIN && from_iface_id < 0) ||
++	    (qinq_to_status != -EAGAIN && to_iface_id < 0))
++		return false;
++	ecm_db_connection_interfaces_deref(from_ifaces, from_first);
++	ecm_db_connection_interfaces_deref(to_ifaces, to_first);
++	kfree(nim);
++	ecm_nss_ipv6_accel_pending_clear(feci, ECM_FRONT_END_ACCELERATION_MODE_DECEL);
++	return true;
++}
++
+ /*
+  * ecm_nss_ported_ipv6_connection_accelerate()
+  *	Accelerate a connection
+@@ -431,6 +459,11 @@
+ 		from_nss_iface_id = qinq_from.physical;
+ 	if (qinq_to_status > 0)
+ 		to_nss_iface_id = qinq_to.physical;
++	if (ecm_nss_qinq_ipv6_rule_retry(feci, nim, from_ifaces, from_ifaces_first,
++					 to_ifaces, to_ifaces_first,
++					 qinq_from_status, qinq_to_status,
++					 from_nss_iface_id, to_nss_iface_id))
++		return;
+ 	if (qinq_from_status < 0 || qinq_to_status < 0 ||
+ 	    (from_nss_iface_id < 0) || (to_nss_iface_id < 0)) {
+ 		DEBUG_TRACE("%px: from_nss_iface_id: %d, to_nss_iface_id: %d\n", feci, from_nss_iface_id, to_nss_iface_id);

@@ -14,7 +14,7 @@ source = (root / 'package/kernel/qca-nss-qinq/src/qca_nss_qinq.c').read_text()
 
 
 def function(name, text=source):
-    match = re.search(r'(?:static\s+)?(?:bool|int|struct\s+dsa_port\s*\*)\s*' + name +
+    match = re.search(r'(?:static\s+)?(?:bool|int|void|struct\s+dsa_port\s*\*)\s*' + name +
                       r'\s*\([^;{}]*\)\s*\{', text)
     assert match, name
     depth = 1
@@ -35,6 +35,15 @@ mock = r'''
 #include <errno.h>
 typedef uint16_t u16;
 #define DSA_NSS_MAX_NODES 64
+#define DSA_NSS_COALESCE_MS 100
+#define DSA_NSS_RETRY_MS 2000
+#define DSA_NSS_MAX_RETRIES 30
+#define READ_ONCE(x) (x)
+#define WRITE_ONCE(x, v) ((x) = (v))
+#define msecs_to_jiffies(x) ((unsigned long)(x))
+#define system_wq ((void *)0)
+#define pr_info(...) ((void)0)
+#define pr_warn(...) ((void)0)
 #define spin_lock_bh(x) ((void)0)
 #define spin_unlock_bh(x) ((void)0)
 #define mutex_lock(x) ((void)0)
@@ -60,11 +69,19 @@ struct dsa_nss_want {
     int phys_if;
     struct net_device *ndev;
 };
+struct work_struct { int unused; };
+struct delayed_work { int unused; };
 static struct dsa_nss_node dsa_nss_nodes[DSA_NSS_MAX_NODES];
 static bool dsa_nss_waiting_phys, dsa_nss_reconfiguring, mock_waiting;
+static bool dsa_nss_stopping, dsa_nss_retry_exhausted;
+static unsigned int dsa_nss_retries, port_id_tpid = 0x88a8, dsa_nss_generation;
 static int dsa_nss_resyncs, dsa_nss_changed, mock_defunct_count;
+static struct delayed_work dsa_nss_work;
 static void atomic_inc(int *p) { ++*p; }
 static int atomic_xchg(int *p, int n) { int old = *p; *p = n; return old; }
+static void atomic_set(int *p, int n) { *p = n; }
+static int mod_delayed_work(void *wq, void *work, unsigned long delay) { return 0; }
+static int schedule_delayed_work(struct delayed_work *work, unsigned long delay) { return 0; }
 static int nss_cmn_get_interface_number_by_dev(struct net_device *dev) { return dev->phys; }
 static void dsa_nss_defunct(void) { ++mock_defunct_count; }
 static bool dsa_nss_is_root(const struct dsa_nss_node *n) { return !n->vid; }
@@ -126,9 +143,49 @@ int main(void) {
     vid = 10; assert(qca_nss_qinq_resolve(&lan, 3073, &vid) < 0);
     dsa_nss_nodes[6].parent_if_num = 120;
     dsa_nss_reconfiguring = true;
-    vid = 10; assert(qca_nss_qinq_resolve(&lan, 3073, &vid) < 0);
-    assert(dsa_nss_lookup(1, 3073, 10) < 0);
+    dsa_nss_retry_exhausted = false;
+    dsa_nss_stopping = false;
+    vid = 10; assert(qca_nss_qinq_resolve(&lan, 3073, &vid) == -EAGAIN);
+    assert(dsa_nss_lookup(1, 3073, 10) == -1);
+    assert(qca_nss_qinq_root_if_num(&lan, 3073) == -1);
+    assert(qca_nss_qinq_lookup(&lan, 3073, 10) == -1);
+    dsa_nss_retry_exhausted = true;
+    vid = 10; assert(qca_nss_qinq_resolve(&lan, 3073, &vid) == -1);
+    assert(qca_nss_qinq_root_if_num(&lan, 3073) == -1);
+    assert(qca_nss_qinq_lookup(&lan, 3073, 10) == -1);
+    dsa_nss_retry_exhausted = false;
+    dsa_nss_stopping = true;
+    vid = 10; assert(qca_nss_qinq_resolve(&lan, 3073, &vid) == -1);
+    dsa_nss_stopping = false;
+    dsa_nss_reconfiguring = false;
     puts("PASS: exact conduit/port/VID, ambiguous VID, readiness and parent identity");
+
+    dsa_nss_retry_exhausted = true;
+    dsa_nss_retries = 7;
+    dsa_nss_changed = 0;
+    dsa_nss_schedule();
+    assert(dsa_nss_reconfiguring && !dsa_nss_retry_exhausted &&
+           dsa_nss_retries == 0 && dsa_nss_generation == 1);
+    dsa_nss_mark_exhausted(dsa_nss_generation - 1);
+    assert(!dsa_nss_retry_exhausted);
+    dsa_nss_mark_exhausted(dsa_nss_generation);
+    assert(dsa_nss_retry_exhausted);
+    dsa_nss_schedule();
+    assert(!dsa_nss_retry_exhausted);
+    puts("PASS: schedule opens a fresh retry window and stale give-up is ignored");
+
+    clear_nodes();
+    mock_waiting = true;
+    dsa_nss_changed = 0;
+    dsa_nss_retries = DSA_NSS_MAX_RETRIES;
+    dsa_nss_work_fn(NULL);
+    assert(dsa_nss_reconfiguring && dsa_nss_retry_exhausted);
+    vid = 0; assert(qca_nss_qinq_resolve(&lan, 3073, &vid) == -1);
+    dsa_nss_schedule();
+    assert(!dsa_nss_retry_exhausted);
+    dsa_nss_reconfiguring = false;
+    mock_waiting = false;
+    puts("PASS: terminal give-up is hard until a real resync is scheduled");
 
     clear_nodes(); mock_waiting = true; dsa_nss_changed = 1;
     assert(dsa_nss_resync());
@@ -142,7 +199,10 @@ int main(void) {
 '''
 
 functions = '\n\n'.join(function(name) for name in (
-    'dsa_nss_parent_ready', 'dsa_nss_lookup', 'qca_nss_qinq_resolve', 'dsa_nss_resync'))
+    'dsa_nss_parent_ready', 'dsa_nss_lookup',
+    'qca_nss_qinq_root_if_num', 'qca_nss_qinq_lookup',
+    'qca_nss_qinq_resolve', 'dsa_nss_resync',
+    'dsa_nss_mark_exhausted', 'dsa_nss_work_fn', 'dsa_nss_schedule'))
 with tempfile.TemporaryDirectory(prefix='qosmio-qinq-') as directory:
     path = Path(directory)
     (path / 'test.c').write_text(mock + functions + checks)
@@ -157,8 +217,16 @@ prepared = root / ('build_dir/target-aarch64_cortex-a53_musl/'
                    'linux-qualcommax_ipq50xx/'
                    'qca-nss-ecm-12.5.2024.11.06~30fbfa4/'
                    'frontends/nss/ecm_nss_common.c')
+prepared_dir = prepared.parent
 ecm = Path(os.environ.get('ECM_QINQ_SOURCE', str(prepared))).read_text()
+ecm_ipv4 = Path(os.environ.get('ECM_QINQ_IPV4_SOURCE',
+                               str(prepared_dir / 'ecm_nss_ported_ipv4.c'))).read_text()
+ecm_ipv6 = Path(os.environ.get('ECM_QINQ_IPV6_SOURCE',
+                               str(prepared_dir / 'ecm_nss_ported_ipv6.c'))).read_text()
 assert 'dsa_yt921x_qinq_direct_vid_valid(dp, cvid)' in ecm, 'Build the latest direct-VLAN ECM overlay first'
+assert 'side->leaf == -EAGAIN' in ecm, 'Apply 0107-retry-transient-qinq-resolution.patch first'
+assert 'ecm_nss_qinq_ipv4_rule_retry' in ecm_ipv4, 'Apply 0107-retry-transient-qinq-resolution.patch first'
+assert 'ecm_nss_qinq_ipv6_rule_retry' in ecm_ipv6, 'Apply 0107-retry-transient-qinq-resolution.patch first'
 ecm_mock = r'''
 typedef uint32_t u32;
 #define IS_ERR_OR_NULL(p) (!(p))
@@ -231,6 +299,8 @@ static void clear_nodes(void) {
     memset(dsa_nss_nodes, 0, sizeof(dsa_nss_nodes));
     for (int i = 0; i < DSA_NSS_MAX_NODES; i++) dsa_nss_nodes[i].if_num = -1;
     dsa_nss_reconfiguring = false;
+    dsa_nss_retry_exhausted = false;
+    dsa_nss_stopping = false;
 }
 static void node(int index, int phys, u16 svid, u16 vid, int ifnum, int parent) {
     dsa_nss_nodes[index] = (struct dsa_nss_node) {
@@ -256,6 +326,18 @@ int main(void) {
     port.dp = &dp; dp.user = &port; devices[1] = &port; devices[2] = &bridge; devices[3] = &upper;
     ifaces[7] = &port_ii;
     clear_nodes(); node(0, 1, 3072, 0, 100, -1); node(1, 1, 3072, 3072, 101, 100);
+    dsa_nss_reconfiguring = true;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == -EAGAIN);
+    assert(port.refs == 0);
+    dsa_nss_retry_exhausted = true;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == -ENOENT);
+    assert(port.refs == 0);
+    dsa_nss_retry_exhausted = false;
+    dsa_nss_stopping = true;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == -ENOENT);
+    assert(port.refs == 0);
+    dsa_nss_stopping = false;
+    dsa_nss_reconfiguring = false;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == 1);
     assert(side.physical == 1 && side.leaf == 101 && side.outer == 0x88a80c00U && side.inner == 0x81000c00U);
     dp.bridge = &bridge; dsa_nss_nodes[1].vid = 3089;
@@ -379,6 +461,139 @@ with tempfile.TemporaryDirectory(prefix='qosmio-collect-') as directory:
     path = Path(directory)
     (path / 'test.c').write_text(mock + ecm_mock + collection_support + collection_functions + collection_checks)
     subprocess.run(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Werror',
+                    '-Wno-unused-parameter', '-Wno-unused-function', '-Wno-unused-variable',
+                    str(path / 'test.c'), '-o', str(path / 'test')], check=True)
+    subprocess.run([str(path / 'test')], check=True)
+
+
+# Actual IPv4/IPv6 early-lookup retry cleanup from the ported ECM sources.
+retry_support = r'''
+enum { ECM_FRONT_END_ACCELERATION_MODE_DECEL = 1 };
+typedef int ecm_front_end_acceleration_mode_t;
+struct ecm_front_end_connection_instance { int mock; };
+struct nss_ipv4_msg { int mock; };
+struct nss_ipv6_msg { int mock; };
+static int mock_deref_calls, mock_kfree_calls, mock_clear_calls, mock_clear_mode;
+static int mock_iface_refs[8];
+static struct ecm_db_iface_instance **mock_deref_list[2];
+static int mock_deref_first[2];
+static void *mock_kfree_ptr;
+static void ecm_db_connection_interfaces_deref(struct ecm_db_iface_instance **ifaces, int first) {
+    assert(mock_deref_calls < 2);
+    assert(first >= 0 && first < 8);
+    assert(ifaces[first] && ifaces[first]->index >= 0 && ifaces[first]->index < 8);
+    assert(mock_iface_refs[ifaces[first]->index] > 0);
+    --mock_iface_refs[ifaces[first]->index];
+    mock_deref_list[mock_deref_calls] = ifaces;
+    mock_deref_first[mock_deref_calls] = first;
+    ++mock_deref_calls;
+}
+static void mock_kfree(void *ptr) { ++mock_kfree_calls; mock_kfree_ptr = ptr; }
+#define kfree(p) mock_kfree(p)
+static void ecm_nss_ipv4_accel_pending_clear(struct ecm_front_end_connection_instance *feci,
+                                             ecm_front_end_acceleration_mode_t mode) {
+    ++mock_clear_calls;
+    mock_clear_mode = mode;
+}
+static void ecm_nss_ipv6_accel_pending_clear(struct ecm_front_end_connection_instance *feci,
+                                             ecm_front_end_acceleration_mode_t mode) {
+    ++mock_clear_calls;
+    mock_clear_mode = mode;
+}
+'''
+
+retry_checks = r'''
+static void reset_mocks(void) {
+    mock_deref_calls = mock_kfree_calls = mock_clear_calls = 0;
+    mock_clear_mode = 0;
+    mock_iface_refs[0] = mock_iface_refs[1] = 1;
+    mock_deref_list[0] = mock_deref_list[1] = NULL;
+    mock_deref_first[0] = mock_deref_first[1] = -1;
+    mock_kfree_ptr = NULL;
+}
+static void test_ipv4(int from_status, int to_status, int from_id, int to_id, bool want) {
+    struct ecm_front_end_connection_instance feci = {0};
+    struct nss_ipv4_msg nim = {0};
+    struct ecm_db_iface_instance a = {.index = 0}, b = {.index = 1};
+    struct ecm_db_iface_instance *from[8] = {0}, *to[8] = {0};
+    bool got;
+
+    from[3] = &a; to[5] = &b;
+    reset_mocks();
+    got = ecm_nss_qinq_ipv4_rule_retry(&feci, &nim, from, 3, to, 5,
+                                       from_status, to_status, from_id, to_id);
+    assert(got == want);
+    if (want) {
+        assert(mock_deref_calls == 2);
+        assert(mock_deref_list[0] == from && mock_deref_first[0] == 3);
+        assert(mock_deref_list[1] == to && mock_deref_first[1] == 5);
+        assert(mock_iface_refs[0] == 0 && mock_iface_refs[1] == 0);
+        assert(mock_kfree_calls == 1 && mock_kfree_ptr == &nim);
+        assert(mock_clear_calls == 1 && mock_clear_mode == ECM_FRONT_END_ACCELERATION_MODE_DECEL);
+    } else {
+        assert(mock_deref_calls == 0 && mock_kfree_calls == 0 && mock_clear_calls == 0);
+        assert(mock_iface_refs[0] == 1 && mock_iface_refs[1] == 1);
+    }
+}
+static void test_ipv6(int from_status, int to_status, int from_id, int to_id, bool want) {
+    struct ecm_front_end_connection_instance feci = {0};
+    struct nss_ipv6_msg nim = {0};
+    struct ecm_db_iface_instance a = {.index = 0}, b = {.index = 1};
+    struct ecm_db_iface_instance *from[8] = {0}, *to[8] = {0};
+    bool got;
+
+    from[3] = &a; to[5] = &b;
+    reset_mocks();
+    got = ecm_nss_qinq_ipv6_rule_retry(&feci, &nim, from, 3, to, 5,
+                                       from_status, to_status, from_id, to_id);
+    assert(got == want);
+    if (want) {
+        assert(mock_deref_calls == 2);
+        assert(mock_deref_list[0] == from && mock_deref_first[0] == 3);
+        assert(mock_deref_list[1] == to && mock_deref_first[1] == 5);
+        assert(mock_iface_refs[0] == 0 && mock_iface_refs[1] == 0);
+        assert(mock_kfree_calls == 1 && mock_kfree_ptr == &nim);
+        assert(mock_clear_calls == 1 && mock_clear_mode == ECM_FRONT_END_ACCELERATION_MODE_DECEL);
+    } else {
+        assert(mock_deref_calls == 0 && mock_kfree_calls == 0 && mock_clear_calls == 0);
+        assert(mock_iface_refs[0] == 1 && mock_iface_refs[1] == 1);
+    }
+}
+int main(void) {
+    test_ipv4(-EAGAIN, 1, -1, 5, true);
+    test_ipv4(1, -EAGAIN, 5, -1, true);
+    test_ipv4(-EAGAIN, -EAGAIN, -1, -1, true);
+    test_ipv4(-EAGAIN, 0, -1, 5, true);
+    test_ipv4(0, -EAGAIN, 5, -1, true);
+    test_ipv4(-EAGAIN, 0, -1, -1, false);
+    test_ipv4(-EAGAIN, -ENOENT, -1, 5, false);
+    test_ipv4(-ENOENT, -EAGAIN, 5, -1, false);
+    test_ipv4(0, 0, -1, 5, false);
+    test_ipv4(0, 0, 5, -1, false);
+    test_ipv4(1, 1, 5, 5, false);
+    test_ipv6(-EAGAIN, 1, -1, 5, true);
+    test_ipv6(1, -EAGAIN, 5, -1, true);
+    test_ipv6(-EAGAIN, -EAGAIN, -1, -1, true);
+    test_ipv6(-EAGAIN, 0, -1, 5, true);
+    test_ipv6(0, -EAGAIN, 5, -1, true);
+    test_ipv6(-EAGAIN, 0, -1, -1, false);
+    test_ipv6(-EAGAIN, -ENOENT, -1, 5, false);
+    test_ipv6(-ENOENT, -EAGAIN, 5, -1, false);
+    test_ipv6(0, 0, -1, 5, false);
+    test_ipv6(0, 0, 5, -1, false);
+    test_ipv6(1, 1, 5, 5, false);
+    puts("PASS: IPv4/IPv6 retry cleanup releases both lists, frees nim, clears pending once and leaves hard/mixed errors permanent");
+    return 0;
+}
+'''
+
+retry_functions = '\n\n'.join((
+    function('ecm_nss_qinq_ipv4_rule_retry', ecm_ipv4),
+    function('ecm_nss_qinq_ipv6_rule_retry', ecm_ipv6)))
+with tempfile.TemporaryDirectory(prefix='qosmio-qinq-retry-') as directory:
+    path = Path(directory)
+    (path / 'test.c').write_text(mock + ecm_mock + retry_support + retry_functions + retry_checks)
+    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
                     '-Wno-unused-parameter', '-Wno-unused-function', '-Wno-unused-variable',
                     str(path / 'test.c'), '-o', str(path / 'test')], check=True)
     subprocess.run([str(path / 'test')], check=True)
