@@ -3,7 +3,8 @@
 2026-11-05, branch `nss-qosmio-qinq`, base `9cca0ec1e74d`.
 This records execution of [the feature-audit plan](nss-qosmio-dsa-feature-audit.md).
 The original Kuncy reference remains unchanged; its 30 saved source hashes match.
-No source commit, push or release is part of these tests.
+Source commits, image identity and device validation are recorded per slice.
+The latest accepted device image is build21; see Slice16 below.
 
 ## Slice 01: control packages, MST and policy validation
 
@@ -1197,3 +1198,88 @@ Evidence: original ignored
 `driver-strip-check.json`, `build20-lan-accept/result.json`,
 `wan-wire-readiness/result.json`, `build20-native-accept-v2/results.json`,
 `flow-reload20-accept/results.json` and `restored-final.json`.
+
+## Slice16: customer VLANs on unaware bridges
+
+An ordinary `br-lan.35` or `br-lan.4094` interface now works with a
+VLAN-unaware DSA bridge and routed NSS acceleration. The tagger retains a
+customer C-tag while stripping the synthetic native bridge tag. Tagged TX
+keeps the customer TCI and adds the physical port's outer SVID. Standalone
+upper ownership, aware-bridge membership, control traffic and the reserved
+VID namespace keep their existing policies. This adds no switch-driver or
+ACL change; full customer QinQ remains outside this two-tag transport.
+
+The NSS controller adds a customer leaf for each member port's SVID, bound
+to the exact registered bridge VLAN upper for MAC, MTU and reference
+lifetime. Native leaves remain explicit, even with several customer leaves.
+ECM accepts a one-level 802.1Q upper only when its current parent is this
+port's actual unaware bridge and the VLAN core still publishes that exact
+device. Stale leaves cannot authorize removed uppers. Unregister events use
+structural classification because Linux unpublishes the VLAN first, then
+release its nodes synchronously. Port removal also destroys customer leaves
+under that port's root before releasing the root, including leaves owned by
+a surviving bridge upper.
+
+Actual-C checks pass for tagger RX89/0 and TX163/0, exact collector/resolver
+mapping, upper publication, bridge/port separation, capacity, notifier
+ordering, node references and IPv4/IPv6 retry cleanup. Fault controls fail
+at runtime when customer leaves, unaware ECM admission, live publication or
+bridge-upper event handling are removed. The old owner-only teardown also
+fails. The changed tagger, combined controller/header and ECM code compile
+with the real AArch64 flags. The generated0108 overlay applies without fuzz
+and reproduces the reviewed ECM source exactly; the checks also pass against
+the package source prepared by the full build.
+
+Build21 uses the existing configuration, source HEAD9dbe023c77 plus the
+reviewed changes frozen in `integrated-sources.json`, and12 jobs from
+`nproc`. Its sysupgrade SHA256 is
+`2203ff8d8ad732845411adcb3ca14a7ebda5e27ffb925ab9f0dca1e0d445ef82`.
+Only `tag_yt921x_qinq.ko`, `qca-nss-qinq.ko` and `ecm.ko` differ from build20;
+the switch driver, core NSS modules and netifd match. One sysupgrade installs
+it in slot0/mtd18, preserving verified build20 in slot1/mtd19 and a private
+backup. Boot ID: `7b0c9c51-3082-46a4-a9e4-edc6644a09b0`.
+
+Windows stays on WAN/VLAN0 at192.168.137.1; Linux management stays on LAN3.
+Normal temporary netifd interfaces create the tested bridge VLAN upper and
+an additional `br-lan.100`, with LAN-zone membership. An isolated Docker
+macvlan endpoint on the workstation's tagged Ethernet link supplies the
+customer traffic. Each of the three LAN SVIDs gets both customer leaves:
+14 NSS nodes coexist with the native leaves. Each traffic check requires a
+new, exact accelerated data connection with the expected LAN3 and VLAN-upper
+hierarchy, plus increasing firmware IPv4 counters. No manual register writes
+or NSS arming are used.
+
+| Installed build21 traffic | Forward/reverse Mbps | CPU idle forward/reverse |
+| --- | --- | --- |
+| Native routed baseline |936.57 /936.47 |97.98% /98.44% |
+| Unaware bridge upper VLAN35 |936.70 /936.12 |97.22% /97.47% |
+| Unaware bridge upper VLAN4094 |936.51 /935.83 |97.55% /97.69% |
+
+The customer runs each add more than753000 firmware IPv4 TX packets. These
+are individual runs, not a long-duration benchmark. Native traffic also
+remains accelerated at936.5Mbps with both customer uppers present. Its first
+post-reload CPU samples are lower:84.0%,79.0% and78.8% idle across three
+configurations. A follow-up after an eight-second pause reaches97.0% idle
+at936.54Mbps with the same14 nodes. This records the initial-versus-settled
+observation; it does not establish the cause or eliminate reload optimization
+as separate work.
+
+All three temporary configurations remove cleanly: eight nodes remain,
+creates33/destroys25, zero allocation failures and no pending retries. No
+kernel fault or unregister-wait warning appears. Configuration hashes match;
+temporary VLAN devices, Docker endpoints, qdiscs and mirrors are absent.
+Customer VTU entries35/100/4094 are empty again. CPU8 stays at2.5Gbps, frame
+limits stay1522/1526, private SVID lookup/filter policy restores, and loop
+protection stays enabled. UART is closed without resetting the device.
+
+Runtime acceptance here covers IPv4 routing/NAT through these unaware bridge
+uppers and native coexistence. IPv6 traffic and full customer QinQ are not
+established by the retry harness or these IPv4 tests. No release is created
+as part of this acceptance.
+
+Evidence: original ignored
+`logs/nss-slices-20261107/slice16-unaware-upper/`, especially
+`source-checks.json`, `0108-application.json`, the three `arm-*` directories,
+`build21-artifacts.json`, `build21-native-accept/results.json`,
+`build21-unaware-35/`, `build21-unaware-4094/`,
+`build21-native-coexistence/` and `restored-final.json`.
