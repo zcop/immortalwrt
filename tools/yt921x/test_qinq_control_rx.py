@@ -112,7 +112,7 @@ static int br_vlan_get_info_rcu(struct net_device *dev, u16 vid, struct bridge_v
 static unsigned int dsa_port_bridge_num_get(const struct dsa_port *dp) { return dp->bridge_num; }
 static bool dsa_yt921x_qinq_customer_vid_valid(struct dsa_switch *ds, u16 vid) {
     (void)ds;
-    return vid == 100 || vid == 200;
+    return vid == 35 || vid == 100 || vid == 200 || vid == 4094;
 }
 
 static bool dsa_yt921x_qinq_direct_vid_valid(struct dsa_port *dp, u16 vid) {
@@ -285,6 +285,13 @@ static void test_rx_vlan(void) {
         {"standalone vid bad", &wan_dp, NULL, 0xc04, 0, 0, 0, BR_STATE_FORWARDING, 0, 0, -1},
         {"unaware bridge ok", &wan_dp, &br_off, 0xc10, 0, 0, 0, BR_STATE_FORWARDING, 0, 1, 1},
         {"unaware bridge bad", &wan_dp, &br_off, 0xc20, 0, 0, 0, BR_STATE_FORWARDING, 0, 1, -1},
+        {"unaware customer 35", &wan_dp, &br_off, 35, 100, 0, 0, BR_STATE_FORWARDING, 0, 1, 0},
+        {"unaware customer 100", &wan_dp, &br_off, 100, 100, 0, 0, BR_STATE_FORWARDING, 0, 1, 0},
+        {"unaware customer 4094", &wan_dp, &br_off, 4094, 100, 0, 0, BR_STATE_FORWARDING, 0, 1, 0},
+        {"unaware control customer 35", &wan_dp, &br_off, 35, 100, 1, 0, BR_STATE_FORWARDING, 0, 1, 0},
+        {"unaware port vid", &wan_dp, &br_off, 0xc03, 0, 0, 0, BR_STATE_FORWARDING, 0, 1, -1},
+        {"unaware vid0", &wan_dp, &br_off, 0, 0, 0, 0, BR_STATE_FORWARDING, 0, 1, -1},
+        {"unaware vid4095", &wan_dp, &br_off, 4095, 100, 0, 0, BR_STATE_FORWARDING, 0, 1, -1},
         {"standalone ctl4095", &wan_dp, NULL, 4095, 0, 1, 1, BR_STATE_FORWARDING, 0, 0, 1},
         {"standalone ctl4095 other", &wan_dp, NULL, 4095, 0, 1, 0, BR_STATE_FORWARDING, 0, 0, -1},
     };
@@ -304,9 +311,11 @@ static void test_direct_rx(void) {
     check_rx("direct RX retains customer tag", yt921x_qinq_rx_vlan(&wan_dp, NULL, 35, false, false), 0);
     check_rx("direct control retains customer tag", yt921x_qinq_rx_vlan(&wan_dp, NULL, 35, true, true), 0);
     check_rx("direct wrong VID rejected", yt921x_qinq_rx_vlan(&wan_dp, NULL, 36, false, false), -1);
-    check_rx("direct membership cannot admit unaware bridge", yt921x_qinq_rx_vlan(&wan_dp, &br_off, 35, false, false), -1);
+    check_rx("unaware bridge retains customer with direct upper", yt921x_qinq_rx_vlan(&wan_dp, &br_off, 35, false, false), 0);
+    check_rx("direct upper cannot admit reserved vid to unaware bridge", yt921x_qinq_rx_vlan(&wan_dp, &br_off, 0xc20, false, false), -1);
     wan_user.cfg.direct_vid = 0;
     check_rx("unregistered direct RX rejected", yt921x_qinq_rx_vlan(&wan_dp, NULL, 35, false, false), -1);
+    check_rx("unaware bridge retains customer without direct upper", yt921x_qinq_rx_vlan(&wan_dp, &br_off, 35, false, false), 0);
     check_rx("base standalone remains stripped", yt921x_qinq_rx_vlan(&wan_dp, NULL, 0xc03, false, false), 1);
 }
 

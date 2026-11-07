@@ -10,10 +10,12 @@
  * identifies the exact switch and physical user port, never a bridge VID.
  *
  * The inner C-tag is the payload VLAN. In a VLAN-aware bridge it is the
- * customer tag, or the port PVID for untagged traffic. On standalone and
- * VLAN-unaware bridge ports it is the internal transport VLAN and is stripped
- * before the frame reaches Linux. A registered standalone 802.1Q upper uses
- * its own customer VID instead; its C-tag is retained for Linux VLAN demux.
+ * customer tag, or the port PVID for untagged traffic. On a VLAN-unaware
+ * bridge, native untagged traffic carries the internal bridge transport VID
+ * and that artificial C-tag is stripped before the frame reaches Linux; an
+ * existing customer C-tag is preserved. A standalone port strips its internal
+ * transport VLAN unless a registered 802.1Q upper owns its own customer VID;
+ * that C-tag is retained for Linux VLAN demux.
  *
  * Link-local control exception (DA 01:80:c2:00:00:00..0f):
  *   DA | SA | 9988 | 0000 | code/prio | tx port | [8100 | C-TCI] | ethertype
@@ -196,8 +198,15 @@ static int yt921x_qinq_rx_vlan(struct dsa_port *dp, struct net_device *br,
 			return 1;
 		return dsa_yt921x_qinq_direct_vid_valid(dp, vid) ? 0 : -EINVAL;
 	}
-	if (!br_vlan_enabled(br))
-		return yt921x_qinq_internal_vid(dp, br, vid) ? 1 : -EINVAL;
+	if (!br_vlan_enabled(br)) {
+		if (yt921x_qinq_internal_vid(dp, br, vid))
+			return 1;
+
+		/* Native unaware traffic carries the internal bridge VID and
+		 * is stripped above; an existing customer C-tag is preserved.
+		 */
+		return dsa_yt921x_qinq_customer_vid_valid(dp->ds, vid) ? 0 : -EINVAL;
+	}
 
 	if (control && br_vlan_get_pvid_rcu(dp->user, &pvid))
 		return -EINVAL;
@@ -450,10 +459,10 @@ static struct sk_buff *yt921x_qinq_xmit(struct sk_buff *skb,
 		if (vlan_aware) {
 			if (br_vlan_get_info_rcu(dp->user, inner_vid, &vinfo))
 				return NULL;
-		} else if (br ||
+		} else if (!br &&
 			   !dsa_yt921x_qinq_direct_vid_valid(dp, inner_vid)) {
-			/* Unaware tagged bridges stay unsupported. Standalone tags
-			 * require the exact registered customer VLAN upper.
+			/* Standalone tags require the exact registered customer
+			 * VLAN upper; an unaware bridge admits the customer tag.
 			 */
 			return NULL;
 		}

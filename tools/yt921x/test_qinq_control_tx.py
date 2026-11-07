@@ -223,6 +223,8 @@ static int fake_bridge_num;
 static u16 fake_bridge_vid;
 static u16 fake_standalone_vid;
 static u16 fake_pvid;
+static u16 fake_members[4];
+static int fake_member_count;
 static int fake_tc;
 
 static void reset_fakes(void)
@@ -246,6 +248,8 @@ static void reset_fakes(void)
 	fake_bridge_vid = 0;
 	fake_standalone_vid = 3004;
 	fake_pvid = 0;
+	fake_member_count = 0;
+	memset(fake_members, 0, sizeof(fake_members));
 	fake_tc = 0;
 	memset(&test_netdev, 0, sizeof(test_netdev));
 	test_netdev.features = NETIF_F_HW_VLAN_CTAG_FILTER;
@@ -397,8 +401,7 @@ static inline bool
 dsa_yt921x_qinq_customer_vid_valid(struct dsa_switch *ds, u16 vid)
 {
 	(void)ds;
-	(void)vid;
-	return true;
+	return vid == 35 || vid == 100 || vid == 200 || vid == 4094;
 }
 
 static inline bool netif_is_bridge_port(struct net_device *d) { return d->bridge_port; }
@@ -414,9 +417,14 @@ static inline struct net_device *vlan_dev_real_dev(struct net_device *d) { retur
 static inline int br_vlan_get_info_rcu(struct net_device *dev, u16 vid,
 				       struct bridge_vlan_info *vinfo)
 {
+	int i;
+
 	(void)dev;
 	vinfo->vid = vid;
-	return 0;
+	for (i = 0; i < fake_member_count; i++)
+		if (fake_members[i] == vid)
+			return 0;
+	return -1;
 }
 
 static inline int br_vlan_get_pvid_rcu(struct net_device *dev, u16 *pvid)
@@ -526,6 +534,14 @@ static bool preserves_frame(const struct sk_buff *skb, const unsigned char *orig
         !memcmp(skb->data + 20, original + 12, length - 12);
 }
 
+static bool preserves_tagged_payload(const struct sk_buff *skb,
+                                     const unsigned char *original,
+                                     size_t length)
+{
+ return !memcmp(skb->data, original, 12) &&
+        !memcmp(skb->data + 20, original + 16, length - 16);
+}
+
 static void check_control_tag(const struct sk_buff *skb, unsigned int port,
 			      unsigned int prio, const char *name)
 {
@@ -569,6 +585,39 @@ static const unsigned char bpdu_hw_ctag[] = {
 static const unsigned char unicast[] = {
 	0x02, 0x00, 0x00, 0x00, 0x00, 0x02,
 	0x02, 0x00, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x00,
+	0x45, 0x00, 0x00, 0x14,
+};
+
+static const unsigned char unicast_ctag_35[] = {
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x02,
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x01,
+	0x81, 0x00, 0xb0, 0x23,
+	0x08, 0x00,
+	0x45, 0x00, 0x00, 0x14,
+};
+
+static const unsigned char unicast_ctag_100[] = {
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x02,
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x01,
+	0x81, 0x00, 0x20, 0x64,
+	0x08, 0x00,
+	0x45, 0x00, 0x00, 0x14,
+};
+
+static const unsigned char unicast_stacked_ctag[] = {
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x02,
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x01,
+	0x81, 0x00, 0xb0, 0x23,
+	0x81, 0x00, 0x20, 0x64,
+	0x08, 0x00,
+	0x45, 0x00, 0x00, 0x14,
+};
+
+static const unsigned char unicast_stag[] = {
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x02,
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x01,
+	0x88, 0xa8, 0xb0, 0x23,
 	0x08, 0x00,
 	0x45, 0x00, 0x00, 0x14,
 };
@@ -1009,6 +1058,196 @@ static void test_direct_customer_vlan(void)
 	skb_free(skb);
 }
 
+static void check_unaware_reject(const char *name, const unsigned char *frame,
+				 size_t len)
+{
+	struct sk_buff *skb;
+
+	reset_fakes();
+	fake_bridge = &test_netdev;
+	fake_br_vlan_enabled = false;
+	fake_bridge_num = 5;
+	fake_bridge_vid = 0xc05;
+	test_dp.index = 4;
+	fake_standalone_vid = 3004;
+	skb = new_skb(frame, len, 64);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev), name);
+	CHECK(skb->len == len && !memcmp(skb->data, frame, len),
+	      "unaware_reject_keeps_frame");
+	skb_free(skb);
+}
+
+static void check_unaware_tagged_vid_reject(const char *name, u16 tci)
+{
+	unsigned char frame[sizeof(unicast) + VLAN_HLEN];
+
+	memcpy(frame, unicast, 12);
+	frame[12] = 0x81;
+	frame[13] = 0x00;
+	frame[14] = (unsigned char)(tci >> 8);
+	frame[15] = (unsigned char)tci;
+	frame[16] = 0x08;
+	frame[17] = 0x00;
+	memcpy(frame + 18, unicast + 14, sizeof(unicast) - 14);
+	check_unaware_reject(name, frame, sizeof(frame));
+}
+
+static void test_unaware_bridge_customer_vlan(void)
+{
+	struct net_device upper = { 0 };
+	struct sk_buff *skb;
+
+	/* Inline customer C-tag: 8100, PCP 5, DEI 1, VID 35. */
+	reset_fakes();
+	fake_bridge = &test_netdev;
+	fake_br_vlan_enabled = false;
+	fake_bridge_num = 5;
+	fake_bridge_vid = 0xc05;
+	test_dp.index = 4;
+	fake_standalone_vid = 3004;
+	upper.direct_vid = 36;
+	upper.direct_real = &test_netdev;
+	test_netdev.direct_upper = &upper;
+	skb = new_skb(unicast_ctag_35, sizeof(unicast_ctag_35), 64);
+	CHECK(yt921x_qinq_xmit(skb, &test_netdev) == skb,
+	      "unaware_inline_customer_returns_skb");
+	CHECK(skb->len == sizeof(unicast_ctag_35) + VLAN_HLEN,
+	      "unaware_inline_customer_one_outer_tag");
+	CHECK(((u16)skb->data[12] << 8 | skb->data[13]) == ETH_P_8021AD,
+	      "unaware_inline_customer_outer_s_tag");
+	CHECK(((u16)skb->data[14] << 8 | skb->data[15]) == fake_standalone_vid,
+	      "unaware_inline_customer_outer_svid");
+	CHECK(((u16)skb->data[16] << 8 | skb->data[17]) == ETH_P_8021Q,
+	      "unaware_inline_customer_inner_c_tag");
+	CHECK(((u16)skb->data[18] << 8 | skb->data[19]) == 0xb023,
+	      "unaware_inline_customer_full_tci");
+	CHECK(preserves_tagged_payload(skb, unicast_ctag_35,
+				       sizeof(unicast_ctag_35)),
+	      "unaware_inline_customer_payload");
+	CHECK(fake_checksum_help_calls == 0,
+	      "unaware_inline_customer_no_checksum");
+	skb_free(skb);
+
+	/* Hardware metadata customer tag, same full TCI and wire shape. */
+	reset_fakes();
+	fake_bridge = &test_netdev;
+	fake_br_vlan_enabled = false;
+	test_dp.index = 4;
+	fake_standalone_vid = 3004;
+	skb = new_skb(unicast, sizeof(unicast), 64);
+	skb->vlan_present = true;
+	skb->vlan_proto = htons(ETH_P_8021Q);
+	skb->vlan_tci = 0xb023;
+	CHECK(yt921x_qinq_xmit(skb, &test_netdev) == skb,
+	      "unaware_hw_customer_returns_skb");
+	CHECK(skb->len == sizeof(unicast) + 2 * VLAN_HLEN,
+	      "unaware_hw_customer_two_vlan_tags");
+	CHECK(((u16)skb->data[12] << 8 | skb->data[13]) == ETH_P_8021AD,
+	      "unaware_hw_customer_outer_s_tag");
+	CHECK(((u16)skb->data[14] << 8 | skb->data[15]) == fake_standalone_vid,
+	      "unaware_hw_customer_outer_svid");
+	CHECK(((u16)skb->data[16] << 8 | skb->data[17]) == ETH_P_8021Q,
+	      "unaware_hw_customer_inner_c_tag");
+	CHECK(((u16)skb->data[18] << 8 | skb->data[19]) == 0xb023,
+	      "unaware_hw_customer_full_tci");
+	CHECK(!skb->vlan_present,
+	      "unaware_hw_customer_metadata_cleared");
+	CHECK(preserves_frame(skb, unicast, sizeof(unicast)),
+	      "unaware_hw_customer_payload");
+	skb_free(skb);
+
+	/* Native untagged traffic still gets the private bridge VID. */
+	reset_fakes();
+	fake_bridge = &test_netdev;
+	fake_br_vlan_enabled = false;
+	fake_bridge_num = 5;
+	fake_bridge_vid = 0xc05;
+	test_dp.index = 4;
+	fake_standalone_vid = 3004;
+	skb = new_skb(unicast, sizeof(unicast), 64);
+	CHECK(yt921x_qinq_xmit(skb, &test_netdev) == skb,
+	      "unaware_native_untagged_returns_skb");
+	CHECK(skb->len == sizeof(unicast) + 2 * VLAN_HLEN,
+	      "unaware_native_untagged_two_vlan_tags");
+	CHECK(((u16)skb->data[12] << 8 | skb->data[13]) == ETH_P_8021AD,
+	      "unaware_native_untagged_outer_s_tag");
+	CHECK(((u16)skb->data[14] << 8 | skb->data[15]) == fake_standalone_vid,
+	      "unaware_native_untagged_outer_svid");
+	CHECK(((u16)skb->data[16] << 8 | skb->data[17]) == ETH_P_8021Q,
+	      "unaware_native_untagged_inner_c_tag");
+	CHECK(((u16)skb->data[18] << 8 | skb->data[19]) == fake_bridge_vid,
+	      "unaware_native_untagged_bridge_vid");
+	CHECK(preserves_frame(skb, unicast, sizeof(unicast)),
+	      "unaware_native_untagged_payload");
+	skb_free(skb);
+
+	check_unaware_tagged_vid_reject("unaware_reserved_vid0",
+					(0u << VLAN_PRIO_SHIFT) | 0);
+	check_unaware_tagged_vid_reject("unaware_reserved_vid4095",
+					(0u << VLAN_PRIO_SHIFT) | 4095);
+	check_unaware_tagged_vid_reject("unaware_reserved_bridge_vid",
+					(0u << VLAN_PRIO_SHIFT) | 0xc05);
+	check_unaware_tagged_vid_reject("unaware_reserved_port_vid",
+					(0u << VLAN_PRIO_SHIFT) | 0xc03);
+	check_unaware_tagged_vid_reject("unaware_namespace_standalone_vid",
+					(0u << VLAN_PRIO_SHIFT) | 3004);
+	check_unaware_reject("unaware_stacked_ctag",
+			     unicast_stacked_ctag,
+			     sizeof(unicast_stacked_ctag));
+	check_unaware_reject("unaware_customer_stag",
+			     unicast_stag, sizeof(unicast_stag));
+
+	/* The native bridge VID needs a valid bridge number. */
+	reset_fakes();
+	fake_bridge = &test_netdev;
+	fake_br_vlan_enabled = false;
+	fake_bridge_num = 0;
+	test_dp.index = 4;
+	skb = new_skb(unicast, sizeof(unicast), 64);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev),
+	      "unaware_native_without_bridge_num_drops");
+	skb_free(skb);
+}
+
+static void test_aware_bridge_member(void)
+{
+	struct sk_buff *skb;
+
+	reset_fakes();
+	fake_bridge = &test_netdev;
+	fake_br_vlan_enabled = true;
+	test_dp.index = 4;
+	fake_standalone_vid = 3004;
+	fake_member_count = 1;
+	fake_members[0] = 100;
+	skb = new_skb(unicast_ctag_100, sizeof(unicast_ctag_100), 64);
+	CHECK(yt921x_qinq_xmit(skb, &test_netdev) == skb,
+	      "aware_member_tag_returns_skb");
+	CHECK(skb->len == sizeof(unicast_ctag_100) + VLAN_HLEN,
+	      "aware_member_tag_one_outer_tag");
+	CHECK(((u16)skb->data[12] << 8 | skb->data[13]) == ETH_P_8021AD &&
+	      ((u16)skb->data[14] << 8 | skb->data[15]) == fake_standalone_vid &&
+	      ((u16)skb->data[16] << 8 | skb->data[17]) == ETH_P_8021Q &&
+	      ((u16)skb->data[18] << 8 | skb->data[19]) == 0x2064,
+	      "aware_member_exact_tags");
+	CHECK(preserves_tagged_payload(skb, unicast_ctag_100,
+				       sizeof(unicast_ctag_100)),
+	      "aware_member_payload");
+	skb_free(skb);
+
+	reset_fakes();
+	fake_bridge = &test_netdev;
+	fake_br_vlan_enabled = true;
+	test_dp.index = 4;
+	fake_standalone_vid = 3004;
+	fake_member_count = 1;
+	fake_members[0] = 100;
+	skb = new_skb(unicast_ctag_35, sizeof(unicast_ctag_35), 64);
+	CHECK(!yt921x_qinq_xmit(skb, &test_netdev),
+	      "aware_nonmember_tag_drops");
+	skb_free(skb);
+}
+
 int main(void)
 {
 	test_control_predicate();
@@ -1018,6 +1257,8 @@ int main(void)
 	test_error_paths();
 	test_control_conduit();
 	test_direct_customer_vlan();
+	test_unaware_bridge_customer_vlan();
+	test_aware_bridge_member();
 
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
