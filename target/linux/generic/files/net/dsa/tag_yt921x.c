@@ -24,6 +24,7 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/if_vlan.h>
 
 #include "tag.h"
 
@@ -74,6 +75,20 @@ yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
 	if (yt921x_conduit_is_raw(dp->cpu_dp)) {
 		/* Secondary conduit sends raw frames (no YT tag). */
 		return skb;
+	}
+
+	/* The private CPU tag has no VLAN metadata field. Materialize an
+	 * offloaded customer tag before adding the private header so the
+	 * switch sees an ordinary inline tag behind it.
+	 */
+	if (skb_vlan_tag_present(skb)) {
+		__be16 vlan_proto = skb->vlan_proto;
+		u16 vlan_tci = skb_vlan_tag_get(skb);
+
+		if (__vlan_insert_tag(skb, vlan_proto, vlan_tci))
+			return NULL;
+		__vlan_hwaccel_clear_tag(skb);
+		skb->protocol = vlan_proto;
 	}
 
 	/* Resolve hardware checksum offload in software before tagging */
