@@ -102,7 +102,7 @@ struct dsa_nss_node {
 	int parent_if_num;		/* root node of a leaf, -1 otherwise */
 	int if_num;			/* NSS dynamic interface, -1 = none */
 	int phys_if;			/* conduit's NSS physical interface */
-	struct net_device *ndev;	/* bound DSA user port, held */
+	struct net_device *ndev;	/* bound port or VLAN upper, held */
 	u8 mac[ETH_ALEN];
 	unsigned int mtu;
 };
@@ -354,6 +354,30 @@ static bool dsa_nss_want_add(struct dsa_nss_want *want, int *n, int max,
 	return true;
 }
 
+/* One leaf per live customer VLAN upper of an unaware bridge on a port. */
+static bool dsa_nss_collect_bridge_uppers(struct dsa_nss_want *want, int *n,
+					  int max, struct dsa_port *dp,
+					  u16 svid, int phys_if)
+{
+	struct net_device *dev;
+
+	for_each_netdev(&init_net, dev) {
+		u16 vid;
+
+		rcu_read_lock();
+		if (!dsa_yt921x_qinq_bridge_upper_valid(dp, dev)) {
+			rcu_read_unlock();
+			continue;
+		}
+		vid = vlan_dev_vlan_id(dev);
+		rcu_read_unlock();
+
+		if (!dsa_nss_want_add(want, n, max, svid, vid, phys_if, dev))
+			return false;
+	}
+	return true;
+}
+
 /*
  * Port-ID mode: the outer tag is the physical port's standalone VID, so
  * every port gets its own root, and the leaf VIDs are the ones the QinQ
@@ -427,6 +451,10 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 			    !dsa_nss_want_add(want, &n, max, svid,
 					      dsa_tag_8021q_bridge_vid(vbid),
 					      phys_if, dev))
+				return n;
+			/* customer VLANs routed above the unaware bridge */
+			if (!dsa_nss_collect_bridge_uppers(want, &n, max, dp,
+							   svid, phys_if))
 				return n;
 		} else {
 			/* the tagger's inner tag is the port's own VID */
@@ -872,13 +900,24 @@ static void dsa_nss_schedule(void)
  * ===== netdev events =====
  */
 
+/* A one-level VLAN upper of a bridge master. At NETDEV_UNREGISTER the
+ * VLAN core has already unpublished the upper, so classify structurally
+ * and release our reference immediately instead of deferring to a resync.
+ */
+static bool dsa_nss_is_bridge_upper(struct net_device *dev)
+{
+	return is_vlan_dev(dev) &&
+	       netif_is_bridge_master(vlan_dev_real_dev(dev));
+}
+
 static int dsa_nss_netdev_event(struct notifier_block *nb, unsigned long event,
 				void *ptr)
 {
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	bool upper;
 
-	if (!dsa_nss_port_of(dev, &upper))
+	if (!dsa_nss_port_of(dev, &upper) &&
+	    !dsa_nss_is_bridge_upper(dev) && !netif_is_bridge_master(dev))
 		return NOTIFY_DONE;
 
 	switch (event) {
@@ -890,7 +929,7 @@ static int dsa_nss_netdev_event(struct notifier_block *nb, unsigned long event,
 		 */
 		mutex_lock(&dsa_nss_lock);
 		dsa_nss_defunct();
-		dsa_nss_destroy_nodes(dev, "port unregistered");
+		dsa_nss_destroy_nodes(dev, "device unregistered");
 		mutex_unlock(&dsa_nss_lock);
 		fallthrough;
 	case NETDEV_REGISTER:

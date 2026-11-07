@@ -1,0 +1,73 @@
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -78,7 +78,7 @@
+ 	struct dsa_port *dp;
+ 	int (*resolve)(struct net_device *, u16, u16 *);
+ 	int i, ret = 0;
+-	u16 svid, cvid = 0;
++	u16 svid, cvid = 0, native = 0;
+ 
+ 	memset(side, 0, sizeof(*side));
+ 	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+@@ -154,13 +154,19 @@
+ 			ret = -EINVAL;
+ 			goto unlock;
+ 		}
+-		cvid = dsa_tag_8021q_bridge_vid(bridge_num);
+-	}
+-
+-	/* Every customer VLAN in the hierarchy must be the exact direct upper
+-	 * or one upper of the VLAN-aware bridge. Reject stacked/unrelated tags.
++		/* Native bridge traffic uses the internal bridge VID; a live
++		 * customer VLAN upper below selects its own VID instead.
++		 */
++		native = dsa_tag_8021q_bridge_vid(bridge_num);
++	}
++
++	/* Every customer VLAN in the hierarchy must be the exact direct upper,
++	 * one upper of the VLAN-aware bridge, or the exact live customer upper
++	 * of the VLAN-unaware bridge. Reject stacked/unrelated tags.
+ 	 */
+ 	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++		bool ok;
++
+ 		if (ecm_db_iface_type_get(ifaces[i]) != ECM_DB_IFACE_TYPE_VLAN)
+ 			continue;
+ 		dev = dev_get_by_index(&init_net, ecm_db_iface_interface_identifier_get(ifaces[i]));
+@@ -168,9 +174,18 @@
+ 			ret = -ENODEV;
+ 			goto unlock;
+ 		}
+-		if (!is_vlan_dev(dev) || vlan_dev_vlan_proto(dev) != htons(ETH_P_8021Q) ||
+-		    (direct ? dev != direct :
+-		     (!br || !br_vlan_enabled(br) || vlan_dev_real_dev(dev) != br))) {
++		if (direct) {
++			ok = dev == direct &&
++			     vlan_dev_vlan_proto(dev) == htons(ETH_P_8021Q);
++		} else if (br && !br_vlan_enabled(br)) {
++			ok = dsa_yt921x_qinq_bridge_upper_valid(dp, dev);
++		} else {
++			ok = is_vlan_dev(dev) &&
++			     vlan_dev_vlan_proto(dev) == htons(ETH_P_8021Q) &&
++			     br && br_vlan_enabled(br) &&
++			     vlan_dev_real_dev(dev) == br;
++		}
++		if (!ok) {
+ 			dev_put(dev);
+ 			ret = -EOPNOTSUPP;
+ 			goto unlock;
+@@ -183,6 +198,14 @@
+ 		cvid = vlan_dev_vlan_id(dev);
+ 		dev_put(dev);
+ 	}
++
++	if (br && !br_vlan_enabled(br) && !cvid) {
++		/* No customer VLAN upper: native VLAN-unaware bridge traffic.
++		 * Name the internal bridge VID explicitly; never resolve 0.
++		 */
++		cvid = native;
++	}
++
+ 	if (br && br_vlan_enabled(br) && !cvid) {
+ 		u16 vid;
+ 

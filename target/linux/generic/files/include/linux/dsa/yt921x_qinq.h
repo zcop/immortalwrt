@@ -2,6 +2,7 @@
 #ifndef __LINUX_DSA_YT921X_QINQ_H
 #define __LINUX_DSA_YT921X_QINQ_H
 
+#include <linux/if_bridge.h>
 #include <linux/if_vlan.h>
 #include <linux/dsa/8021q.h>
 #include <net/dsa.h>
@@ -44,6 +45,30 @@ static inline bool dsa_yt921x_qinq_direct_vid_valid(struct dsa_port *dp, u16 vid
 
 	upper = __vlan_find_dev_deep_rcu(dp->user, htons(ETH_P_8021Q), vid);
 	return upper && vlan_dev_real_dev(upper) == dp->user;
+}
+
+/* Caller holds RCU. An exact live one-level 802.1Q upper of the DSA port's
+ * actual VLAN-unaware bridge admits customer-tagged traffic on that bridge.
+ * The VLAN core publishes this device after setup and unpublishes it before
+ * teardown, so stale NSS leaves alone never grant admission.
+ */
+static inline bool dsa_yt921x_qinq_bridge_upper_valid(struct dsa_port *dp,
+						      struct net_device *upper)
+{
+	struct net_device *bridge;
+	u16 vid;
+
+	if (!upper || !is_vlan_dev(upper) ||
+	    vlan_dev_vlan_proto(upper) != htons(ETH_P_8021Q))
+		return false;
+	bridge = dsa_port_bridge_dev_get(dp);
+	if (!bridge || br_vlan_enabled(bridge) ||
+	    vlan_dev_real_dev(upper) != bridge ||
+	    netdev_master_upper_dev_get_rcu(upper))
+		return false;
+	vid = vlan_dev_vlan_id(upper);
+	return dsa_yt921x_qinq_customer_vid_valid(dp->ds, vid) &&
+	       __vlan_find_dev_deep_rcu(bridge, htons(ETH_P_8021Q), vid) == upper;
 }
 
 #endif /* __LINUX_DSA_YT921X_QINQ_H */
