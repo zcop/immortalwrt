@@ -1,0 +1,20 @@
+Use the Linux6.18.57 sockaddr_unsized socket bind callback.
+
+The stable kernel backported this API before6.19. Keep older kernel builds
+on struct sockaddr and pass the actual sockaddr_nl buffer size in both cases.
+
+--- a/ecm_interface.c
++++ b/ecm_interface.c
+@@ -8209,7 +8209,11 @@
+ 	saddr.nl_groups = RTNLGRP_LINK;
+ 	saddr.nl_pid    = current->pid;
+ 
+-	err = __ewn.sock->ops->bind(__ewn.sock, (struct sockaddr *)&saddr, sizeof(struct sockaddr));
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 57))
++	err = __ewn.sock->ops->bind(__ewn.sock, (struct sockaddr_unsized *)&saddr, sizeof(saddr));
++#else
++	err = __ewn.sock->ops->bind(__ewn.sock, (struct sockaddr *)&saddr, sizeof(saddr));
++#endif
+ 	if (err < 0) {
+ 		DEBUG_ERROR("failed to bind sock\n");
+ 		goto exit2;
