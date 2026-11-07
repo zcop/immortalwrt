@@ -3,17 +3,20 @@
 Date: 2026-11-05. Branch: `nss-qosmio-qinq`. Firmware build08, kernel6.18.55.
 This is a test report and implementation plan; it does not deploy fixes.
 
-Subsequent implementation and device results through build21 are recorded in
-[the execution report](nss-qosmio-dsa-slices.md#slice16-customer-vlans-on-unaware-bridges).
+Subsequent implementation and device results through native build22 and the
+standard DSA build23 test are recorded in
+[the execution report](nss-qosmio-dsa-slices.md#slice19-standard-dsa-customer-qinq-hardware-path).
 They include control TX/RX and physical STP convergence at100Mbps with the
 hardware loop guard on, direct VLAN uppers, private SVID bridge domains and
 routed customer VLANs on unaware bridges. The comparison below remains the
 original build08 snapshot; later accepted results are recorded in that report.
 
-A source-checked standard DSA/customer-QinQ fallback candidate and a newly
-observed NSS reload-cleanup defect are recorded in
-[Slice17](nss-qosmio-dsa-slices.md#slice17-standard-dsa-customer-qinq-fallback-prerequisites).
-This candidate has not been booted; it does not extend build21 hardware acceptance.
+Slices18-19 repair NSS core reload cleanup, validate both Ethernet host paths,
+and boot the standard DSA/customer-QinQ profile. LAN3 customer S3500/C35 passes
+both directions with1500-byte IP datagrams and preserved PCP5/3. The router
+returns to automatic native NSS startup. The [six remaining slices](nss-qosmio-dsa-slices.md#remaining-dsaqinq-plan-after-slice19)
+cover the remaining parity and acceptance gates; this original audit table
+continues to describe build08.
 
 `README.yt921x.md` DONE entries remain the established driver baseline.
 This audit checks the selected native image and QinQ integration against it.

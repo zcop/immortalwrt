@@ -4,7 +4,9 @@
 This records execution of [the feature-audit plan](nss-qosmio-dsa-feature-audit.md).
 The original Kuncy reference remains unchanged; its 30 saved source hashes match.
 Source commits, image identity and device validation are recorded per slice.
-The latest accepted device image is build21; see Slice16 below.
+Development now uses `nss-experiment`. The latest accepted native device image
+is build22 on Linux6.18.60. Standard DSA build23 passes the first customer-QinQ
+hardware check, then the router returns to build22; see Slices18-19 below.
 
 ## Slice 01: control packages, MST and policy validation
 
@@ -1304,3 +1306,136 @@ unchanged. Full host-path restoration, lifecycle repair and a safe fallback
 transition remain prerequisites for customer double-tag hardware acceptance.
 
 Evidence: original ignored `logs/nss-slices-20261107/slice17-standard-fallback/`.
+
+## Slice18: NSS core lifecycle cleanup
+
+Build22 validates native NSS on the merged Linux6.18.60 tree. The full build
+also catches the6.18.57 socket-bind API backport: ECM patch0109 selects
+`sockaddr_unsized` and uses the real netlink address size, retaining the older
+callback type for older kernels. No feed revision or firmware ABI changes.
+
+Core patch0106 tracks common/platform ownership, unwinds late init failures,
+unregisters stats sysctl and panic notifier registrations, stops coredump
+producers and cancels their delayed work, drains IPQ50xx frequency work before
+unmapping, and destroys its queues/debugfs. DMA-visible connection tables are
+freed only after platform removal stops the hardware and IRQ/NAPI producers.
+Symbol-only loads without an NSS common node have no cleanup side effects.
+Core-local clamp/reset and clock sequencing are unchanged; GCC resets are not
+pulsed. This is acceptance of the selected IPQ5018 profile, not exhaustive
+teardown coverage for optional clients or other SoCs.
+
+The actual production C passes84 checks under ASan/UBSan, four AArch64 object
+compiles and a full image build. The baseline and deliberately omitted cleanup
+steps fail at runtime. Prepared package sources reproduce all six reviewed
+source hashes; packaged modules match the installed modules. LeakSanitizer is
+disabled because it cannot run under the restricted runner's ptrace.
+
+One ordinary sysupgrade installs build22 in slot1/mtd19, preserving verified
+build21 in slot0/mtd18 and its private raw/config backup. Image SHA256:
+`2d27d296b1de2363998019e43d0454d7eb25a0e19f5105e6c66493451125a268`.
+Boot ID: `3ef2eb27-4ac4-4b30-8817-6ec6af568d8f`. The enhanced MDIO driver binds,
+the LAN CPU link stays2.5Gbps, and eight native nodes appear automatically.
+
+Two UART-controlled cycles remove ECM, the QinQ adapter, PPPoE and the core,
+then reload them. With the core absent, the stats sysctl and NSS debugfs are
+absent too. WAN host ping succeeds. LAN tests bind explicitly to
+`enp2s0/192.168.2.100`:57 successful core-off ping/TCP/SSH samples in cycle1,
+and22 in cycle2. One additional cycle2 sample overlaps the transition and
+does not pass every probe. The old unbound ping is not a valid negative test:
+the workstation routes192.168.2.0/24 replies over Wi-Fi through policy table200.
+No workstation route or endpoint setting changes are made.
+
+Cycle1 exposes a test-orchestration defect: the restore timer expires before
+the UART unload starts and leaves a premature completion marker. The primary
+restores NSS through UART and fixes the test to arm/verify its independent
+45-second timer immediately before removal, rejecting stale markers. Cycle2
+then completes its own reload in about21 seconds; its safeguard reports
+`WATCHDOG_NOT_NEEDED`. Both reloads recreate eight nodes with zero allocation
+failures/retries. The boot ID and taint4096 stay unchanged; no duplicate stats
+entry, notifier warning, kernel WARN, Oops or refcount fault appears. The
+existing dataplane-close-not-acknowledged messages occur during clamped-core
+removal; host forwarding and reload still pass.
+
+| Installed build22 native traffic | Forward/reverse Mbps | CPU idle forward/reverse |
+| --- | --- | --- |
+| Before removal |936.48 /936.48 |98.91% /98.07% |
+| After both reloads |936.54 /936.51 |97.82% /98.55% |
+
+Each direction has an active ECM connection and adds more than700000 firmware
+IPv4 TX packets. These are short individual runs. Persistent network, wireless
+and firewall hashes match; loop protection stays enabled. Full customer QinQ
+and a standard-DSA boot remain separate gates at this point. The device tests
+do not commit, push or create a release.
+
+Evidence: original ignored `logs/nss-slices-20261107/slice18-nss-lifecycle/`,
+including `integration.json`, `lifecycle-test-results.json`, `arm-core-results.json`,
+`final-build.json`, `build22-artifacts.json`, both native acceptance directories,
+`cycle1/`, `cycle2/`, `post-lifecycle-state.txt` and the UART capture.
+
+## Slice19: standard DSA customer-QinQ hardware path
+
+The [standard-mode report](standard-dsa-qinq-fallback.md#installed-standard-mode-validation)
+now records an installed Linux6.18.60 image and actual customer S+C delivery.
+An explicit disabled DSCP-extension kernel default fixes the non-NSS build;
+native ECM retains its enabled override. The native build configuration stays
+unchanged. UART stops build22's core before the standard sysupgrade can reuse
+its memory. Build23 occupies slot0 and preserves tested native build22 in slot1.
+
+LAN3 exchanges S3500/C35 in both directions with3/3 replies at ICMP data sizes
+56 and1472. Two mismatched VID probes each receive0/2 replies. Independent
+endpoint and CPU byte checks find24 matching frames each: both customer tags
+and PCP5/3 survive,1500-byte IP datagrams are unfragmented, private RX port2
+and TX mask0x4 identify LAN3, and the external frame has no private header.
+No NSS acceleration is used in standard mode. These are one-port, low-rate
+packet tests; multiport customer-QinQ isolation, DEI1, other tag combinations,
+the secondary conduit and controlled host throughput remain separate gates.
+
+Temporary router links, the exact input rule and isolated Docker fixtures are
+removed; configuration hashes and workstation routing match. Earlier harness
+errors are retained separately. The device tests do not commit, push or create
+a release; the subsequent source commits are recorded separately.
+
+The ordinary dualboot selection returns to native build22 without reflashing
+it; standard build23 remains verified in slot0. Automatic NSS startup restores
+eight nodes on boot `1c7709bd-9c88-4508-a854-2bf2d080045d`. Fresh routed TCP
+reaches936.50/936.68Mbps with98.67%/98.30% CPU idle, active ECM connections
+and increasing firmware counters. Configuration/module hashes match and loop
+protection remains enabled. See `native-return-accept/` for this final check.
+
+Evidence: original ignored `logs/nss-slices-20261107/slice19-standard-hardware/`.
+
+## Remaining DSA/QinQ plan after Slice19
+
+Six further slices group the remaining parity and acceptance work from the
+original audit. This is a planning count; a failing test may require another
+fix slice. Existing-flow reacceleration is already accepted in build19, and
+routed policer/mirror checks already have device evidence. Their repetition
+under stress belongs to the remaining matrix, not a new implementation claim.
+
+| Slice | Remaining work | Acceptance gate |
+| --- | --- | --- |
+|20 | Complete standard-mode customer-QinQ packet coverage | Multiport separation and delivery, secondary raw conduit, DEI1 and additional S/C combinations; preserve customer tags and exact port identity |
+|21 | Host-path load and MTU boundaries | Controlled2.5G host load, end-to-end9K where endpoints permit, correct oversize handling, bounded CPU pressure and clean recovery |
+|22 | Finish capture integration | Installed-image native and legacy capture, live/offline filters and VLAN metadata; identify CPU-bypassed traffic limits explicitly |
+|23 | NSS node/topology stress | Pool exhaustion, allocation-failure recovery, repeated VLAN/bridge churn, surviving-flow reacceleration and no stale nodes, leaks or double release |
+|24 | Remaining policy and L2 parity | General egress-TC behavior, PCP queues,802.1X/storm policy during accelerated flows, multicast receive/leave, and two-member LACP/load distribution |
+|25 | IPv6 and boot/recovery acceptance | Actual IPv6 acceleration and firmware counters, cold/warm boots, upgrade and native/standard transitions, preserved configuration and final restored traffic |
+
+Wi-Fi NSS and adding PPP/tunnel acceleration are separate extensions. This
+plan does not expand the vendor-private feature scope in `AGENTS.md` or retest
+unrelated established DONE features solely to increase the slice count.
+
+## Source commits after Slice19 acceptance
+
+At the user's request, the accepted source changes are committed separately on
+`nss-experiment`:
+
+- `5c6f7307ebc`: adapt ECM's netlink bind callback to the Linux6.18.57 API.
+- `48859b4a6ac`: unwind NSS core resources and add the actual-C lifecycle harness.
+- `56a5448a00c`: default the platform's DSCP extension off without native ECM.
+
+The production patch/config bytes match the hardware acceptance checkpoint.
+Documentation corrects the stale existing-flow status using the already
+accepted build19 result and records the six-slice remaining plan. Source
+commits do not alter the installed build22 image. No push or release is part
+of this commit request.

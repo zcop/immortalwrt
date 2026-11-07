@@ -1,27 +1,33 @@
-# Current qosmio migration status
+# Current native NSS status
 
-The `nss-qosmio-qinq` branch now boots by normal sysupgrade and starts native
-NSS plus the QinQ node adapter automatically on Linux 6.18.55. YT921x keeps
-DSA ownership. Routed IPv4 TCP measured 935–936 Mbps in both directions with
-about 98.5–98.8% router CPU idle; 900 Mbps UDP had zero loss (2026-11-05).
-These are new native qosmio measurements, not the Kuncy7 reference results.
+The `nss-experiment` branch starts native NSS and its QinQ node adapter
+automatically on Linux6.18.60, with YT921x retaining DSA ownership. On2026-11-07,
+restored build22 reaches936.50/936.68Mbps routed IPv4 TCP,98.67%/98.30% CPU
+idle, active ECM connections and increasing firmware counters. Earlier native
+tests measured zero loss at900Mbps UDP. These are short individual tests.
 
-A topology resync can retire an existing TCP connection's NSS rules and
-leave that session on CPU forwarding; fresh connections accelerate again.
-The persistent-image near-line-rate resync gate did not pass. TCP continuity
-is fixed, but automatic reacceleration of surviving sessions remains work.
+Build19 fixes existing-flow reacceleration after transient topology changes.
+A single TCP session stays usable and is accelerated at each sampled point
+after detach, VLAN-upper creation/removal and rejoin, averaging926.66Mbps
+across the test. Resource exhaustion and repeated topology stress remain open.
 
-Ambiguous VLAN, direct port VLAN-upper, PPP/tunnel and L2 NSS paths remain
-on the host in this initial native port. Wi-Fi NSS is disabled. Customer
-VLAN/multiport membership, cross-conduit switching, high customer VIDs,
-MST state/FID flushing and hardware rate/mirror/drop policies have subsequent
-device evidence. Physical-loop/STP control delivery, IPv6 traffic, driver
-restore and cold/warm boot remain validation gates. The libpcap capture fix
-is RAM-tested and awaits inclusion in a new image. Startup and TCP
-resync fixes and their flashed/RAM-only status are recorded in
+Customer VLAN/multiport membership, direct port VLAN uppers, unaware bridge
+VLAN uppers, cross-conduit switching, high customer VIDs, STP/MST and hardware
+rate/mirror/drop policies have later slice evidence. Core unload/reload now
+restores both Ethernet host paths without duplicate registrations or kernel
+WARNs. A warm standard-DSA boot passes customer S3500/C35 delivery through
+LAN3, including1500-byte IP packets and PCP5/3, then returns to automatic NSS
+startup. Standard mode uses host forwarding. Multiport customer QinQ, the raw
+secondary conduit and sustained host-path load remain open. Wi-Fi NSS is
+disabled; IPv6 traffic, PPP/tunnel paths and full cold/warm boot coverage remain
+separate acceptance work. The [remaining DSA/QinQ plan](nss-qosmio-dsa-slices.md#remaining-dsaqinq-plan-after-slice19)
+groups the current parity work into six further slices.
+
+Startup and TCP resync behavior and earlier validation details are recorded in
 [device test details](nss-qosmio-device-test.md) and
-[source selection and implementation](nss-qosmio-port.md); the current
-build11 results and open issues are in [execution slices](nss-qosmio-dsa-slices.md).
+[source selection and implementation](nss-qosmio-port.md). Current image and
+packet evidence are in [execution slices](nss-qosmio-dsa-slices.md) and the
+[standard-mode report](standard-dsa-qinq-fallback.md).
 
 The older measurements below are historical; they do not validate this branch.
 
