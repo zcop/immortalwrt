@@ -273,7 +273,7 @@
 	reset-deassert-us = <50000>;
 
 	ethernet-switch@1d {
-		compatible = "motorcomm,yt9215";
+		compatible = "motorcomm,yt9215-enhanced";
 		reg = <0x1d>;
 
 		motorcomm,rma-slow-action = <2>;

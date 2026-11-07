@@ -17,7 +17,7 @@ for name in ('yt921x_dsa_port_change_mtu', 'yt921x_dsa_port_max_mtu'):
 names = ('YT921X_MACn_FRAME', 'YT921X_MAC_FRAME_SIZE_M',
          'YT921X_MAC_FRAME_SIZE', 'YT921X_FRAME_SIZE_MAX', 'YT921X_TAG_LEN')
 defines = []
-for line in (DRIVER / 'yt921x.h').read_text().splitlines():
+for line in (DRIVER / 'yt921x_enhanced.h').read_text().splitlines():
     match = re.match(r'#define\s+(\w+)', line)
     if match and match[1] in names:
         defines.append(line)

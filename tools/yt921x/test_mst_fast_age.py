@@ -22,9 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DSA_DIR = ROOT / "target/linux/generic/files/drivers/net/dsa"
 L2_C = DSA_DIR / "yt921x_l2.c"
-MAIN_C = DSA_DIR / "yt921x.c"
+MAIN_C = DSA_DIR / "yt921x_enhanced.c"
 INTERNAL_H = DSA_DIR / "yt921x_internal.h"
-SWITCH_H = DSA_DIR / "yt921x.h"
+SWITCH_H = DSA_DIR / "yt921x_enhanced.h"
 
 CALLBACK = "yt921x_dsa_port_vlan_fast_age"
 EXTRACTED = [
@@ -266,7 +266,7 @@ struct yt921x_priv {
 #define yt921x_to_priv(ds) container_of((ds), struct yt921x_priv, ds)
 #define yt921x_dev(priv) ((priv)->ds.dev)
 
-/* Hardware ABI values extracted from yt921x.h. */
+/* Hardware ABI values extracted from yt921x_enhanced.h. */
 $header_macros
 #define YT921X_VLAN_FID_MODE_IVL 0
 #define YT921X_VLAN_FID_MODE_SVL $svl_value

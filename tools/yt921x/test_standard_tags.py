@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-TAGGER = ROOT / 'target/linux/generic/files/net/dsa/tag_yt921x.c'
+TAGGER = ROOT / 'target/linux/generic/files/net/dsa/tag_yt921x_enhanced.c'
 source = Path(os.environ.get('YT921X_TAG_SOURCE', TAGGER)).read_text()
 xmit = re.search(r'^static struct sk_buff \*\nyt921x_tag_xmit\(.*?^}', source, re.M | re.S)
 raw = re.search(r'^static bool yt921x_conduit_is_raw\(.*?^}', source, re.M | re.S)
@@ -48,7 +48,7 @@ typedef uint16_t __be16;
 #define skb_vlan_tag_present(skb) ((skb)->vlan_present)
 #define skb_vlan_tag_get(skb) ((skb)->vlan_tci)
 
-enum dsa_tag_protocol { DSA_TAG_PROTO_NONE, DSA_TAG_PROTO_YT921X };
+enum dsa_tag_protocol { DSA_TAG_PROTO_NONE, DSA_TAG_PROTO_YT921X_ENHANCED };
 
 struct sk_buff {
 	u8 head[8192];
@@ -194,7 +194,7 @@ static void setup(unsigned int port, int raw_conduit)
 	cpu.index = 8;
 	cpu.ds = &sw;
 	sw.ops = &fake_ops;
-	fake_proto = raw_conduit ? DSA_TAG_PROTO_NONE : DSA_TAG_PROTO_YT921X;
+	fake_proto = raw_conduit ? DSA_TAG_PROTO_NONE : DSA_TAG_PROTO_YT921X_ENHANCED;
 	ndev.dsa = &user;
 }
 /* Host-order arguments in, kernel-order fields stored. */

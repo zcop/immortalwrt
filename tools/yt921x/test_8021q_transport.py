@@ -11,7 +11,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 DRIVER = ROOT / 'target/linux/generic/files/drivers/net/dsa'
-header = (DRIVER / 'yt921x.h').read_text().splitlines(True)
+header = (DRIVER / 'yt921x_enhanced.h').read_text().splitlines(True)
 defines = []
 continued = False
 for line in header:

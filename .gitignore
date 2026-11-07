@@ -34,6 +34,7 @@ git-src
 .project
 .cproject
 .ccache
+.sccache
 .vscode*
 Collection-Data/
 agents.md

@@ -4,8 +4,13 @@ This document is the feature-focused README for the YT921x switch driver used in
 
 Scope:
 - Driver: `target/linux/generic/files/drivers/net/dsa/yt921x*.{c,h}`
-- Tagger: `target/linux/generic/files/net/dsa/tag_yt921x.c`
+- Tagger: `target/linux/generic/files/net/dsa/tag_yt921x_enhanced.c`
 - Validation baseline: Xiaomi CR881x runtime in this workspace
+
+The enhanced driver is built as `yt921x_driver.ko`, using
+`motorcomm,yt9215-enhanced` on the local CR881x DTS. Its private tagger module
+is `tag_yt921x_enhanced.ko`. The upstream YT921x/YT922x backports remain
+separate; the enhanced module parameters and on-wire formats are unchanged.
 
 Key register-map references:
 - Canonical map: `docs/yt921x/yt9215-register-map.md`

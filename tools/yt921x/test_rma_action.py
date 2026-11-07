@@ -4,7 +4,7 @@ import pathlib, re, subprocess, sys, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 D = ROOT / "target/linux/generic/files/drivers/net/dsa"
-HEADER = D / "yt921x.h"
+HEADER = D / "yt921x_enhanced.h"
 SOURCES = {"core": D / "yt921x_core.c", "debugfs": D / "yt921x_debugfs.c"}
 FN = ("yt921x_rma_ctrl_action_set", "yt921x_stock_rma_ctrl_set")
 

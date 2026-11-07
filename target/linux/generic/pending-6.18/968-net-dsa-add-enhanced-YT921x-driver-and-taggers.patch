@@ -1,0 +1,113 @@
+Subject: [PATCH] net: dsa: wire the enhanced YT921x driver separately
+
+Keep the enhanced modular driver and its CPU transports alongside the
+upstream YT921x/YT922x backports. Kernel tag IDs36-38 follow the upstream
+registry through QCA EtherType35; packet TPIDs and port-ID VLANs are unchanged.
+Apply after the upstream Motorcomm series to avoid duplicate files and wiring.
+
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -38,6 +38,9 @@
+ #define DSA_TAG_PROTO_QCA_VALUE			10
+ #define DSA_TAG_PROTO_TRAILER_VALUE		11
+ #define DSA_TAG_PROTO_8021Q_VALUE		12
++#define DSA_TAG_PROTO_YT921X_8021Q_VALUE	36
++#define DSA_TAG_PROTO_YT921X_QINQ_VALUE	37
++#define DSA_TAG_PROTO_YT921X_ENHANCED_VALUE	38
+ #define DSA_TAG_PROTO_SJA1105_VALUE		13
+ #define DSA_TAG_PROTO_KSZ8795_VALUE		14
+ #define DSA_TAG_PROTO_OCELOT_VALUE		15
+@@ -78,6 +81,9 @@
+ 	DSA_TAG_PROTO_QCA		= DSA_TAG_PROTO_QCA_VALUE,
+ 	DSA_TAG_PROTO_TRAILER		= DSA_TAG_PROTO_TRAILER_VALUE,
+ 	DSA_TAG_PROTO_8021Q		= DSA_TAG_PROTO_8021Q_VALUE,
++	DSA_TAG_PROTO_YT921X_8021Q	= DSA_TAG_PROTO_YT921X_8021Q_VALUE,
++	DSA_TAG_PROTO_YT921X_QINQ	= DSA_TAG_PROTO_YT921X_QINQ_VALUE,
++	DSA_TAG_PROTO_YT921X_ENHANCED	= DSA_TAG_PROTO_YT921X_ENHANCED_VALUE,
+ 	DSA_TAG_PROTO_SJA1105		= DSA_TAG_PROTO_SJA1105_VALUE,
+ 	DSA_TAG_PROTO_KSZ8795		= DSA_TAG_PROTO_KSZ8795_VALUE,
+ 	DSA_TAG_PROTO_OCELOT		= DSA_TAG_PROTO_OCELOT_VALUE,
+--- a/drivers/net/dsa/Kconfig
++++ b/drivers/net/dsa/Kconfig
+@@ -165,4 +165,25 @@
+ 	help
+ 	  This enables support for the Motorcomm YT9215 and YT9224 ethernet switch
+ 	  chip.
++
++config NET_DSA_YT921X
++	tristate "Enhanced Motorcomm YT921x switch support"
++	select NET_DSA_TAG_YT921X_ENHANCED
++	select NET_DSA_TAG_YT921X_8021Q
++	help
++	  Build the enhanced modular YT921x driver. The separate upstream
++	  YT921x/YT922x implementation uses NET_DSA_YT92XX.
++
++config NET_DSA_YT921X_DEBUG
++	bool "Motorcomm YT9215 debug command interface"
++	depends on NET_DSA_YT921X
++	help
++	  Enable the raw register and table command interface under debugfs.
++
++config NET_DSA_YT921X_CR881X
++	bool "Motorcomm YT921x CR881x conduit isolation policy"
++	depends on NET_DSA_YT921X
++	help
++	  Enable CR881x-specific secondary conduit user-port isolation policy.
++
+ endmenu
+--- a/drivers/net/dsa/Makefile
++++ b/drivers/net/dsa/Makefile
+@@ -26,3 +26,17 @@
+ obj-y				+= realtek/
+ obj-y				+= sja1105/
+ obj-y				+= xrs700x/
++
++obj-$(CONFIG_NET_DSA_YT921X) += yt921x_driver.o
++yt921x_driver-y := \
++	yt921x_enhanced.o \
++	yt921x_core.o \
++	yt921x_mbus.o \
++	yt921x_qos_tc.o \
++	yt921x_acl.o \
++	yt921x_l2.o \
++	yt921x_8021q.o \
++	yt921x_qinq_acl.o \
++	yt921x_port.o \
++	yt921x_chip.o \
++	yt921x_debugfs.o
+--- a/net/dsa/Kconfig
++++ b/net/dsa/Kconfig
+@@ -216,4 +216,23 @@
+ 	  Say Y or M if you want to enable support for tagging frames for
+ 	  Motorcomm YT922x switches.
+ 
++config NET_DSA_TAG_YT921X_ENHANCED
++	tristate "Enhanced private tag driver for Motorcomm YT921x switches"
++	help
++	  Private CPU tag with secondary-conduit and VLAN-metadata handling.
++	  Uses a separate registration from the upstream YT921x tagger.
++
++config NET_DSA_TAG_YT921X_8021Q
++	tristate "802.1Q tag driver for Motorcomm YT921x switches"
++	select NET_DSA_TAG_8021Q
++	help
++	  Experimental standard VLAN transport for Motorcomm YT921x switches.
++
++config NET_DSA_TAG_YT921X_QINQ
++	tristate "QinQ port tag driver for Motorcomm YT921x switches"
++	select NET_DSA_TAG_8021Q
++	help
++	  Experimental outer S-tag port identity and inner C-tag VLAN transport.
++	  This tagger requires matching switch programming before use.
++
+ endif
+--- a/net/dsa/Makefile
++++ b/net/dsa/Makefile
+@@ -46,3 +46,7 @@
+ 
+ # for tracing framework to find trace.h
+ CFLAGS_trace.o := -I$(src)
++
++obj-$(CONFIG_NET_DSA_TAG_YT921X_ENHANCED) += tag_yt921x_enhanced.o
++obj-$(CONFIG_NET_DSA_TAG_YT921X_8021Q) += tag_yt921x_8021q.o
++obj-$(CONFIG_NET_DSA_TAG_YT921X_QINQ) += tag_yt921x_qinq.o

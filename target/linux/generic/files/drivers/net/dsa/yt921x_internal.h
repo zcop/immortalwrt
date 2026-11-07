@@ -41,7 +41,7 @@
 #include <net/pkt_cls.h>
 #include <net/pkt_sched.h>
 
-#include "yt921x.h"
+#include "yt921x_enhanced.h"
 
 struct yt921x_mib_desc {
 	unsigned int size;

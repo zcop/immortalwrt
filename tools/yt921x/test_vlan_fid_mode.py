@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DSA_DIR = ROOT / "target/linux/generic/files/drivers/net/dsa"
 L2_C = DSA_DIR / "yt921x_l2.c"
 DEBUGFS_C = DSA_DIR / "yt921x_debugfs.c"
-SWITCH_H = DSA_DIR / "yt921x.h"
+SWITCH_H = DSA_DIR / "yt921x_enhanced.h"
 
 EXTRACTED = [
     (L2_C, "yt921x_vlan_fid_for_vid"),

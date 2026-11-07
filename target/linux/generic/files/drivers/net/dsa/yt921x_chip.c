@@ -122,7 +122,7 @@ yt921x_dsa_get_tag_protocol(struct dsa_switch *ds, int port,
 	    yt921x_is_secondary_cpu_port(priv, port))
 		return DSA_TAG_PROTO_NONE;
 
-	return DSA_TAG_PROTO_YT921X;
+	return DSA_TAG_PROTO_YT921X_ENHANCED;
 }
 
 int yt921x_dsa_port_setup(struct dsa_switch *ds, int port)
