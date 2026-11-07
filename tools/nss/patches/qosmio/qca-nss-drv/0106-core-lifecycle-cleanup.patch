@@ -1,0 +1,467 @@
+Release IPQ50xx NSS module resources before reload.
+
+Unregister the stats sysctl and panic notifier, stop and cancel coredump
+work, and drain frequency work before removing core mappings. Track common
+and platform ownership for symbol-only loads and late init failure unwind.
+Connection-table pages are freed after the hardware producers stop.
+
+--- a/nss_init.c
++++ b/nss_init.c
+@@ -107,6 +107,13 @@
+  * Work Queue to handle messages to Kernel
+  */
+ nss_work_t *nss_work;
++
++/*
++ * Common resource ownership. nss_ready covers the sysctls, stats and data
++ * plane queues; nss_platform_registered guards platform_driver_unregister().
++ */
++static bool nss_ready;
++static bool nss_platform_registered;
+ 
+ extern struct of_device_id nss_dt_ids[];
+ 
+@@ -646,6 +653,135 @@
+ #endif
+ 
+ /*
++ * nss_common_cleanup()
++ *	Release common resources. Safe to call from init error paths and from
++ *	nss_cleanup(); nss_ready is cleared first so repeated calls are no-ops.
++ */
++static void nss_common_cleanup(void)
++{
++	if (!nss_ready) {
++		return;
++	}
++	nss_ready = false;
++
++	nss_info("Exit NSS driver");
++
++	/*
++	 * Stop panic callbacks before the core mappings are torn down.
++	 */
++	nss_coredump_notify_unregister();
++
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
++	if (nss_dev_header) {
++		unregister_sysctl_table(nss_dev_header);
++		nss_dev_header = NULL;
++	}
++#else
++	if (nss_clk_hdr) {
++		unregister_sysctl_table(nss_clk_hdr);
++		nss_clk_hdr = NULL;
++	}
++
++	if (nss_gen_hdr) {
++		unregister_sysctl_table(nss_gen_hdr);
++		nss_gen_hdr = NULL;
++	}
++
++	if (nss_skb_hdr) {
++		unregister_sysctl_table(nss_skb_hdr);
++		nss_skb_hdr = NULL;
++	}
++#endif
++	/*
++	 * Unregister n2h specific sysctl
++	 */
++	nss_n2h_unregister_sysctl();
++
++	/*
++	 * Unregister rps specific sysctl
++	 */
++	nss_rps_unregister_sysctl();
++
++#ifdef NSS_DRV_C2C_ENABLE
++	/*
++	 * Unregister c2c_tx specific sysctl
++	 */
++	nss_c2c_tx_unregister_sysctl();
++#endif
++
++	/*
++	 * Unregister pppoe specific sysctl
++	 */
++#ifdef NSS_DRV_PPPOE_ENABLE
++	nss_pppoe_unregister_sysctl();
++#endif
++
++	/*
++	 * Unregister ipv4/6 specific sysctl. Connection tables are freed after
++	 * the hardware and IRQ producers have been stopped.
++	 */
++#ifdef NSS_DRV_IPV4_ENABLE
++	nss_ipv4_unregister_sysctl();
++#endif
++
++#ifdef NSS_DRV_IPV6_ENABLE
++	nss_ipv6_unregister_sysctl();
++#endif
++
++	nss_project_unregister_sysctl();
++	nss_stats_unregister_sysctl();
++
++#ifdef NSS_DATA_PLANE_GENERIC_SUPPORT
++	nss_data_plane_destroy_delay_work();
++#endif
++
++#ifdef NSS_DATA_PLANE_LITE_SUPPORT
++	nss_data_plane_lite_destroy_delay_work();
++#endif
++
++	/*
++	 * cleanup ppe on supported platform
++	 */
++#ifdef NSS_DRV_PPE_ENABLE
++	nss_ppe_free();
++#endif
++
++	/*
++	 * Unregistering the platform driver drains the remove callbacks, which
++	 * stop IRQ/NAPI producers. Only then is it safe to destroy the queues.
++	 */
++	if (nss_platform_registered) {
++		platform_driver_unregister(&nss_driver);
++		nss_platform_registered = false;
++	}
++
++	/*
++	 * The hardware and its IRQ/NAPI producers are gone; only now release
++	 * the DMA-visible connection pages and their ownership tracking.
++	 */
++#ifdef NSS_DRV_IPV4_ENABLE
++	nss_ipv4_free_conn_tables();
++#endif
++
++#ifdef NSS_DRV_IPV6_ENABLE
++	nss_ipv6_free_conn_tables();
++#endif
++
++	/*
++	 * Final cancel covers a producer that passed the stopping check just
++	 * before shutdown and queued work after the early cancel.
++	 */
++	nss_coredump_destroy_delay_work();
++
++	if (nss_wq) {
++		destroy_workqueue(nss_wq);
++		nss_wq = NULL;
++	}
++
++	nss_stats_clean();
++}
++
++/*
+  * nss_init()
+  *	Registers nss driver
+  */
+@@ -655,6 +791,7 @@
+ 	struct device_node *pof = NULL;
+ #endif
+ 
++	int err;
+ 
+ #if (NSS_DT_SUPPORT == 1)
+ 	struct device_node *cmn = NULL;
+@@ -776,6 +913,9 @@
+ #ifdef NSS_DATA_PLANE_LITE_SUPPORT
+ 	if (nss_data_plane_lite_init_delay_work()){
+ 		nss_warning("Error initializing nss_data_plane_lite_workqueue\n");
++#ifdef NSS_DATA_PLANE_GENERIC_SUPPORT
++		nss_data_plane_destroy_delay_work();
++#endif
+ 		return -EFAULT;
+ 	}
+ #endif
+@@ -853,6 +993,11 @@
+ #ifdef NSS_DRV_PPPOE_ENABLE
+ 	nss_pppoe_register_sysctl();
+ #endif
++
++	/*
++	 * All common resources from here on are released by nss_common_cleanup().
++	 */
++	nss_ready = true;
+ 
+ 	/*
+ 	 * Setup Runtime Sample values
+@@ -873,6 +1018,11 @@
+ 	 * Initial Workqueue
+ 	 */
+ 	nss_wq = create_workqueue("nss_freq_queue");
++	if (!nss_wq) {
++		nss_warning("Error creating nss_freq_queue\n");
++		nss_common_cleanup();
++		return -ENOMEM;
++	}
+ 
+ #if (NSS_PM_SUPPORT == 1)
+ 	/*
+@@ -895,10 +1045,13 @@
+ 	nss_top_main.prev_mtu_sz = ETH_DATA_LEN;
+ 
+ 	/*
+-	 * register panic handler and timeout control
+-	 */
++	 * Initialize the coredump timeout before publishing the panic handler.
++	 */
++	if (nss_coredump_init_delay_work()) {
++		nss_common_cleanup();
++		return -ENOMEM;
++	}
+ 	nss_coredump_notify_register();
+-	nss_coredump_init_delay_work();
+ 
+ #ifdef NSS_DRV_CAPWAP_ENABLE
+ 	/*
+@@ -956,7 +1109,14 @@
+ 	/*
+ 	 * Register platform_driver
+ 	 */
+-	return platform_driver_register(&nss_driver);
++	err = platform_driver_register(&nss_driver);
++	if (err) {
++		nss_common_cleanup();
++		return err;
++	}
++
++	nss_platform_registered = true;
++	return 0;
+ }
+ 
+ /*
+@@ -965,76 +1125,7 @@
+  */
+ static void __exit nss_cleanup(void)
+ {
+-	nss_info("Exit NSS driver");
+-
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
+-	if (nss_dev_header)
+-		unregister_sysctl_table(nss_dev_header);
+-#else
+-	if (nss_clk_hdr)
+-		unregister_sysctl_table(nss_clk_hdr);
+-
+-	if (nss_gen_hdr)
+-		unregister_sysctl_table(nss_gen_hdr);
+-
+-	if (nss_skb_hdr)
+-		unregister_sysctl_table(nss_skb_hdr);
+-#endif
+-	/*
+-	 * Unregister n2h specific sysctl
+-	 */
+-	nss_n2h_unregister_sysctl();
+-
+-	/*
+-	 * Unregister rps specific sysctl
+-	 */
+-	nss_rps_unregister_sysctl();
+-
+-#ifdef NSS_DRV_C2C_ENABLE
+-	/*
+-	 * Unregister c2c_tx specific sysctl
+-	 */
+-	nss_c2c_tx_unregister_sysctl();
+-#endif
+-
+-	/*
+-	 * Unregister pppoe specific sysctl
+-	 */
+-#ifdef NSS_DRV_PPPOE_ENABLE
+-	nss_pppoe_unregister_sysctl();
+-#endif
+-
+-	/*
+-	 * Unregister ipv4/6 specific sysctl and free allocated to connection tables
+-	 */
+-#ifdef NSS_DRV_IPV4_ENABLE
+-	nss_ipv4_unregister_sysctl();
+-	nss_ipv4_free_conn_tables();
+-#endif
+-
+-#ifdef NSS_DRV_IPV6_ENABLE
+-	nss_ipv6_unregister_sysctl();
+-	nss_ipv6_free_conn_tables();
+-#endif
+-
+-	nss_project_unregister_sysctl();
+-
+-#ifdef NSS_DATA_PLANE_GENERIC_SUPPORT
+-	nss_data_plane_destroy_delay_work();
+-#endif
+-
+-#ifdef NSS_DATA_PLANE_LITE_SUPPORT
+-	nss_data_plane_lite_destroy_delay_work();
+-#endif
+-
+-	/*
+-	 * cleanup ppe on supported platform
+-	 */
+-#ifdef NSS_DRV_PPE_ENABLE
+-	nss_ppe_free();
+-#endif
+-
+-	platform_driver_unregister(&nss_driver);
++	nss_common_cleanup();
+ }
+ 
+ module_init(nss_init);
+--- a/nss_coredump.c
++++ b/nss_coredump.c
+@@ -40,6 +40,8 @@
+ 
+ static struct delayed_work coredump_queuewait;
+ static struct workqueue_struct *coredump_workqueue;
++static bool nss_panic_registered;
++static bool coredump_stopping;
+ 
+ /*
+  * nss_coredump_wait()
+@@ -50,6 +52,9 @@
+  */
+ static void nss_coredump_wait(struct work_struct *work)
+ {
++	if (READ_ONCE(coredump_stopping))
++		return;
++
+ 	if (!(nss_cmd_buf.coredump & 0xFFFFFFFE))
+ 		panic("did not get all coredump finished signals\n");
+ }
+@@ -67,6 +72,7 @@
+ 		return -ENOMEM;
+ 	}
+ 
++	WRITE_ONCE(coredump_stopping, false);
+ 	INIT_DELAYED_WORK(&coredump_queuewait, nss_coredump_wait);
+ 	return 0;
+ }
+@@ -130,7 +136,44 @@
+  */
+ void nss_coredump_notify_register(void)
+ {
+-	atomic_notifier_chain_register(&panic_notifier_list, &nss_panic_nb);
++	if (atomic_notifier_chain_register(&panic_notifier_list, &nss_panic_nb) == 0) {
++		nss_panic_registered = true;
++	}
++}
++
++/*
++ * nss_coredump_notify_unregister()
++ *	Remove the coredump notifier from the panic chain.
++ */
++void nss_coredump_notify_unregister(void)
++{
++	WRITE_ONCE(coredump_stopping, true);
++
++	if (coredump_workqueue) {
++		cancel_delayed_work_sync(&coredump_queuewait);
++	}
++
++	if (!nss_panic_registered) {
++		return;
++	}
++
++	atomic_notifier_chain_unregister(&panic_notifier_list, &nss_panic_nb);
++	nss_panic_registered = false;
++}
++
++/*
++ * nss_coredump_destroy_delay_work()
++ *	Cancel the pending coredump timeout and free its workqueue.
++ */
++void nss_coredump_destroy_delay_work(void)
++{
++	if (!coredump_workqueue) {
++		return;
++	}
++
++	cancel_delayed_work_sync(&coredump_queuewait);
++	destroy_workqueue(coredump_workqueue);
++	coredump_workqueue = NULL;
+ }
+ 
+ /*
+@@ -145,6 +188,9 @@
+ 	struct nss_log_entry *nle_init, *nle_print;
+ 	dma_addr_t dma_addr;
+ 	uint32_t offset, index;
++
++	if (READ_ONCE(coredump_stopping))
++		return;
+ 
+ 	nss_warning("%px: COREDUMP %x Baddr %px stat %x",
+ 			nss_own, intr, nss_own->nmap, nss_own->state);
+--- a/nss_stats.c
++++ b/nss_stats.c
+@@ -135,6 +135,20 @@
+ }
+ 
+ /*
++ * nss_stats_unregister_sysctl()
++ *	Unregister the sysctl table for stats.
++ */
++void nss_stats_unregister_sysctl(void)
++{
++	if (!nss_stats_header) {
++		return;
++	}
++
++	unregister_sysctl_table(nss_stats_header);
++	nss_stats_header = NULL;
++}
++
++/*
+  * nss_stats_open()
+  *	Opens stats file.
+  */
+--- a/nss_core.h
++++ b/nss_core.h
+@@ -1055,8 +1055,15 @@
+  * APIs for coredump
+  */
+ extern void nss_coredump_notify_register(void);
++extern void nss_coredump_notify_unregister(void);
+ extern void nss_fw_coredump_notify(struct nss_ctx_instance *nss_own, int intr);
+ extern int nss_coredump_init_delay_work(void);
++extern void nss_coredump_destroy_delay_work(void);
++
++/*
++ * Frequency workqueue created by nss_init and drained by the HAL remove path.
++ */
++extern struct workqueue_struct *nss_wq;
+ 
+ /*
+  * APIs provided by nss_freq.c
+--- a/nss_stats.h
++++ b/nss_stats.h
+@@ -69,6 +69,7 @@
+ };
+ 
+ extern void nss_stats_register_sysctl(void);
++extern void nss_stats_unregister_sysctl(void);
+ void nss_stats_init(void);
+ extern int nss_stats_release(struct inode *inode, struct file *filp);
+ extern int nss_stats_open(struct inode *inode, struct file *filp);
+--- a/nss_hal/nss_hal.c
++++ b/nss_hal/nss_hal.c
+@@ -920,6 +920,16 @@
+ 		nss_hal_clean_up_irq(&nss_ctx->int_ctx[i]);
+ 	}
+ 
++#ifdef NSS_HAL_IPQ50XX_SUPPORT
++	/*
++	 * Frequency work is queued from sysctl and stats paths. Drain it after
++	 * IRQ/NAPI teardown and before the host rings are detached.
++	 */
++	if (nss_wq) {
++		flush_workqueue(nss_wq);
++	}
++#endif
++
+ 	/*
+ 	 * nss-drv is exiting, unregister and restore host data plane
+ 	 */
