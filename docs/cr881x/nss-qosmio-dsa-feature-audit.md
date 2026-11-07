@@ -10,6 +10,11 @@ hardware loop guard on, direct VLAN uppers, private SVID bridge domains and
 routed customer VLANs on unaware bridges. The comparison below remains the
 original build08 snapshot; later accepted results are recorded in that report.
 
+A source-checked standard DSA/customer-QinQ fallback candidate and a newly
+observed NSS reload-cleanup defect are recorded in
+[Slice17](nss-qosmio-dsa-slices.md#slice17-standard-dsa-customer-qinq-fallback-prerequisites).
+This candidate has not been booted; it does not extend build21 hardware acceptance.
+
 `README.yt921x.md` DONE entries remain the established driver baseline.
 This audit checks the selected native image and QinQ integration against it.
 A missing image package, a kernel integration requirement, and a limitation

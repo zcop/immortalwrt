@@ -1283,3 +1283,24 @@ Evidence: original ignored
 `build21-artifacts.json`, `build21-native-accept/results.json`,
 `build21-unaware-35/`, `build21-unaware-4094/`,
 `build21-native-coexistence/` and `restored-final.json`.
+
+
+## Slice17: standard DSA customer-QinQ fallback prerequisites
+
+The new [fallback profile and source report](standard-dsa-qinq-fallback.md) select
+the ordinary stmmac/legacy DSA path without NSS or private VLAN transport. Its
+MTU arithmetic reserves customer S+C plus the primary CPU header; legacy TX
+materializes customer metadata inside that header and preserves raw secondary
+TX. Both actual-C harnesses, adversarial regression controls, expanded defconfig
+and AArch64 production-object checks pass. The default NSS profile is unchanged.
+No standard-mode image has been built, flashed or hardware-validated yet.
+
+A bounded build21 lifecycle test exposed missing cleanup for the stats sysctl
+and panic notifier on core reload. The restore safeguard recovered NSS/SSH;
+the primary saved evidence and rebooted the same image to clear the warning
+state. Native routed NSS then reached936.42/936.24Mbps,95.92%/97.72% CPU idle,
+with active ECM and increasing firmware counters. Configuration hashes remain
+unchanged. Full host-path restoration, lifecycle repair and a safe fallback
+transition remain prerequisites for customer double-tag hardware acceptance.
+
+Evidence: original ignored `logs/nss-slices-20261107/slice17-standard-fallback/`.
