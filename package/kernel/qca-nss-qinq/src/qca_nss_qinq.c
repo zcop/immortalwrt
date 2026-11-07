@@ -184,6 +184,31 @@ static void dsa_nss_node_destroy(struct dsa_nss_node *n, const char *why)
 	atomic_inc(&dsa_nss_destroys);
 }
 
+/*
+ * A node belongs to @dev when it is bound to @dev, or when it is a leaf
+ * whose root - allocated, ready or not - is bound to @dev. The customer
+ * leaves of an unaware bridge can be bound to the bridge VLAN upper while
+ * their root stays with the DSA port, so the root decides for them.
+ */
+static bool dsa_nss_node_owned_by(const struct dsa_nss_node *n,
+				  const struct net_device *dev)
+{
+	int i;
+
+	if (!dev || n->ndev == dev)
+		return true;
+	if (dsa_nss_is_root(n) || n->parent_if_num < 0)
+		return false;
+	for (i = 0; i < DSA_NSS_MAX_NODES; i++) {
+		const struct dsa_nss_node *root = &dsa_nss_nodes[i];
+
+		if (root->if_num >= 0 && dsa_nss_is_root(root) &&
+		    root->if_num == n->parent_if_num && root->ndev == dev)
+			return true;
+	}
+	return false;
+}
+
 /* Leaves first: the firmware unhooks a parent only after its children. */
 static void dsa_nss_destroy_nodes(struct net_device *dev, const char *why)
 {
@@ -195,7 +220,7 @@ static void dsa_nss_destroy_nodes(struct net_device *dev, const char *why)
 
 			if (n->if_num < 0 || dsa_nss_is_root(n) != pass)
 				continue;
-			if (dev && n->ndev != dev)
+			if (!dsa_nss_node_owned_by(n, dev))
 				continue;
 			dsa_nss_node_destroy(n, why);
 		}
