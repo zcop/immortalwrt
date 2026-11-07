@@ -665,7 +665,16 @@ yt921x_dsa_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 	int res;
 
 	frame_size = new_mtu + ETH_HLEN + ETH_FCS_LEN;
-	if (dsa_port_is_cpu(dp)) {
+	if (!priv->tag_8021q) {
+		/* Standard DSA carries customer S+C tags on user ports and the
+		 * raw secondary CPU link; only the tagged primary CPU link adds
+		 * the private tag.
+		 */
+		frame_size += 2 * VLAN_HLEN;
+		if (dsa_port_is_cpu(dp) &&
+		    !yt921x_is_secondary_cpu_port(priv, port))
+			frame_size += YT921X_TAG_LEN;
+	} else if (dsa_port_is_cpu(dp)) {
 		frame_size += YT921X_TAG_LEN;
 	} else if (priv->qinq) {
 		/* User frames may carry a customer C-tag. The CPU allowance
@@ -685,7 +694,15 @@ yt921x_dsa_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 
 int yt921x_dsa_port_max_mtu(struct dsa_switch *ds, int port)
 {
-	/* Only called for user ports, exclude tag len here */
+	struct yt921x_priv *priv = yt921x_to_priv(ds);
+
+	/* Only called for user ports, exclude tag len here. Standard DSA must
+	 * also reserve the customer S+C pair and the private primary-CPU tag.
+	 */
+	if (!priv->tag_8021q)
+		return YT921X_FRAME_SIZE_MAX - ETH_HLEN - ETH_FCS_LEN -
+		       2 * VLAN_HLEN - YT921X_TAG_LEN;
+
 	return YT921X_FRAME_SIZE_MAX - ETH_HLEN - ETH_FCS_LEN - YT921X_TAG_LEN;
 }
 
