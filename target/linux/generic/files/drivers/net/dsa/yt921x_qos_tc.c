@@ -1109,15 +1109,14 @@ yt921x_qsch_tbf_apply_raw(struct yt921x_priv *priv, int port, u8 qid,
 	if (res)
 		return res;
 
-	/* Program single-rate queue shaper profile. Keep meter-id at 0 and
-	 * mirror CIR/CBS into EIR/EBS for hardware variants that consult both.
+	/* Single-rate TBF: keep both C/E gates enabled but zero the excess
+	 * budget, otherwise EIR/EBS admits about twice the requested rate.
+	 * Preserve the existing meter settings.
 	 */
 	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD2(idx), 0);
 	if (res)
 		goto rollback;
-	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx),
-			       YT921X_QSCH_SHP_EIR(cir) |
-			       YT921X_QSCH_SHP_EBS(cbs));
+	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD1(idx), 0);
 	if (res)
 		goto rollback;
 	res = yt921x_reg_write(priv, YT921X_QSCH_SHP_WORD0(idx),
