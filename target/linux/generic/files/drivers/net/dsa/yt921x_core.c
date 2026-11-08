@@ -1828,7 +1828,14 @@ int yt921x_ctrlpkt_setup_locked(struct yt921x_priv *priv)
 int yt921x_apply_flood_filters_locked(struct yt921x_priv *priv)
 {
 	u32 unk_ucast_mask = priv->flood_unk_ucast_base_mask;
-	u32 mcast_mask = priv->flood_mcast_base_mask | priv->flood_storm_mask;
+	/*
+	 * BR_MCAST_FLOOD user bits only suppress unknown multicast;
+	 * known offloaded MDB groups remain selectively deliverable
+	 * when unknown flooding is disabled.
+	 */
+	u32 mcast_mask = (priv->flood_mcast_base_mask &
+			  ~yt921x_user_ports_mask(&priv->ds)) |
+			 priv->flood_storm_mask;
 	u32 bcast_mask = priv->flood_bcast_base_mask | priv->flood_storm_mask;
 	u32 unk_mcast_mask;
 	u32 router_mask;
