@@ -8,7 +8,7 @@ Development now uses `nss-experiment`. The latest accepted native device image
 is build24 on Linux6.18.60, with standard DSA build25 preserved in the other
 slot. Slice22 accepts installed-library capture on both images and a new
 userspace capture package tested from RAM. The router is restored to native24;
-see Slices21-22 below. The remaining functional plan is Slices23-25.
+see Slices21-23 below. The remaining functional plan is Slices24-25.
 
 ## Slice 01: control packages, MST and policy validation
 
@@ -1419,7 +1419,7 @@ under stress belongs to the remaining matrix, not a new implementation claim.
 |20 | Complete standard-mode customer-QinQ packet coverage | Multiport separation and delivery, secondary raw conduit, DEI1 and additional S/C combinations; preserve customer tags and exact port identity |
 |21 | Host-path load and MTU boundaries | Controlled2.5G host load, end-to-end9K where endpoints permit, correct oversize handling, bounded CPU pressure and clean recovery |
 |22 | Capture integration accepted below | Installed-library native and legacy capture, live/offline filters and VLAN metadata; new package tested from RAM; CPU-bypassed visibility limits measured |
-|23 | NSS node/topology stress | Pool exhaustion, allocation-failure recovery, repeated VLAN/bridge churn, surviving-flow reacceleration and no stale nodes, leaks or double release |
+|23 | Bounded NSS node/topology stress accepted below |64-node capacity and promotion, real allocation retries and reuse, twelve bridge/VLAN waves with a surviving accelerated TCP session; failure cleanup checked with actual C |
 |24 | Remaining policy and L2 parity | General egress-TC behavior, PCP queues,802.1X/storm policy during accelerated flows, multicast receive/leave, and two-member LACP/load distribution |
 |25 | IPv6 and boot/recovery acceptance | Actual IPv6 acceleration and firmware counters, cold/warm boots, upgrade and native/standard transitions, preserved configuration and final restored traffic |
 
@@ -1785,3 +1785,120 @@ replies without loss. The log records its return to gigabit at uptime605.75s;
 no router setting was changed to obtain that result. The934/937Mbps readings
 precede the link event. Test RAM files were removed and UART closed without
 reset.
+
+## Slice23: bounded node capacity, allocation recovery and topology churn
+
+Slice22 is committed on `nss-experiment` as `e2cc1209f68`. Slice23 uses the
+unchanged installed native24 image on boot
+`aab8d974-9ed0-4e1e-b904-5b161e3463a3`; no production driver change, firmware
+flash or manual NSS restart is needed for these checks. Standard25 remains
+in slot0. Linux stays on LAN3 and Windows on WAN/VLAN0. LAN1/LAN2 have no
+cables; loop protection stays enabled. Each temporary topology has an
+independent restoration watchdog, and persistent UCI configuration is untouched.
+
+### Adapter capacity and promotion
+
+The glue caps its table at64 nodes; this differs from the firmware's shared
+dynamic-interface pool. With the normal eight nodes present,60 registered
+customer VLAN uppers on standalone LAN1 request60 additional leaves. The
+actual table admits56, reports its capacity warning and omits four. All live
+interface IDs and `(SVID, VID, phys_if)` keys remain unique, every leaf has its
+correct root, and the other ports' nodes retain their IDs and parents.
+
+Deleting eight admitted leaves lets all52 remaining uppers obtain nodes,
+including the four previously omitted VIDs. Removing all test uppers and
+returning LAN1 to `br-lan` restores eight nodes. A second capacity run proves
+native routed traffic still accelerates with the table full:936.56Mbps and
+772074 additional firmware IPv4 TX packets at64 adapter nodes. Cleanup again
+restores the original topology. No tagged endpoint is attached to the spare
+port, so packet forwarding through an omitted customer leaf is not claimed
+as tested by this table-capacity fixture.
+
+### Real transient allocation failure and slot reuse
+
+Sixteen cycles create and delete eight customer leaves on disconnected LAN1.
+All128 requested leaf allocations complete across119 distinct interface IDs,
+demonstrating nine reuses. At cycle14 the actual firmware-interface allocator
+fails six times. Kernel logs show retries1-6 at the existing2000ms interval;
+the desired nodes subsequently appear without a resync command or reload.
+No give-up, deallocation failure or unregister-wait warning is observed.
+
+The test restores eight nodes with `creates=208`, `destroys=200`,
+`alloc_failures=6`, and `retries_pending=0`. The failure counter is cumulative
+evidence of the exercised path, not six outstanding errors. Native management
+and WAN ping remain reachable, and configuration hashes match. This is real
+allocation-retry recovery, not injected firmware behavior; the precise reason
+the firmware temporarily withheld those IDs is not established by its counter.
+
+### Surviving TCP flow during bridge and VLAN churn
+
+One60-second TCP connection spans twelve waves on the disconnected spare ports:
+join an isolated VLAN-aware bridge with VIDs1100/1101, replace1100 with1102,
+detach both ports to standalone state, and return them to `br-lan`; repeat
+three times. The adapter alternates between ten and eight nodes. Each wave
+checks uniqueness and parent identity, preserves LAN3/WAN node IDs, and
+requires the original TCP client port35003 to be accelerated again with
+increasing firmware TX counters.
+
+All twelve waves pass. The same socket completes60.00seconds, averaging
+890.86Mbps with median measured intervals936.01Mbps, minimum561.44Mbps and
+1358 TCP retransmits. Firmware TX grows2341468 packets between the pre-test
+snapshot and wave11; every adjacent wave adds more than10000 packets. This
+establishes repeated reacceleration and TCP survival at the sampled times;
+the retransmits and reduced average preclude a zero-loss or interruption-free
+claim. No additional allocation failures occur during this sequence.
+
+ECM can rebuild a connection from a return packet and reverse its displayed
+source/destination orientation. The accepted oracle normalizes both directions
+of the exact endpoint/port tuple; a direction-specific early matcher incorrectly
+missed an already accelerated flow. Recorded initial and after-wave dumps
+prove the same client port in both orientations. Fixture corrections also
+cover an ECM device node initially placed under nodev `/tmp`, duplicate
+`serial` construction, and iperf's `start.connected` JSON location. The completed
+twelve-wave run was accepted from its saved ECM/counter/iperf records after
+the last JSON-path correction, without repeating its traffic. Earlier fixture
+stops and a temporarily unavailable Windows listener are retained separately
+and are not treated as driver failures.
+
+### Actual-C failure cleanup checks
+
+`tools/nss/test_qinq_allocation.py` extracts the production create/destroy,
+parent matching and resync functions. A bounded fake API ledger injects
+allocation, registration, MAC, MTU and add-tag failures. It checks unpublished
+readiness before configuration ACK, reference and registration balance,
+preservation of an unrelated node, root-before-leaf creation, child-before-root
+release, shortage recovery and idempotent resync. Independent fixture values
+also check the firmware tag and next-hop arguments. The collector and scheduler
+are mocked here; real capacity/retry behavior is covered by the live tests above.
+
+Qoder drafted the single test file with DeepSeek-Flash/max verified in its
+interactive UI. Primary review corrected an undeclared helper and an event-order
+assumption, matched Linux Kbuild's `-fno-strict-overflow` semantics, and
+strengthened registration and firmware-tag checks. ASan/UBSan/LSan pass. The
+negative control removes only the extracted register-failure `dev_put()` and
+fails the actual runtime reference ledger; production source is untouched.
+The existing actual-C lifetime checks also pass. The old combined mapping test
+passes its controller portion but cannot run its ECM portion because the
+prepared ECM source cache is absent after the standard build; that full suite
+is not counted as a new pass. No production change requires a firmware rebuild.
+
+After the completed traffic and capacity checks, eight nodes remain with
+`creates=306`, `destroys=298`, `alloc_failures=6`, `retries_pending=0`. These
+bounded table, firmware reuse and reference-ledger checks found no stale nodes
+or double release; they are not an unrestricted kernel memory-leak or concurrency
+proof. Original configuration, MTUs and port membership are restored. Evidence:
+ignored `logs/nss-slices-20261108/slice23-topology/`, including individual
+node/counter/ECM snapshots, failure/retry logs, completed iperf JSON, watchdog
+records, sanitizer output and rejected fixtures. The remaining functional
+plan is Slices24-25; Slice21's external capacity limits remain separately open.
+
+Final acceptance verifies the installed build24 module/binary hashes and original
+configuration, bridge membership and1500/1508 MTUs. WAN/LAN3 are1000Mbps and the
+CPU conduit is2500Mbps; ath11k and loop protection remain enabled. A fresh
+reverse NSS transfer reaches936.64Mbps with98.67% sampled CPU idle, two active
+ECM rules and753684 additional firmware TX packets. No kernel WARN/Oops/panic
+or unregister/deallocation fault is found. Test guards have exited, exact
+task-owned RAM files are removed, and UART is closed without reset. The helper
+draft remains in a detached worktree; local branches are only `master` and
+`nss-experiment`. Source changes in this slice are limited to the new host
+harness and this acceptance record.
