@@ -162,8 +162,14 @@ Board-specific validation note:
   - `tbf`
   - ingress policer add/del path (release; current DSA core limits active scope to one port policer at a time)
 
+CR881x validation scope: unicast PCP0/5 queue selection and queue TBF have
+packet-level evidence. Complete ETS/SP scheduling remains open: vendor source
+identifies the existing `0x300400` SP-address assumption as a flush register.
+See [Slice24](docs/cr881x/nss-qosmio-dsa-slices.md#final-ets-index-correction-and-open-scheduler-work)
+for the confirmed queue-index corrections and remaining priority-group work.
+
 ### ACL Engine Offload (`tc flower`)
-- Ingress and egress ACL offload (egress uses supported subset)
+- Ingress ACL offload via `tc flower`; general hardware egress flower is rejected with `EOPNOTSUPP` (egress mirroring and shaping use separate hardware paths)
 - Actions implemented:
   - drop
   - redirect

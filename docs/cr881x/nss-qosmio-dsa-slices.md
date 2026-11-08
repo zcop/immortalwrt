@@ -4,11 +4,12 @@
 This records execution of [the feature-audit plan](nss-qosmio-dsa-feature-audit.md).
 The original Kuncy reference remains unchanged; its 30 saved source hashes match.
 Source commits, image identity and device validation are recorded per slice.
-Development now uses `nss-experiment`. The latest accepted native device image
-is build24 on Linux6.18.60, with standard DSA build25 preserved in the other
-slot. Slice22 accepts installed-library capture on both images and a new
-userspace capture package tested from RAM. The router is restored to native24;
-see Slices21-23 below. The remaining functional plan is Slices24-25.
+Development now uses `nss-experiment`. The current native device image is
+build30 on Linux6.18.60, with native29 preserved in the other slot and earlier
+native/standard images retained as verified private raw backups. Slice22 accepts
+installed-library capture on both images and a userspace capture package tested
+from RAM. Slice24 records multicast/queue fixes and remaining scheduler/policy
+limits; Slice25 records actual IPv6 acceleration and boot acceptance below.
 
 ## Slice 01: control packages, MST and policy validation
 
@@ -1902,3 +1903,248 @@ task-owned RAM files are removed, and UART is closed without reset. The helper
 draft remains in a detached worktree; local branches are only `master` and
 `nss-experiment`. Source changes in this slice are limited to the new host
 harness and this acceptance record.
+
+
+## Slice24: multicast, queue corrections and remaining policy limits
+
+Slice23 is committed as `a1d16b94e97`. The following driver corrections on
+`nss-experiment` have source and bounded hardware evidence:
+
+- `660987c8cf12`: fix(yt921x): preserve known multicast when flooding is disabled
+- `798a90c44c24`: fix(yt921x): correct priority-to-queue register field order
+- `86c58a18b850`: fix(yt921x): separate packed queue and scheduler group indexes
+- `2be9b8e271c8`: fix(yt921x): remove excess budget from single-rate queue TBF
+
+ The current image is native30 on Linux6.18.60; packet acceptance for
+each correction is identified below rather than inferred from a build pass.
+
+### Known multicast groups survive unknown-flood-off
+
+Windows joins239.24.0.1 through a real UDP socket on LAN1/192.168.2.169. The
+LAN1 MDB entry reports offload, but native24's `mcast_flood off` suppresses both
+the joined and unknown groups. Register A/B identifies the cause: the driver
+puts the user-port bit in both unknown-multicast and all-multicast drop masks.
+Clearing only the all-multicast user bit restores64/64 known-group egress while
+the unjoined group stays blocked.
+
+The correction strips DSA user-port base bits from the all-multicast mask,
+retaining CPU/reserved bits and the separate storm mask. Unknown multicast,
+router exclusions, broadcast, unknown unicast, write ordering and errors stay
+unchanged. The actual production-C harness covers the masks and I/O faults with
+ASan/UBSan/LSan; the old function compiles and fails semantic checks.
+
+Installed native26 confirms joined-group delivery with flooding disabled. When
+the user closes the actual socket, the MDB entry disappears: former-group
+traffic has0/64 egress with flooding disabled and64/64 when re-enabled. Native29
+retention uses Windows's existing SSDP membership:64 joined probes produce65
+LAN1 multicast TX frames including one background frame, while64 unknown probes
+produce0. Source ingress counters match the probes. Windows application
+consumption and precise leave latency are not measured. The test socket is
+closed and original flood flags are restored.
+
+### Correct priority-map fields and queue indexes
+
+Vendor metadata places UC priority0 at bits2:0 and priority5 at22:20; MC
+priority0 is at1:0. The old shift macros reverse both layouts. The correction
+uses UCshift4*priority and MCshift2*priority. An identity UC map becomes
+0x76543210. The actual-C harness tests apply/readback, literal identity and
+asymmetric expectations, reserved bits and I/O faults. Sanitizers pass; the old
+header compiles and fails semantic checks.
+
+On native29, valid customer-VID35 IPv4/UDP probes verify PCP0/5 queue selection
+on physical LAN1/port0. Windows stays untagged on LAN1, and Linux stays on LAN3
+with its untagged management membership present. A temporary static destination
+FDB entry and unknown-unicast flood-off distinguish known delivery from
+flooding. Every phase refreshes that entry, checks a64-frame1Mbps positive
+control and verifies the complementary queue is disabled.
+
+| Selected5Mbps queue | Matching PCP delivered /9765 offered at40Mbps | Other PCP delivered /9765 |
+| --- | --- | --- |
+|q0 |PCP0:1248 |PCP5:9765 |
+|q5 |PCP5:1247 |PCP0:9765 |
+
+Known-destination controls deliver64/64; a distinct unknown MAC delivers0/64.
+CPU-port TX increments remain16–24 during the large probes rather than tracking
+the9765 frames. The uncontrolled dynamic-FDB fixture could not separate queue
+selection from flooding; no dynamic-learning defect is inferred from it. An
+earlier native28 run failed its final unrestricted control and is not counted
+as acceptance. Original VLAN/PVID, FDB, flood, qdisc and touched registers are
+restored exactly. Final normal LAN TCP reaches941.21Mbps with zero retransmits.
+
+Vendor `fal_tiger_qos_queue_id_get()` uses packed queue indexes: UCport*8+qid,
+MC88+port*4+qid. The MC boundary follows the explicit11-port definition. The old
+Linux shaper uses port*12. On native27, normal TC on LAN3/physicalport2 programs
+index24 and leaves a40.10Mbps offer unrestricted; copying the same profile to
+index16 reduces delivery to9.17Mbps, and restoring16 returns40.10Mbps.
+
+Final source uses `YT921X_QOS_QUEUE_FLOW_INDEX` for shapers, shaper telemetry
+and ETS flow weights. The separate legacy mode-table index is retained. Native29
+normal `mqprio`/TBF, without manual profile copying, measures40.11Mbps unshaped,
+4.46Mbps at requested5Mbps and9.17Mbps at10Mbps on LAN3q0. Readback identifies
+index16. Exact restoration returns40.09Mbps. Multicast queue scheduling, every
+modeled port/queue and general DWRR behavior are not established by this test.
+
+### Single-rate queue TBF
+
+Mirroring CIR/CBS into EIR/EBS admits about twice the requested rate. With a
+controlled FDB and a low-rate positive control for each phase, the old5Mbps
+profile delivers9.91Mbps. Keeping both enable gates and zeroing excess WORD1
+reduces delivery to5.05Mbps; restoring the mirror returns9.93Mbps. Disabling
+either gate instead bypasses the limit, so a single-gate change is incorrect.
+
+The correction keeps CIR/CBS, both gates, conversion, write order and rollback,
+but writes EIR/EBS0. The actual-C raw-helper harness checks that profile, queue
+index, argument/conversion/read failures and every write-failure rollback.
+Sanitizers pass; the old mirrored-rate substitution compiles and fails. The
+native29 normal-TC5/10Mbps results above accept the installed single-rate
+behavior for that TCP fixture.
+
+### Final ETS index correction and open scheduler work
+
+Queue flow/shaper tables and DWRR mode tables use different index spaces. The
+first native28 shared-index draft was too broad. A later correction preserved
+mqprio and mode telemetry, but final static review caught another shared ETS
+local variable: its packed flow index was also reused for mode writes. The
+primary confirmed the finding and split `flow_idx` from `mode_idx`. That review
+timed out and is not a completed approval; its concrete finding is accepted
+through independent source inspection and checks.
+
+The index harness also compiles the actual ETS apply function with named fake
+band/weight/register dependencies. Independent flow/mode address oracles cover
+all modeled ports, weighted/strict/unassigned bands and each I/O-error prefix.
+The pre-fix native29 source compiles and fails mode-address checks. The corrected
+source passes ASan/UBSan/LSan. Existing SP-write semantics are deliberately
+outside this oracle; it does not prove hardware scheduling.
+
+Installed native30 ordinary `tc ets` on LAN3/port2 uses the packed flow range
+16–23, updating weighted queues20–23, and mode entries24–31. Adjacent mode
+entries16–23 and32–35 stay unchanged. Four strict bands and quanta
+256/512/768/1000 exercise these writes. An initial100/200 expectation was
+rejected because the real kernel clamps quanta to a minimum256. Exact
+register/qdisc/config restoration passes after each run. The flow/mode-address
+gate passes; complete ETS acceptance does not.
+
+The separate SP assertion reads0xdeadbeef at0x300408. Vendor metadata identifies
+0x300400 as the single-entry `flush_cfg`; the existing Linux macro instead
+assumes a per-port SP bitmap there. Vendor queue priority uses C/E priority
+fields in the packed flow table, and mode groups resolve by priority. A second
+bounded external source investigation completes without scope violations and
+corroborates this existing discrepancy, which the primary checks against the
+original vendor files. This is a Linux mapping issue, not missing hardware.
+The next scheduler fix must replace that SP assumption, resolve priority groups,
+preserve vendor queue-update ordering and test actual strict/weighted contention.
+
+### Image, review and restoration
+
+Native29 SHA256:
+`dd34d2d7343b008501911334014a5b98c9c51d5a1039b54a2fbda847d5a70ba9`.
+Native30 SHA256:
+`d5dea4a327c61b7402cb7c5c25e3b2a2635bb711f7b359472c501d3f12cbcc61`.
+The final `make -j12 V=s` build passes;12 is the current `nproc` result. A normal
+sysupgrade installs native30 in slot0, preserving native29's slot1 raw hash.
+All six installed module hashes match. The production source files match the
+frozen build; a later test-only scope clarification does not change the image.
+
+Qoder supplied bounded multicast, qmap and index/rate drafts; the primary
+reviewed every diff, corrected the shared-index scope, ran checks and owns
+hardware acceptance. Agy supplied bounded source investigations. Helpers did
+not operate the device. Detached drafts and original Kuncy reference remain
+preserved; local branches remain `master` and `nss-experiment`.
+
+A source-address-only LAN test initially followed the workstation's existing
+Wi-Fi policy route. Binding iperf to enp2s0 fixes the fixture without a route
+change. The first native26 upgrade wrapper also failed before writing either
+slot because it removed the image after procd closed ubus. Unchanged raw hashes
+and UART exposed that failure. The corrected wrapper execs normal sysupgrade
+without post-handoff cleanup; subsequent upgrades record actual UBI writes.
+All rejected controls, source manifests, private recovery hashes, UART and exact
+restoration ledgers remain under ignored
+`logs/nss-slices-20261108/slice24-policy-l2/`.
+
+### Remaining policy and peer limits
+
+On native24, existing WAN802.1X raw RX/TX gates each stop an established NSS
+flow for two seconds and recover. Unblocked intervals reach at least934.28Mbps
+for RX and901.78Mbps for TX. This accepts the raw gates; bridged EAP/auth
+integration remains partial as recorded in AGENTS.md.
+
+General hardware egress flower rejects `skip_sw` drop with EOPNOTSUPP and an
+accurate extack. Software-only egress drop counts0 packets while NSS traffic
+continues at least905.98Mbps. It therefore does not enforce this policy on the
+bypassed bulk path. Ingress flower, egress mirrors and shapers retain their
+separate accepted paths.
+
+The software storm guard activates its source-port bit at a low100pps
+threshold, but64/64 subsequent source-LAN3 multicast frames still leave LAN1.
+Source containment is unproven by that destination-filter mask. Original guard
+settings and four filter registers are restored; loop protection remains on.
+This finding concerns the software approximation, not the established vendor
+hardware storm-rate feature, and is not routed-NSS storm-policy acceptance.
+
+Open gates are the scheduler correction above, software storm containment,
+bridged802.1X, broader dynamic-learning/multicast scheduling, and real two-member
+LACP/load distribution. The user has only the current one-NIC computers, so the
+LACP peer is unavailable. Slice21's external2.5G/9K limits remain separate.
+
+## Slice25: IPv6 acceleration, cold boot and ordinary reboot
+
+The installed native30 image passes actual routed IPv6 in both directions.
+An isolated IPv6-only macvlan endpoint on the Linux workstation uses
+`fd42:25:1::253` through physical LAN3. The router temporarily receives
+`fd42:25:1::1/64` on br-lan and `fd42:25:2::2/64` on WAN. Windows on WAN uses
+`fd42:25:2::1/64` with a return route for the test LAN prefix. There is no NAT66
+or firewall-rule change. The workstation's own addresses/routes stay intact.
+The existing IPv4 Windows server and native QinQ topology remain present.
+
+Initial IPv6 throughput is923.71/923.67Mbps for LAN→WAN/WAN→LAN, with two
+active IPv6 ECM rules and98.56% sampled aggregate CPU idle. Firmware IPv6 TX
+increments789629/753035 and hash-hit increments789631/753037 establish actual
+firmware forwarding alongside the traffic result. The initial read-only
+container could establish control but lacked writable temporary memory for
+libiperf stream setup; that rejected fixture was restored. Adding an8MiB tmpfs
+fixes the endpoint without a router-source change.
+
+The user then physically powers the router off for10 seconds. After the cold
+boot, the primary verifies a new boot ID, image/module hashes, slot0 boot-success
+flags, unchanged native29 slot1 hash and original configuration. Eight QinQ
+nodes start automatically, with zero allocation failures or pending retries.
+No manual module/service startup is used. Both IPv4 and IPv6 traffic pass.
+
+Next, an ordinary `reboot` is issued with NSS still loaded. This differs from
+the guarded sysupgrade path, which unloads NSS before handoff. The ordinary
+reboot again starts eight nodes automatically and passes both protocols. The
+built IPQ50xx driver already asserts its core-local reset clamp and orders it
+before copying firmware; this source evidence is corroborated by the measured
+warm boot, rather than substituted for it.
+
+| Boot | Protocol | LAN→WAN Mbps | WAN→LAN Mbps | Sampled CPU idle |
+| --- | --- | --- | --- | --- |
+|Physical cold boot |IPv4 |936.57 |936.24 |98.4–98.5% |
+|Physical cold boot |IPv6 |923.69 |923.27 |97.7–98.2% |
+|Ordinary warm reboot |IPv4 |936.65 |936.62 |98.9% |
+|Ordinary warm reboot |IPv6 |923.67 |923.39 |97.9–98.7% |
+
+Every row has two active ECM rules and more than750000 additional firmware TX
+packets; each IPv6 run also has more than750000 additional firmware hash hits.
+These are single bounded runs. Cold boot ID:
+`c9b70101-0b0e-482a-87d8-dbb4e4b231ea`; subsequent ordinary reboot ID:
+`a0d24f93-a0df-4a63-88c0-f867710cd731`. No kernel WARN/Oops/panic appears.
+User-facing MTUs remain1500, conduits1508, WAN/LAN3 links1Gbps and CPU conduit
+2.5Gbps. Persistent configuration and loop protection are preserved.
+
+Each temporary IPv6 fixture has an independent router restoration guard and
+removes its Docker endpoint/network and both router test addresses afterwards.
+The user confirms removal of the temporary Windows address and return route.
+Windows remains on WAN/VLAN0, Linux on LAN3; normal IPv4 DHCP/NSS operation is
+restored. Evidence is in ignored `logs/nss-slices-20261108/slice25-ipv6/`,
+including per-boot module/fallback/config audits, packet counters and fixture
+restoration records.
+
+This accepts native IPv6, one physical cold boot, one ordinary warm reboot and
+the guarded native29→native30 sysupgrade with preserved configuration. It is
+not a repeated power-cycle stress matrix or a newly forced fallback/recovery
+boot. The earlier native/standard image transitions remain the evidence from
+Slices21–22; a fresh native30-to-standard transition has not been performed.
+Slice24's scheduler/policy and external-peer limits and Slice21's external
+capacity gates therefore remain open. Wi-Fi and PPP/tunnel extensions remain
+outside this plan's accepted traffic scope.
