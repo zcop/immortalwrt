@@ -1,0 +1,29 @@
+net: stmmac: use the new MTU when reopening the MAC
+
+DMA setup receives the requested MTU, but the MAC core initialization reads
+dev->mtu. Publish the requested value before reopening, so dwmac1000 enables
+jumbo reception on an MTU increase. Restore the old value if reopening fails.
+Allocation and validation failures leave the old MTU unchanged.
+
+--- a/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
++++ b/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
+@@ -5960,6 +5960,7 @@ static int stmmac_change_mtu(struct net_de
+ 	int txfifosz = priv->plat->tx_fifo_size;
+ 	struct stmmac_dma_conf *dma_conf;
+ 	const int mtu = new_mtu;
++	const int old_mtu = READ_ONCE(dev->mtu);
+ 	int ret;
+ 
+ 	if (txfifosz == 0)
+@@ -5992,8 +5993,11 @@ static int stmmac_change_mtu(struct net_de
+ 
+ 		__stmmac_release(dev);
+ 
++		/* MAC initialization reads dev->mtu, unlike DMA setup. */
++		WRITE_ONCE(dev->mtu, mtu);
+ 		ret = __stmmac_open(dev, dma_conf);
+ 		if (ret) {
++			WRITE_ONCE(dev->mtu, old_mtu);
+ 			free_dma_desc_resources(priv, dma_conf);
+ 			kfree(dma_conf);
+ 			netdev_err(priv->dev, "failed reopening the interface after MTU change\n");
