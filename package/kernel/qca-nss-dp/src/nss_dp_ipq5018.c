@@ -11,6 +11,7 @@
 #include <linux/pcs/pcs.h>
 #include <linux/phylink.h>
 #include <linux/reset.h>
+#include <linux/spinlock.h>
 
 #include "nss_dp_ipq5018.h"
 
@@ -29,6 +30,7 @@ struct nss_dp_ipq5018 {
 	struct phylink *phylink;
 	struct phylink_pcs *pcs;
 	struct ethtool_ops ethtool_ops;
+	spinlock_t mac_lock;
 };
 
 static struct nss_dp_ipq5018 *to_native(struct phylink_config *config)
@@ -47,8 +49,11 @@ static void native_mac_config(struct phylink_config *config, unsigned int mode,
 {
 	struct nss_dp_dev *dp = to_native(config)->dp;
 	void __iomem *base = dp->gmac_hal_ctx->mac_base;
-	u32 value = readl(base + GMAC_CONFIG);
+	unsigned long flags;
+	u32 value;
 
+	spin_lock_irqsave(&dp->ipq5018->mac_lock, flags);
+	value = readl(base + GMAC_CONFIG);
 	/* DSA's two transport tags require the 2K frame allowance at MTU 1500. */
 	value |= GMAC_CORE_INIT | GMAC_2K;
 	if (dp->netdev->mtu > 2000)
@@ -56,15 +61,40 @@ static void native_mac_config(struct phylink_config *config, unsigned int mode,
 	else
 		value &= ~GMAC_JUMBO;
 	writel(value, base + GMAC_CONFIG);
+	spin_unlock_irqrestore(&dp->ipq5018->mac_lock, flags);
+}
+
+/* Called only after the dataplane has accepted the new MTU. */
+void nss_dp_ipq5018_change_mtu(struct nss_dp_dev *dp, int mtu)
+{
+	void __iomem *base;
+	unsigned long flags;
+	u32 value;
+
+	if (!dp->ipq5018)
+		return;
+
+	base = dp->gmac_hal_ctx->mac_base;
+	spin_lock_irqsave(&dp->ipq5018->mac_lock, flags);
+	value = readl(base + GMAC_CONFIG) | GMAC_2K;
+	if (mtu > 2000)
+		value |= GMAC_JUMBO;
+	else
+		value &= ~GMAC_JUMBO;
+	writel(value, base + GMAC_CONFIG);
+	spin_unlock_irqrestore(&dp->ipq5018->mac_lock, flags);
 }
 
 static void native_mac_link_down(struct phylink_config *config,
 				 unsigned int mode, phy_interface_t interface)
 {
 	struct nss_dp_dev *dp = to_native(config)->dp;
+	unsigned long flags;
 
 	dp->data_plane_ops->link_state(dp->dpc, 0);
+	spin_lock_irqsave(&dp->ipq5018->mac_lock, flags);
 	dp->gmac_hal_ops->stop(dp->gmac_hal_ctx);
+	spin_unlock_irqrestore(&dp->ipq5018->mac_lock, flags);
 	dp->link_state = __NSS_DP_LINK_DOWN;
 }
 
@@ -77,6 +107,7 @@ static void native_mac_link_up(struct phylink_config *config,
 	struct nss_dp_dev *dp = native->dp;
 	void __iomem *base = dp->gmac_hal_ctx->mac_base;
 	unsigned long rate;
+	unsigned long flags;
 	u32 value;
 	int ret;
 
@@ -97,6 +128,7 @@ static void native_mac_link_up(struct phylink_config *config,
 		return;
 	}
 
+	spin_lock_irqsave(&native->mac_lock, flags);
 	value = readl(base + GMAC_CONFIG) & ~(GMAC_PS | GMAC_FES | GMAC_DUPLEX);
 	if (speed == SPEED_10 || speed == SPEED_100)
 		value |= GMAC_PS;
@@ -109,8 +141,11 @@ static void native_mac_link_up(struct phylink_config *config,
 	dp->gmac_hal_ops->txflowcontrol(dp->gmac_hal_ctx, tx_pause);
 	dp->gmac_hal_ops->setmacaddr(dp->gmac_hal_ctx, (u8 *)dp->netdev->dev_addr);
 	dp->gmac_hal_ops->start(dp->gmac_hal_ctx);
+	spin_unlock_irqrestore(&native->mac_lock, flags);
 	if (dp->data_plane_ops->link_state(dp->dpc, 1)) {
+		spin_lock_irqsave(&native->mac_lock, flags);
 		dp->gmac_hal_ops->stop(dp->gmac_hal_ctx);
+		spin_unlock_irqrestore(&native->mac_lock, flags);
 		netdev_err(dp->netdev, "native dataplane link-up failed\n");
 		return;
 	}
@@ -147,6 +182,7 @@ int nss_dp_ipq5018_init(struct nss_dp_dev *dp)
 	if (!native)
 		return -ENOMEM;
 	native->dp = dp;
+	spin_lock_init(&native->mac_lock);
 	for (i = 0; i < ARRAY_SIZE(ids); i++)
 		native->clks[i].id = ids[i];
 	ret = devm_clk_bulk_get(dev, ARRAY_SIZE(native->clks), native->clks);

@@ -10,6 +10,7 @@ int nss_dp_ipq5018_connect(struct nss_dp_dev *dp);
 void nss_dp_ipq5018_cleanup(struct nss_dp_dev *dp);
 void nss_dp_ipq5018_start(struct nss_dp_dev *dp);
 void nss_dp_ipq5018_stop(struct nss_dp_dev *dp);
+void nss_dp_ipq5018_change_mtu(struct nss_dp_dev *dp, int mtu);
 void nss_dp_ipq5018_set_ethtool(struct nss_dp_dev *dp);
 #else
 static inline int nss_dp_ipq5018_init(struct nss_dp_dev *dp) { return 0; }
@@ -17,6 +18,7 @@ static inline int nss_dp_ipq5018_connect(struct nss_dp_dev *dp) { return 0; }
 static inline void nss_dp_ipq5018_cleanup(struct nss_dp_dev *dp) { }
 static inline void nss_dp_ipq5018_start(struct nss_dp_dev *dp) { }
 static inline void nss_dp_ipq5018_stop(struct nss_dp_dev *dp) { }
+static inline void nss_dp_ipq5018_change_mtu(struct nss_dp_dev *dp, int mtu) { }
 static inline void nss_dp_ipq5018_set_ethtool(struct nss_dp_dev *dp) { }
 #endif
 #endif

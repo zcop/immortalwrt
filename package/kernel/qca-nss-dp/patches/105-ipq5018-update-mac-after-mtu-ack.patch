@@ -1,0 +1,16 @@
+Update the native GMAC receive limit after an accepted MTU change.
+
+The phylink mac_config callback runs at link setup, not at every MTU change.
+Keep its 2K/jumbo allowance in sync without restarting the DSA conduit. Do
+not change MAC state when the dataplane rejects the request.
+
+--- a/nss_dp_main.c
++++ b/nss_dp_main.c
+@@ -222,6 +222,7 @@
+ 	}
+ 
+ 	netdev->mtu = newmtu;
++	nss_dp_ipq5018_change_mtu(dp_priv, newmtu);
+ 	return 0;
+ }
+ 
