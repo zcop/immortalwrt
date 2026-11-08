@@ -4,8 +4,8 @@
 This records execution of [the feature-audit plan](nss-qosmio-dsa-feature-audit.md).
 The original Kuncy reference remains unchanged; its 30 saved source hashes match.
 Source commits, image identity and device validation are recorded per slice.
-Development now uses `nss-experiment`. The current native device image is
-build30 on Linux6.18.60, with native29 preserved in the other slot and earlier
+Development now uses `nss-experiment`. The current experimental device image is
+build31 on Linux6.18.60, with validated native30 preserved in the other slot and earlier
 native/standard images retained as verified private raw backups. Slice22 accepts
 installed-library capture on both images and a userspace capture package tested
 from RAM. Slice24 records multicast/queue fixes and remaining scheduler/policy
@@ -2148,3 +2148,126 @@ Slices21–22; a fresh native30-to-standard transition has not been performed.
 Slice24's scheduler/policy and external-peer limits and Slice21's external
 capacity gates therefore remain open. Wi-Fi and PPP/tunnel extensions remain
 outside this plan's accepted traffic scope.
+
+## Slice26 in progress: scheduler priority groups
+
+The preceding corrections and Slice25 report are committed through
+`b72fa9efff32`. This slice's scheduler source is committed as `fc662a4ed9a2`; its
+strict/weighted packet acceptance is **not passed**.
+
+### Source correction and checks
+
+Vendor source establishes three distinct concepts: a global queue flush
+command at0x300400, per-queue C/E priorities and weights in table0xe6, and
+per-priority-group byte/packet units in tables0xe7/0xe8. The mode bit is0 for
+bytes and1 for packets; it is not a DWRR enable. Equal priorities share DWRR,
+while distinct priorities select strict precedence. The candidate removes the
+invented per-port SP bitmap and maps these controls explicitly.
+
+Plain mqprio and ETS teardown plan a fair priority0/unit-weight baseline for
+the12 UC/MC flows. ETS preserves MC flow words, assigns weighted UC bands to
+group0 and distinct priorities to strict bands, and proportionally scales
+weights exceeding the10-bit field. Group addresses use the assigned priority.
+The hardware convention that higher numeric priority wins remains unaccepted
+by packet evidence; reversing the tested priorities did not reverse the winner.
+
+A transaction snapshots flow, group-unit and enqueue words before writes,
+disables enqueue, flushes changed priorities with a20ms polling bound, programs
+the plan and restores enqueue. Error cleanup re-quiesces queues, attempts
+flush/state/enqueue restoration and retains the first error. Multiple persistent
+I/O failures can still prevent restoration; host mocks are not a hardware
+recovery guarantee. The flush command is never replayed as saved register state.
+
+Telemetry retains names/count/order, derives configured precedence and shared
+UC/MC-group counts from real flow words and returns zero on unreadable,
+invalid or split-priority state. These describe configured groups, not proof
+that the hardware delivered the requested scheduling behavior.
+
+Qoder supplied a bounded five-file draft in an isolated worktree, with
+DeepSeek-Flash/Max verified before submission and individual edit approvals.
+The primary corrected polling return/status handling, C/E comparison, rollback
+ordering, shared-group telemetry, macro declaration order and harness defects.
+The source extractor now skips call sites and preserves struct terminators.
+The draft is preserved; helper tests or final approval are not inferred.
+
+Five actual-C suites pass ASan/UBSan/LSan: scheduler, queue index, queue rate,
+qmap and multicast masks. The scheduler suite checks literal register words,
+group addresses, ordering, invalid plans, poll errors/timeouts and each single
+I/O failure on the tested transaction. Generated source mutations for packet
+units, queue-based group addresses, C-only priority comparison and live rollback
+all compile and fail semantic assertions. No production files are mutated by
+those negative controls. The poll mock checks arguments and condition handling;
+elapsed hardware polling time is not established by it.
+
+### Installed candidate and failed contention acceptance
+
+The full12-job build passes. Native31 SHA256:
+`7c8735a2163c71dab1505dcb50a6939491988517ff251696eb9b8353d3caac64`.
+Normal sysupgrade installs slot1, boot
+`7c69832b-eea5-43ee-9110-5e5eae2a5b86`, revision
+`r0+43560-b72fa9efff3`. All six module hashes match; native30's slot0 raw hash
+and original configuration are preserved. Eight QinQ nodes start automatically,
+without allocation failures, pending retries or kernel warnings.
+
+A bounded probe independently verifies the vendor flush command on unused
+LAN3q7/packed23: enqueue-disable works, the first status read is0x40000017
+with DONE set, and the exact original enqueue state is restored. No priority
+or weight is changed by that command probe.
+
+The contention fixture uses static known-unicast VID35 forwarding from LAN3
+to Windows on LAN1, unknown-unicast flood-off, and PCP0/5 streams with distinct
+384/1024-byte packet sizes. Separate source RX and destination TX size bins
+count each stream; CPU copies remain small. Each stream passes a low-rate
+positive control, and the unshaped20+20Mbps offer delivers all19532/7328 frames.
+
+A20Mbps port-shaper fixture fails strict/weighted acceptance. The first cleanup
+script stops on BusyBox's rejection of `sleep .02`; the primary repairs the
+same guard/restore script with whole-second waits, executes it and verifies
+all original registers, VLANs, qdisc and persistent configuration. The rejected
+run and cleanup repair remain recorded; neither is hidden as a passing test.
+
+The next fixture negotiates a real10Mbps/full LAN1 bottleneck while LAN3 stays
+at1Gbps. Ordinary `tc ets` programs and reads back the intended priorities,
+weights, group units and restored enqueue states, but packet behavior fails:
+
+|10Mbps physical fixture |PCP0 Mbps |PCP5 Mbps |Required behavior |
+| --- | --- | --- | --- |
+|PCP0 configured strict-high |4.45 |5.22 |PCP0 should dominate |
+|PCP5 configured strict-high |4.50 |5.20 |PCP5 should dominate |
+|Configured weight1:3 |4.96 |4.70 |PCP5 should receive the larger share |
+
+Queue classification is tested independently using the **same** packets:
+TBFq0 delivers PCP0 at4.82Mbps and leaves PCP5 at19.85Mbps; TBFq5 leaves
+PCP0 at19.82Mbps and limits PCP5 to5.00Mbps. This confirms the selected queues
+and retained TBF behavior rather than attributing the failure to PCP parsing.
+
+A final raw A/B follows the vendor's exact per-queue sequence: disable one
+queue, flush/check DONE, write its desired word, re-enable it, then continue.
+Its strict results remain approximately4.44/5.26 and4.53/5.14Mbps; weighted
+sharing remains5.01/4.65Mbps. Batching is therefore not established as the cause.
+Both physical-link fixtures restore exact touched words, original advertisement,
+1Gbps link, VLAN/PVID, FDB/flood, qdisc and configuration. Normal LAN TCP after
+the diagnostics reaches940.95Mbps with zero retransmits.
+
+The unresolved cause could involve scheduler semantics or admission behavior;
+buffer constants alone do not prove either explanation. No undocumented buffer
+bits are changed and no hardware capability is declared missing. A bounded Agy
+source review times out without a structured verdict and is not counted as
+approval or evidence. Further work needs a discriminating measurement or a
+standard-path comparison, not another claimed fix based only on readback.
+
+Evidence, failed gates, source/image manifests, private recovery backups,
+UART and restoration records are under ignored
+`logs/nss-slices-20261108/slice26-scheduler/`. Native30 remains the validated
+fallback; strict/weighted ETS on native31 remains experimental.
+
+After returning Windows to WAN/VLAN0 and restarting SharedAccess, DHCP assigns
+the router192.168.137.64. Final native31 routed NSS measures936.27/936.61Mbps,
+with two active ECM rules,800044/754070 additional firmware TX packets and
+97.60/98.91% sampled CPU idle. Original configuration, bridge membership,
+VLAN-unaware mode,1500/1508 MTUs, qdiscs and link advertisements are restored;
+loop protection remains enabled. No new kernel warning appears. Completed
+task-owned RAM guards are removed and detached helper drafts are preserved.
+Only local `master` and `nss-experiment` branches remain. No push or release is
+performed. The committed experiment retains failed scheduler packet acceptance
+as an open gate.
