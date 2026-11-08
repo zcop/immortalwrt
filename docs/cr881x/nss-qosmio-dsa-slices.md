@@ -5,8 +5,10 @@ This records execution of [the feature-audit plan](nss-qosmio-dsa-feature-audit.
 The original Kuncy reference remains unchanged; its 30 saved source hashes match.
 Source commits, image identity and device validation are recorded per slice.
 Development now uses `nss-experiment`. The latest accepted native device image
-is build22 on Linux6.18.60. Standard DSA build23 passes the first customer-QinQ
-hardware check, then the router returns to build22; see Slices18-19 below.
+is build24 on Linux6.18.60, with standard DSA build25 preserved in the other
+slot. Slice22 accepts installed-library capture on both images and a new
+userspace capture package tested from RAM. The router is restored to native24;
+see Slices21-22 below. The remaining functional plan is Slices23-25.
 
 ## Slice 01: control packages, MST and policy validation
 
@@ -1416,7 +1418,7 @@ under stress belongs to the remaining matrix, not a new implementation claim.
 | --- | --- | --- |
 |20 | Complete standard-mode customer-QinQ packet coverage | Multiport separation and delivery, secondary raw conduit, DEI1 and additional S/C combinations; preserve customer tags and exact port identity |
 |21 | Host-path load and MTU boundaries | Controlled2.5G host load, end-to-end9K where endpoints permit, correct oversize handling, bounded CPU pressure and clean recovery |
-|22 | Finish capture integration | Installed-image native and legacy capture, live/offline filters and VLAN metadata; identify CPU-bypassed traffic limits explicitly |
+|22 | Capture integration accepted below | Installed-library native and legacy capture, live/offline filters and VLAN metadata; new package tested from RAM; CPU-bypassed visibility limits measured |
 |23 | NSS node/topology stress | Pool exhaustion, allocation-failure recovery, repeated VLAN/bridge churn, surviving-flow reacceleration and no stale nodes, leaks or double release |
 |24 | Remaining policy and L2 parity | General egress-TC behavior, PCP queues,802.1X/storm policy during accelerated flows, multicast receive/leave, and two-member LACP/load distribution |
 |25 | IPv6 and boot/recovery acceptance | Actual IPv6 acceleration and firmware counters, cold/warm boots, upgrade and native/standard transitions, preserved configuration and final restored traffic |
@@ -1671,3 +1673,115 @@ Native24 predates the separate standard-kernel patch; standard25 validates that
 patch. Neither image is a new release. The native top-level build configuration
 is restored; the prepared kernel cache last built standard mode, so future
 native builds must rebuild against the native configuration.
+
+## Slice22: installed capture, normalization and metadata
+
+Installed libpcap1.10.7/tcpdump4.99.7 were validated on native24 and standard25.
+The installed libpcap hash on both images is
+`c2a3e4daad6dbd7893215566ca8de526ff4b2b92919a44ad492390439c845947`.
+Native primary captures use EN10MB and retain the transport tags. Standard
+primary captures use DEBUG_ONLY303 with the private8-byte header; the standard
+secondary conduit is raw Ethernet despite reporting the tree's enhanced tagger
+in sysfs. Ordinary protocol filters cannot compile against the installed
+DEBUG_ONLY link type. Logical user-port captures use ordinary Ethernet.
+
+| Installed-library check | Result |
+| --- | --- |
+| Native primary, nested S3074/C3088+ICMP filter |6/6 request/reply packets, live and offline |
+| Native source-MAC filter |3/3; wrong-port and plain untagged-ICMP controls matched0 |
+| Native logical LAN3 |6/6 untagged request/reply packets |
+| Standard primary, explicit byte-offset filters |6/6; source bytes selected3/3; RXport2/TXmask4 preserved |
+| Standard logical LAN3 |6/6 with normal ICMP filters |
+| Standard primary, customer S3500/C35 |3/3 exact264-byte frames including the private header; both TCIs preserved |
+
+Accepted captures have zero kernel drops. An early immediate-mode capture used
+an unnecessarily large snapshot and too few ring slots; another broad source-MAC
+diagnostic captured its own SSH transfer. Their drop/missing-packet results
+were rejected. Bounded, narrow-filter reruns with256-byte snapshots passed;
+neither failed fixture establishes a network data-path defect.
+
+`tools/nss/yt921x_capture.c` adds explicit raw, QinQ and enhanced modes. It
+reconstructs VLAN tags only from actual auxiliary metadata, writes paired raw
+and normalized pcaps, and retains full private bytes plus decoded port/mask
+metadata in an aligned JSONL file. Enhanced reconstruction inserts the tag at
+offset20; raw/QinQ uses12. Ordinary BPF runs against normalized Ethernet in
+userspace. It preserves zero TCIs, PCP/DEI, unknown private codes and complete
+captured bytes. It refuses output overwrite and reports malformed records,
+capture drops and unmet positive counts as failure. It does not change network
+configuration, promiscuous mode, acceleration or mirroring. Usage and limits
+are in [yt921x-capture.md](yt921x-capture.md).
+
+The utility was drafted by a bounded Qoder helper with DeepSeek-Flash/max
+verified in its interactive UI. Primary review corrected JSON punctuation,
+deadline handling, test fixture path collisions and an output-open cleanup
+leak. The host offline suite and actual-production-C ancillary harness pass
+ASan/UBSan/LSan against the target's pinned libpcap1.10.7. Six byte-exact AUXDATA
+vectors cover raw/QinQ/enhanced reconstruction, including zero TCI and inner
+tag preservation; malformed ancillary controls are rejected. The host's older
+libpcap1.10.5 cannot write DEBUG_ONLY303 and is not an accepted substitute.
+
+The new `yt921x-capture` OpenWrt package builds with warnings treated as errors;
+both native and standard source profiles select it. APK SHA256:
+`f6dcf053b295394d8108251800e793695321d1c03cf1bfc76e76f779073c51e7`.
+Its extracted executable matches the package staging binary, SHA256:
+`caca63337793297d1f3d938677111ad0aa5f97f23cc5e85b9692cc0726c3507c`.
+The package executable was copied to RAM for live acceptance; no APK was
+installed and no firmware was flashed for this userspace-only change. The two
+existing images contain the validated libpcap patch, not this new utility.
+
+On standard25, the package executable captured three double-tagged customer
+frames through the enhanced primary and six ordinary ICMP frames through the
+raw secondary, without malformed frames or capture drops. Separate AArch64
+offline and live byte checks confirm exact private-header removal, both
+customer TCIs and RXport2. With Windows temporarily on VLAN35, the raw WAN
+test received three real RX auxiliary records with TPID8100/TCI35; both output
+pcaps contain that actual reconstructed tag and report no drops. Enhanced
+offset20 AUX reconstruction is covered by the actual-C harness; it is not
+claimed as a newly observed hardware-AUX case. Full-tag primary packets also
+exist, so legacy captures do not universally lose a tag. Older savefiles that
+already omitted metadata cannot recover it through normalization.
+
+Windows was restored to WAN/VLAN0 and SharedAccess restarted. Standard25
+remained in slot0; a hash-verified slot transition returned to native24 slot1
+without flashing. Final native boot:
+`aab8d974-9ed0-4e1e-b904-5b161e3463a3`.
+
+The package's native QinQ capture collected all six marked echo packets with
+exact S3074/C3088 framing. During a separate13-second capture containing an
+8-second routed transfer, all six positive-control echoes were visible but
+only96 TCP packets were captured. The firmware's global IPv4 TX counter grew
+by764525 packets, ECM had two active rules, receiver throughput was934.08Mbps
+and sampled CPU idle was98.73%. A fresh reverse transfer reached936.64Mbps
+with754573 additional firmware TX packets. Both captures report zero drops
+and malformed frames. The duration-only capture's `timeout:true` is its normal
+bounded completion. The global firmware count is not an exact per-flow count;
+the evidence demonstrates that CPU packet sockets cannot observe the bulk NSS
+fast path. Switch-only forwarding also needs its own counters or a configured
+mirror for packet visibility.
+
+Original configuration hashes, empty UCI changes, normal1500/1508 MTUs, eight
+NSS nodes, normal ath11k loading and enabled loop protection were preserved;
+no kernel WARN/Oops/panic was found. Evidence is retained under ignored
+`logs/nss-slices-20261108/slice22-capture/`, including command audits, pcaps,
+aligned metadata, package/source hashes and rejected fixtures. Slice22's
+functional capture gates are accepted; Slices23-25 remain. Capacity limits
+recorded under Slice21 still need suitable external hardware.
+
+The additional bounded Agy source review timed out at180seconds without a
+verdict and is not counted as an independent review pass. No source changes
+or scope violations were detected in that review workspace. Primary source
+inspection, sanitizer checks, package verification and device acceptance are
+the evidence for this slice.
+
+A late physical-link event occurred after the throughput checks: WAN went
+down at uptime291.68seconds and returned at100Mbps/full at301.04seconds.
+Read-only `ethtool wan` then showed local1000baseT advertisement intact but
+partner advertisement limited to10/100. WAN ping and DHCP remain working;
+LAN3 is1000Mbps and the CPU conduit remains2500Mbps. No port configuration
+or advertisement was changed by these capture tests. The cause of the late
+WAN renegotiation is unconfirmed. After the user requested another check, WAN
+was again1000Mbps/full, with1000baseT partner advertisement and three ping
+replies without loss. The log records its return to gigabit at uptime605.75s;
+no router setting was changed to obtain that result. The934/937Mbps readings
+precede the link event. Test RAM files were removed and UART closed without
+reset.
