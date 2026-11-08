@@ -856,10 +856,20 @@ enum yt921x_acl_type {
 #define   YT921X_MIRROR_PRIO_MAP_EGR_PRIO(x) \
 		FIELD_PREP(YT921X_MIRROR_PRIO_MAP_EGR_PRIO_M, (x))
 #define  YT921X_MIRROR_PRIO_MAP_DEFAULT_PRIO	0
-#define YT921X_QOS_SCHED_SP		0x300400	/* tbl 0xd7 */
-#define YT921X_QOS_SCHED_SPn(port) \
-	(YT921X_QOS_SCHED_SP + 4 * (port))
-#define  YT921X_QOS_SCHED_SP_MASK		GENMASK(7, 0)
+/* Global queue flush command (tbl 0xd7). One register serves all flows;
+ * FLUSH_REQ is a command, not scheduling state.
+ */
+#define YT921X_QOS_FLUSH_CFG		0x300400
+#define  YT921X_QOS_FLUSH_REQ			BIT(31)
+#define  YT921X_QOS_FLUSH_DONE			BIT(30)
+#define  YT921X_QOS_FLUSH_QID_M		GENMASK(7, 0)
+#define   YT921X_QOS_FLUSH_QID(x)			FIELD_PREP(YT921X_QOS_FLUSH_QID_M, (x))
+#define YT921X_QOS_FLUSH_POLL_US		100U
+#define YT921X_QOS_FLUSH_TIMEOUT_US		20000U
+/* Per-flow enqueue-disable table (tbl 0xd8), packed flow id index. */
+#define YT921X_QOS_ENQ_DIS		0x308000
+#define YT921X_QOS_ENQ_DISn(idx)	(YT921X_QOS_ENQ_DIS + 4 * (idx))
+#define  YT921X_QOS_ENQ_DIS_BIT		BIT(0)
 
 #define YT921X_QOS_REMARK_PORT_CTRL	0x100000	/* tbl 0xd9 */
 #define YT921X_QOS_REMARK_PORT_CTRLn(port) \
@@ -890,9 +900,9 @@ enum yt921x_acl_type {
 #define YT921X_VLAN_EGR_TRANS_TABLE2	0x100420	/* tbl 0xe0 */
 #define YT921X_VLAN_EGR_TRANSPARENT	0x1004a8	/* tbl 0xe1 */
 
-#define YT921X_QOS_SCHED_DWRR		0x341000	/* tbl 0xe6 */
-#define YT921X_QOS_SCHED_DWRR_MODE0	0x342000	/* tbl 0xe7 */
-#define YT921X_QOS_SCHED_DWRR_MODE1	0x343000	/* tbl 0xe8 */
+#define YT921X_QOS_SCHED_FLOW		0x341000	/* tbl 0xe6, qsch_flow_map */
+#define YT921X_QOS_SCHED_GROUP_UNIT_C	0x342000	/* tbl 0xe7 */
+#define YT921X_QOS_SCHED_GROUP_UNIT_E	0x343000	/* tbl 0xe8 */
 /* Queue flow-map (0xe6) and shaper tables use two contiguous blocks:
  * unicast is idx 0..87
  * (port * 8 + qid) and multicast is idx 88..131 (88 + port * 4 + qid),
@@ -901,7 +911,9 @@ enum yt921x_acl_type {
 #define YT921X_QOS_SCHED_PORTS		11U
 #define YT921X_QOS_SCHED_UCAST_FLOWS	8U
 #define YT921X_QOS_SCHED_MCAST_FLOWS	4U
-/* Per-port DWRR priority-group count; not the packed queue-flow stride. */
+/* Per-port scheduler priority-group count; not the packed queue-flow stride.
+ * Group unit tables (0xe7/0xe8) are indexed by port * 12 + priority.
+ */
 #define YT921X_QOS_SCHED_FLOWS_PER_PORT \
 		(YT921X_QOS_SCHED_UCAST_FLOWS + YT921X_QOS_SCHED_MCAST_FLOWS)
 #define YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, is_mcast) \
@@ -909,29 +921,39 @@ enum yt921x_acl_type {
 		 (YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_UCAST_FLOWS + \
 		  (port) * YT921X_QOS_SCHED_MCAST_FLOWS + (qid)) : \
 		 ((port) * YT921X_QOS_SCHED_UCAST_FLOWS + (qid)))
-/* Preserve existing DWRR group traversal. Its mode tables (0xe7/0xe8)
- * use per-port priority groups, unlike the packed queue flow IDs above.
+#define YT921X_QOS_SCHED_GROUP_INDEX(port, priority) \
+		((port) * YT921X_QOS_SCHED_FLOWS_PER_PORT + (priority))
+#define YT921X_QOS_SCHED_FLOWn(idx) \
+		(YT921X_QOS_SCHED_FLOW + 4 * (idx))
+#define YT921X_QOS_SCHED_GROUP_UNIT_Cn(idx) \
+		(YT921X_QOS_SCHED_GROUP_UNIT_C + 4 * (idx))
+#define YT921X_QOS_SCHED_GROUP_UNIT_En(idx) \
+		(YT921X_QOS_SCHED_GROUP_UNIT_E + 4 * (idx))
+/* qsch_flow_map_tblm_field (tbl 0xe6). C and E are programmed alike. */
+#define  YT921X_QOS_SCHED_FLOW_EWEIGHT_M	GENMASK(27, 18)
+#define  YT921X_QOS_SCHED_FLOW_CWEIGHT_M	GENMASK(17, 8)
+#define  YT921X_QOS_SCHED_FLOW_EPRIO_M		GENMASK(7, 4)
+#define  YT921X_QOS_SCHED_FLOW_CPRIO_M		GENMASK(3, 0)
+#define  YT921X_QOS_SCHED_FLOW_EWEIGHT(x) \
+		FIELD_PREP(YT921X_QOS_SCHED_FLOW_EWEIGHT_M, (x))
+#define  YT921X_QOS_SCHED_FLOW_CWEIGHT(x) \
+		FIELD_PREP(YT921X_QOS_SCHED_FLOW_CWEIGHT_M, (x))
+#define  YT921X_QOS_SCHED_FLOW_EPRIO(x) \
+		FIELD_PREP(YT921X_QOS_SCHED_FLOW_EPRIO_M, (x))
+#define  YT921X_QOS_SCHED_FLOW_CPRIO(x) \
+		FIELD_PREP(YT921X_QOS_SCHED_FLOW_CPRIO_M, (x))
+#define  YT921X_QOS_SCHED_FLOW_PRIO_WEIGHT_M \
+		(YT921X_QOS_SCHED_FLOW_EWEIGHT_M | \
+		 YT921X_QOS_SCHED_FLOW_CWEIGHT_M | \
+		 YT921X_QOS_SCHED_FLOW_EPRIO_M | \
+		 YT921X_QOS_SCHED_FLOW_CPRIO_M)
+#define  YT921X_QOS_SCHED_FLOW_WEIGHT_MAX	GENMASK(9, 0)
+/* qsch_c_dwrr_cfg_tblm_field / qsch_e_dwrr_cfg_tblm_field (tbl 0xe7/0xe8).
+ * Bit 0 selects the DWRR rate unit, not an enable: BPS is 0, PPS is 1.
  */
-#define YT921X_QOS_SCHED_FLOW_INDEX(port, qid, is_mcast) \
-		((port) * YT921X_QOS_SCHED_FLOWS_PER_PORT + \
-		 ((is_mcast) ? (YT921X_QOS_SCHED_UCAST_FLOWS + (qid)) : (qid)))
-#define YT921X_QOS_SCHED_DWRRn(idx) \
-		(YT921X_QOS_SCHED_DWRR + 4 * (idx))
-#define YT921X_QOS_SCHED_DWRR_MODE0n(idx) \
-		(YT921X_QOS_SCHED_DWRR_MODE0 + 4 * (idx))
-#define YT921X_QOS_SCHED_DWRR_MODE1n(idx) \
-		(YT921X_QOS_SCHED_DWRR_MODE1 + 4 * (idx))
-/* qsch_flow_map_tblm_field (tbl 0xe6) */
-#define  YT921X_QOS_SCHED_FLOW_F0_M	GENMASK(27, 18)
-#define  YT921X_QOS_SCHED_FLOW_F1_M	GENMASK(17, 8)
-#define  YT921X_QOS_SCHED_FLOW_F2_M	GENMASK(7, 4)
-#define  YT921X_QOS_SCHED_FLOW_F3_M	GENMASK(3, 0)
-#define  YT921X_QOS_SCHED_FLOW_F0(x) \
-		FIELD_PREP(YT921X_QOS_SCHED_FLOW_F0_M, (x))
-#define  YT921X_QOS_SCHED_FLOW_F1(x) \
-		FIELD_PREP(YT921X_QOS_SCHED_FLOW_F1_M, (x))
-/* qsch_e_dwrr_cfg_tblm_field / qsch_c_dwrr_cfg_tblm_field (tbl 0xe7/0xe8) */
-#define  YT921X_QOS_SCHED_DWRR_CFG_EN	BIT(0)
+#define  YT921X_QOS_SCHED_GROUP_UNIT_M		BIT(0)
+#define   YT921X_QOS_SCHED_GROUP_UNIT_BPS	0U
+#define   YT921X_QOS_SCHED_GROUP_UNIT_PPS	YT921X_QOS_SCHED_GROUP_UNIT_M
 
 #define YT921X_IPM_DSCPn(n)		(0x180000 + 4 * (n))	/* Internal Priority Map */
 #define YT921X_IPM_PCPn(map, dei, pcp)	(0x180100 + 4 * (16 * (map) + 8 * (dei) + (pcp)))

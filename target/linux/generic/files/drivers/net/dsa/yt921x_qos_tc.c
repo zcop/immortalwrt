@@ -6,7 +6,12 @@
  * Copyright (c) 2026 zcop <hongson.hn@gmail.com>
  */
 
+#include <linux/iopoll.h>
+
 #include "yt921x_internal.h"
+
+#define YT921X_SCHED_FLOW_NUM \
+	(YT921X_QOS_SCHED_UCAST_FLOWS + YT921X_QOS_SCHED_MCAST_FLOWS)
 
 u32 yt921x_tbf_token_to_rate_kbps(u32 token, unsigned int slot_ns, u8 token_level)
 {
@@ -156,11 +161,82 @@ static const char *const yt921x_diag_stat_names[] = {
 	"drv_latch_cookie",
 };
 
+static void
+yt921x_qos_sched_state(struct yt921x_priv *priv, int port, u32 *sp_mask,
+		       unsigned int *uc_dwrr, unsigned int *mc_dwrr)
+{
+	u8 prio[YT921X_SCHED_FLOW_NUM];
+	u8 group_count[YT921X_QOS_SCHED_FLOWS_PER_PORT] = { 0 };
+	unsigned int min_prio = YT921X_QOS_SCHED_FLOWS_PER_PORT;
+	unsigned int i;
+	u32 word;
+	int res;
+
+	*sp_mask = 0;
+	*uc_dwrr = 0;
+	*mc_dwrr = 0;
+
+	if (port < 0 || port >= YT921X_QOS_SCHED_PORTS)
+		return;
+
+	/* UC and MC flows share the same hardware priority groups. Refuse to
+	 * publish a partial precedence view if any flow is unreadable or has
+	 * an invalid/split C/E priority.
+	 */
+	for (i = 0; i < YT921X_SCHED_FLOW_NUM; i++) {
+		bool mcast = i >= YT921X_QOS_SCHED_UCAST_FLOWS;
+		u8 qid = mcast ? i - YT921X_QOS_SCHED_UCAST_FLOWS : i;
+		u32 idx = YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, mcast);
+		u8 c_prio;
+		u8 e_prio;
+
+		res = yt921x_reg_read(priv, YT921X_QOS_SCHED_FLOWn(idx), &word);
+		if (res)
+			goto zero;
+
+		c_prio = FIELD_GET(YT921X_QOS_SCHED_FLOW_CPRIO_M, word);
+		e_prio = FIELD_GET(YT921X_QOS_SCHED_FLOW_EPRIO_M, word);
+		if (c_prio != e_prio ||
+		    c_prio >= YT921X_QOS_SCHED_FLOWS_PER_PORT)
+			goto zero;
+
+		prio[i] = c_prio;
+		group_count[c_prio]++;
+		if (c_prio < min_prio)
+			min_prio = c_prio;
+	}
+
+	/* Shared groups use DWRR; any UC queue above the lowest group has
+	 * strict precedence over it, regardless of how many UC queues share
+	 * its own group.
+	 */
+	for (i = 0; i < YT921X_QOS_SCHED_UCAST_FLOWS; i++) {
+		if (group_count[prio[i]] > 1)
+			(*uc_dwrr)++;
+		if (prio[i] > min_prio)
+			*sp_mask |= BIT(i);
+	}
+
+	for (i = YT921X_QOS_SCHED_UCAST_FLOWS; i < YT921X_SCHED_FLOW_NUM; i++) {
+		if (group_count[prio[i]] > 1)
+			(*mc_dwrr)++;
+	}
+
+	return;
+
+zero:
+	*sp_mask = 0;
+	*uc_dwrr = 0;
+	*mc_dwrr = 0;
+}
+
 static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *data)
 {
 	u32 ucast = 0;
 	u32 mcast = 0;
-	u32 sp = 0;
+	u32 sp_mask = 0;
+	unsigned int uc_dwrr = 0;
+	unsigned int mc_dwrr = 0;
 	u32 port_ctrl = 0;
 	u32 port_ebs_eir = 0;
 	u32 queue_en_mask = 0;
@@ -184,37 +260,10 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 		data[j++] = (mcast & YT921X_QOS_MCAST_QMAP_PRIO_M(qid)) >>
 			    YT921X_QOS_MCAST_QMAP_PRIO_SHIFT(qid);
 
-	res = yt921x_reg_read(priv, YT921X_QOS_SCHED_SPn(port), &sp);
-	if (res)
-		sp = 0;
-	data[j++] = FIELD_GET(YT921X_QOS_SCHED_SP_MASK, sp);
-
-	data[j] = 0;
-	if (port >= 0 && port < YT921X_QOS_SCHED_PORTS) {
-		for (qid = 0; qid < YT921X_QOS_SCHED_UCAST_FLOWS; qid++) {
-			u32 idx = (u32)port * YT921X_QOS_SCHED_FLOWS_PER_PORT + qid;
-			u32 v = 0;
-
-			res = yt921x_reg_read(priv, YT921X_QOS_SCHED_DWRR_MODE0n(idx), &v);
-			if (!res && (v & YT921X_QOS_SCHED_DWRR_CFG_EN))
-				data[j]++;
-		}
-	}
-	j++;
-
-	data[j] = 0;
-	if (port >= 0 && port < YT921X_QOS_SCHED_PORTS) {
-		for (qid = 0; qid < YT921X_QOS_SCHED_MCAST_FLOWS; qid++) {
-			u32 idx = (u32)port * YT921X_QOS_SCHED_FLOWS_PER_PORT +
-				  YT921X_QOS_SCHED_UCAST_FLOWS + qid;
-			u32 v = 0;
-
-			res = yt921x_reg_read(priv, YT921X_QOS_SCHED_DWRR_MODE0n(idx), &v);
-			if (!res && (v & YT921X_QOS_SCHED_DWRR_CFG_EN))
-				data[j]++;
-		}
-	}
-	j++;
+	yt921x_qos_sched_state(priv, port, &sp_mask, &uc_dwrr, &mc_dwrr);
+	data[j++] = sp_mask;
+	data[j++] = uc_dwrr;
+	data[j++] = mc_dwrr;
 
 	if (port >= 0 && port < YT921X_PSCH_SHP_PORTS) {
 		res = yt921x_reg_read(priv, YT921X_PSCH_SHPn_CTRL(port), &port_ctrl);
@@ -1280,77 +1329,326 @@ yt921x_mqprio_apply(struct yt921x_priv *priv, int port, const u8 map[YT921X_PRIO
 	return yt921x_reg_write(priv, YT921X_QOS_QUEUE_MAP_MCASTn(port), mcast);
 }
 
-static int
-yt921x_mqprio_sched_apply(struct yt921x_priv *priv, int port,
-			  const u8 map[YT921X_PRIO_NUM])
+struct yt921x_sched_flow_plan {
+	bool write;
+	u8 priority;
+	u16 weight;
+};
+
+struct yt921x_sched_plan {
+	struct yt921x_sched_flow_plan flows[YT921X_SCHED_FLOW_NUM];
+};
+
+static unsigned int yt921x_sched_plan_flow_index(int port, unsigned int flow)
 {
-	u16 used_ucast_qid = 0;
-	u16 used_mcast_qid = 0;
-	int qid;
-	int i;
-	int res;
+	bool mcast = flow >= YT921X_QOS_SCHED_UCAST_FLOWS;
+	u8 qid = mcast ? flow - YT921X_QOS_SCHED_UCAST_FLOWS : flow;
+
+	return YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, mcast);
+}
+
+static int yt921x_sched_plan_validate(int port,
+				      const struct yt921x_sched_plan *plan)
+{
+	unsigned int i;
 
 	if (port < 0 || port >= YT921X_QOS_SCHED_PORTS)
 		return -ERANGE;
 
-	/* Keep plain mqprio in fully fair mode unless explicitly overridden
-	 * by ETS offload.
-	 */
-	res = yt921x_reg_update_bits(priv, YT921X_QOS_SCHED_SPn(port),
-				     YT921X_QOS_SCHED_SP_MASK, 0);
-	if (res)
-		return res;
-
-	/* Scheduler tables are indexed by physical queue id (not by skb prio).
-	 * Build "queue used" masks from the prio->qid map programmed above.
-	 */
-	for (i = 0; i < YT921X_PRIO_NUM; i++) {
-		u32 uqid = map[i] & GENMASK(2, 0);
-		u32 mqid = min_t(u32, uqid, YT921X_QOS_SCHED_MCAST_FLOWS - 1);
-
-		used_ucast_qid |= BIT(uqid);
-		used_mcast_qid |= BIT(mqid);
-	}
-
-	/* Stock decodes qsch_e/qsch_c dwrr cfg as bit0 in tables 0xe7/0xe8.
-	 * Apply a conservative baseline: enable DWRR on queues referenced by
-	 * current mqprio map, disable it on unused queues.
-	 */
-	for (qid = 0;
-	     qid < YT921X_QOS_SCHED_UCAST_FLOWS +
-		   YT921X_QOS_SCHED_MCAST_FLOWS;
-	     qid++) {
-		bool is_mcast = qid >= YT921X_QOS_SCHED_UCAST_FLOWS;
-		u32 local_qid = is_mcast ? qid - YT921X_QOS_SCHED_UCAST_FLOWS :
-					   qid;
-		u32 idx = YT921X_QOS_SCHED_FLOW_INDEX(port, local_qid, is_mcast);
-		u32 en = 0;
-
-		if (is_mcast)
-			en = (used_mcast_qid & BIT(local_qid)) ?
-				      YT921X_QOS_SCHED_DWRR_CFG_EN :
-				      0;
-		else
-			en = (used_ucast_qid & BIT(local_qid)) ?
-				      YT921X_QOS_SCHED_DWRR_CFG_EN :
-				      0;
-
-		res = yt921x_reg_update_bits(priv,
-					     YT921X_QOS_SCHED_DWRR_MODE0n(idx),
-					     YT921X_QOS_SCHED_DWRR_CFG_EN,
-					     en);
-		if (res)
-			return res;
-
-		res = yt921x_reg_update_bits(priv,
-					     YT921X_QOS_SCHED_DWRR_MODE1n(idx),
-					     YT921X_QOS_SCHED_DWRR_CFG_EN,
-					     en);
-		if (res)
-			return res;
+	for (i = 0; i < YT921X_SCHED_FLOW_NUM; i++) {
+		if (!plan->flows[i].write)
+			continue;
+		if (plan->flows[i].priority >= YT921X_QOS_SCHED_FLOWS_PER_PORT)
+			return -ERANGE;
+		if (!plan->flows[i].weight ||
+		    plan->flows[i].weight > YT921X_QOS_SCHED_FLOW_WEIGHT_MAX)
+			return -ERANGE;
 	}
 
 	return 0;
+}
+
+/* Plain mqprio and ETS teardown use one fair priority group: every UC and
+ * MC flow gets priority 0, unit weight 1, and byte-based DWRR.
+ */
+static void yt921x_sched_plan_fair(struct yt921x_sched_plan *plan)
+{
+	unsigned int i;
+
+	memset(plan, 0, sizeof(*plan));
+	for (i = 0; i < YT921X_SCHED_FLOW_NUM; i++) {
+		plan->flows[i].write = true;
+		plan->flows[i].priority = 0;
+		plan->flows[i].weight = 1;
+	}
+}
+
+static u32 yt921x_qos_flush_read(struct yt921x_priv *priv, int *errp)
+{
+	u32 status = 0;
+	int res;
+
+	res = yt921x_reg_read(priv, YT921X_QOS_FLUSH_CFG, &status);
+	if (res)
+		*errp = res;
+
+	return status;
+}
+
+static int yt921x_qos_flush_wait(struct yt921x_priv *priv)
+{
+	u32 status = 0;
+	int err = 0;
+	int res;
+
+	res = read_poll_timeout(yt921x_qos_flush_read, status,
+				err || (status & YT921X_QOS_FLUSH_DONE),
+				YT921X_QOS_FLUSH_POLL_US,
+				YT921X_QOS_FLUSH_TIMEOUT_US, false,
+				priv, &err);
+	if (err)
+		return err;
+	if (res)
+		return res;
+	if (!(status & YT921X_QOS_FLUSH_DONE))
+		return -ETIMEDOUT;
+
+	return 0;
+}
+
+struct yt921x_sched_flow_state {
+	unsigned int plan_idx;
+	u32 flow_idx;
+	u32 flow_old;
+	u32 enq_old;
+	bool priority_change;
+};
+
+struct yt921x_sched_group_state {
+	u8 priority;
+	u32 c_old;
+	u32 e_old;
+};
+
+static int yt921x_port_sched_apply(struct yt921x_priv *priv, int port,
+				   const struct yt921x_sched_plan *plan)
+{
+	struct yt921x_sched_flow_state flows[YT921X_SCHED_FLOW_NUM];
+	struct yt921x_sched_group_state groups[YT921X_QOS_SCHED_FLOWS_PER_PORT];
+	unsigned int nflows = 0;
+	unsigned int ngroups = 0;
+	int first_err;
+	unsigned int i;
+	unsigned int j;
+	int res;
+
+	res = yt921x_sched_plan_validate(port, plan);
+	if (res)
+		return res;
+
+	memset(flows, 0, sizeof(flows));
+	memset(groups, 0, sizeof(groups));
+
+	/* Snapshot every word this transaction may change before the first
+	 * write. A failed snapshot leaves the hardware untouched.
+	 */
+	for (i = 0; i < YT921X_SCHED_FLOW_NUM; i++) {
+		struct yt921x_sched_flow_state *st;
+
+		if (!plan->flows[i].write)
+			continue;
+
+		st = &flows[nflows];
+		st->plan_idx = i;
+		st->flow_idx = yt921x_sched_plan_flow_index(port, i);
+
+		res = yt921x_reg_read(priv,
+				      YT921X_QOS_SCHED_FLOWn(st->flow_idx),
+				      &st->flow_old);
+		if (res)
+			return res;
+		res = yt921x_reg_read(priv,
+				      YT921X_QOS_ENQ_DISn(st->flow_idx),
+				      &st->enq_old);
+		if (res)
+			return res;
+
+		st->priority_change =
+			FIELD_GET(YT921X_QOS_SCHED_FLOW_CPRIO_M,
+				  st->flow_old) != plan->flows[i].priority ||
+			FIELD_GET(YT921X_QOS_SCHED_FLOW_EPRIO_M,
+				  st->flow_old) != plan->flows[i].priority;
+		nflows++;
+	}
+
+	for (i = 0; i < nflows; i++) {
+		u8 prio = plan->flows[flows[i].plan_idx].priority;
+		u32 idx = YT921X_QOS_SCHED_GROUP_INDEX(port, prio);
+
+		for (j = 0; j < ngroups; j++) {
+			if (groups[j].priority == prio)
+				break;
+		}
+		if (j < ngroups)
+			continue;
+
+		groups[ngroups].priority = prio;
+		res = yt921x_reg_read(priv,
+				      YT921X_QOS_SCHED_GROUP_UNIT_Cn(idx),
+				      &groups[ngroups].c_old);
+		if (res)
+			return res;
+		res = yt921x_reg_read(priv,
+				      YT921X_QOS_SCHED_GROUP_UNIT_En(idx),
+				      &groups[ngroups].e_old);
+		if (res)
+			return res;
+		ngroups++;
+	}
+
+	/* Keep group updates in priority order so the transaction is
+	 * deterministic regardless of which queue reported a priority first.
+	 */
+	for (i = 1; i < ngroups; i++) {
+		struct yt921x_sched_group_state tmp = groups[i];
+
+		for (j = i; j > 0 && groups[j - 1].priority > tmp.priority; j--)
+			groups[j] = groups[j - 1];
+		groups[j] = tmp;
+	}
+
+	/* Vendor order: disable enqueue, flush changed priorities, then
+	 * rewrite the flow and group-unit words.
+	 */
+	for (i = 0; i < nflows; i++) {
+		res = yt921x_reg_write(priv,
+				       YT921X_QOS_ENQ_DISn(flows[i].flow_idx),
+				       flows[i].enq_old | YT921X_QOS_ENQ_DIS_BIT);
+		if (res) {
+			first_err = res;
+			goto restore;
+		}
+	}
+
+	for (i = 0; i < nflows; i++) {
+		if (!flows[i].priority_change)
+			continue;
+
+		res = yt921x_reg_write(priv, YT921X_QOS_FLUSH_CFG,
+				       YT921X_QOS_FLUSH_REQ |
+				       YT921X_QOS_FLUSH_QID(flows[i].flow_idx));
+		if (!res)
+			res = yt921x_qos_flush_wait(priv);
+		if (res) {
+			first_err = res;
+			goto restore;
+		}
+	}
+
+	for (i = 0; i < nflows; i++) {
+		const struct yt921x_sched_flow_plan *fp;
+		u32 word;
+
+		fp = &plan->flows[flows[i].plan_idx];
+		word = flows[i].flow_old &
+		       ~YT921X_QOS_SCHED_FLOW_PRIO_WEIGHT_M;
+		word |= YT921X_QOS_SCHED_FLOW_EWEIGHT(fp->weight) |
+			YT921X_QOS_SCHED_FLOW_CWEIGHT(fp->weight) |
+			YT921X_QOS_SCHED_FLOW_EPRIO(fp->priority) |
+			YT921X_QOS_SCHED_FLOW_CPRIO(fp->priority);
+
+		res = yt921x_reg_write(priv,
+				       YT921X_QOS_SCHED_FLOWn(flows[i].flow_idx),
+				       word);
+		if (res) {
+			first_err = res;
+			goto restore;
+		}
+	}
+
+	/* Affected groups run byte-based DWRR. Group units are shared, so an
+	 * MC flow with the same priority sees the unit change even though its
+	 * own priority/weight word is preserved.
+	 */
+	for (i = 0; i < ngroups; i++) {
+		u32 idx = YT921X_QOS_SCHED_GROUP_INDEX(port,
+						       groups[i].priority);
+
+		res = yt921x_reg_write(priv,
+				       YT921X_QOS_SCHED_GROUP_UNIT_Cn(idx),
+				       groups[i].c_old &
+				       ~YT921X_QOS_SCHED_GROUP_UNIT_M);
+		if (!res)
+			res = yt921x_reg_write(priv,
+					       YT921X_QOS_SCHED_GROUP_UNIT_En(idx),
+					       groups[i].e_old &
+					       ~YT921X_QOS_SCHED_GROUP_UNIT_M);
+		if (res) {
+			first_err = res;
+			goto restore;
+		}
+	}
+
+	for (i = 0; i < nflows; i++) {
+		res = yt921x_reg_write(priv,
+				       YT921X_QOS_ENQ_DISn(flows[i].flow_idx),
+				       flows[i].enq_old);
+		if (res) {
+			first_err = res;
+			goto restore;
+		}
+	}
+
+	return 0;
+
+restore:
+	/* A failed enqueue restore may have left earlier queues live, so
+	 * re-quiesce every target before touching any word again.
+	 */
+	for (i = 0; i < nflows; i++)
+		yt921x_reg_write(priv, YT921X_QOS_ENQ_DISn(flows[i].flow_idx),
+				 flows[i].enq_old | YT921X_QOS_ENQ_DIS_BIT);
+
+	/* Drain queues whose priority was changed while they are still
+	 * quiesced; FLUSH is a command and is re-issued for cleanup rather
+	 * than restored as register state.
+	 */
+	for (i = 0; i < nflows; i++) {
+		if (!flows[i].priority_change)
+			continue;
+
+		if (yt921x_reg_write(priv, YT921X_QOS_FLUSH_CFG,
+				     YT921X_QOS_FLUSH_REQ |
+				     YT921X_QOS_FLUSH_QID(flows[i].flow_idx)))
+			continue;
+		yt921x_qos_flush_wait(priv);
+	}
+
+	for (i = 0; i < nflows; i++)
+		yt921x_reg_write(priv, YT921X_QOS_SCHED_FLOWn(flows[i].flow_idx),
+				 flows[i].flow_old);
+	for (i = 0; i < ngroups; i++) {
+		u32 idx = YT921X_QOS_SCHED_GROUP_INDEX(port,
+						       groups[i].priority);
+
+		yt921x_reg_write(priv, YT921X_QOS_SCHED_GROUP_UNIT_Cn(idx),
+				 groups[i].c_old);
+		yt921x_reg_write(priv, YT921X_QOS_SCHED_GROUP_UNIT_En(idx),
+				 groups[i].e_old);
+	}
+	for (i = 0; i < nflows; i++)
+		yt921x_reg_write(priv, YT921X_QOS_ENQ_DISn(flows[i].flow_idx),
+				 flows[i].enq_old);
+
+	return first_err;
+}
+
+static int yt921x_mqprio_sched_apply(struct yt921x_priv *priv, int port)
+{
+	struct yt921x_sched_plan plan;
+
+	yt921x_sched_plan_fair(&plan);
+	return yt921x_port_sched_apply(priv, port, &plan);
 }
 
 static int yt921x_ets_supported_port(struct dsa_switch *ds, int port)
@@ -1463,82 +1761,116 @@ yt921x_ets_build_qid_band_map(const struct tc_ets_qopt_offload_replace_params *p
 }
 
 static int
+yt921x_ets_plan(const struct tc_ets_qopt_offload_replace_params *p,
+		const u8 prio_qid_map[YT921X_PRIO_NUM],
+		struct yt921x_sched_plan *plan)
+{
+	u32 weights[YT921X_PRIO_NUM] = { 0 };
+	u8 hw_prio[YT921X_PRIO_NUM] = { 0 };
+	s8 qid_band[YT921X_PRIO_NUM];
+	unsigned int max_weight = 0;
+	unsigned int nstrict = 0;
+	unsigned int strict_seen = 0;
+	int band;
+	int qid;
+	int res;
+
+	res = yt921x_ets_build_qid_band_map(p, prio_qid_map, qid_band);
+	if (res)
+		return res;
+
+	memset(plan, 0, sizeof(*plan));
+
+	for (band = 0; band < p->bands; band++) {
+		res = yt921x_ets_band_weight(p, band, &weights[band]);
+		if (res)
+			return res;
+		if (!weights[band])
+			nstrict++;
+		else
+			max_weight = max(max_weight, weights[band]);
+	}
+
+	/* Normalize the maximum to the 10-bit hardware field with rounding;
+	 * this preserves band ratios instead of clipping each band.
+	 */
+	if (max_weight > YT921X_QOS_SCHED_FLOW_WEIGHT_MAX) {
+		for (band = 0; band < p->bands; band++) {
+			u64 scaled;
+
+			if (!weights[band])
+				continue;
+			scaled = div_u64((u64)weights[band] *
+					 YT921X_QOS_SCHED_FLOW_WEIGHT_MAX +
+					 max_weight / 2, max_weight);
+			weights[band] = max_t(u32, 1, (u32)scaled);
+		}
+	}
+
+	if (nstrict == p->bands) {
+		/* All strict: earlier bands take the higher numeric priority. */
+		for (band = 0; band < p->bands; band++)
+			hw_prio[band] = p->bands - 1 - band;
+	} else {
+		for (band = 0; band < p->bands; band++) {
+			if (weights[band]) {
+				/* Weighted bands share the DWRR group at 0. */
+				hw_prio[band] = 0;
+			} else {
+				/* Strict bands precede the weighted group. */
+				hw_prio[band] = nstrict - strict_seen;
+				strict_seen++;
+			}
+		}
+	}
+
+	for (qid = 0; qid < YT921X_PRIO_NUM; qid++) {
+		plan->flows[qid].write = true;
+		if (qid_band[qid] < 0) {
+			/* Best effort for queues no priority maps to. */
+			plan->flows[qid].priority = 0;
+			plan->flows[qid].weight = 1;
+			continue;
+		}
+
+		band = qid_band[qid];
+		plan->flows[qid].priority = hw_prio[band];
+		/* Strict groups have distinct priorities, so the weight only
+		 * needs to be a valid positive unit value.
+		 */
+		plan->flows[qid].weight = weights[band] ? weights[band] : 1;
+	}
+
+	/* Multicast flow priorities and weights stay untouched; only shared
+	 * group unit words may change.
+	 */
+
+	return 0;
+}
+
+static int
 yt921x_ets_apply(struct yt921x_priv *priv, int port,
 		 const struct tc_ets_qopt_offload_replace_params *p)
 {
-	u32 sp = 0;
-	s8 qid_band[YT921X_PRIO_NUM];
+	struct yt921x_sched_plan plan;
 	u8 prio_qid_map[YT921X_PRIO_NUM];
-	int qid;
 	int res;
 
 	res = yt921x_qos_read_ucast_prio_qid_map(priv, port, prio_qid_map);
 	if (res)
 		return res;
 
-	res = yt921x_ets_build_qid_band_map(p, prio_qid_map, qid_band);
+	res = yt921x_ets_plan(p, prio_qid_map, &plan);
 	if (res)
 		return res;
 
-	for (qid = 0; qid < YT921X_QOS_SCHED_UCAST_FLOWS; qid++) {
-		u32 flow_idx = YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, false);
-		u32 mode_idx = YT921X_QOS_SCHED_FLOW_INDEX(port, qid, false);
-		u32 en = 0;
-		u32 weight = 0;
-		s8 band = qid_band[qid];
-
-		if (band >= 0) {
-			res = yt921x_ets_band_weight(p, band, &weight);
-			if (res)
-				return res;
-		}
-
-		if (band >= 0 && !weight) {
-			sp |= BIT(qid);
-		} else if (band >= 0) {
-			u32 w = min_t(u32, weight, (u32)GENMASK(9, 0));
-
-			res = yt921x_reg_update_bits(priv,
-						     YT921X_QOS_SCHED_DWRRn(flow_idx),
-						     YT921X_QOS_SCHED_FLOW_F0_M |
-						     YT921X_QOS_SCHED_FLOW_F1_M,
-						     YT921X_QOS_SCHED_FLOW_F0(w) |
-						     YT921X_QOS_SCHED_FLOW_F1(w));
-			if (res)
-				return res;
-			en = YT921X_QOS_SCHED_DWRR_CFG_EN;
-		}
-
-		res = yt921x_reg_update_bits(priv,
-					     YT921X_QOS_SCHED_DWRR_MODE0n(mode_idx),
-					     YT921X_QOS_SCHED_DWRR_CFG_EN,
-					     en);
-		if (res)
-			return res;
-
-		res = yt921x_reg_update_bits(priv,
-					     YT921X_QOS_SCHED_DWRR_MODE1n(mode_idx),
-					     YT921X_QOS_SCHED_DWRR_CFG_EN,
-					     en);
-		if (res)
-			return res;
-	}
-
-	return yt921x_reg_update_bits(priv, YT921X_QOS_SCHED_SPn(port),
-				      YT921X_QOS_SCHED_SP_MASK, sp);
+	return yt921x_port_sched_apply(priv, port, &plan);
 }
 
 static int
 yt921x_ets_destroy(struct yt921x_priv *priv, int port)
 {
-	u8 map[YT921X_PRIO_NUM];
-	int res;
-
-	res = yt921x_qos_read_ucast_prio_qid_map(priv, port, map);
-	if (res)
-		return res;
-
-	return yt921x_mqprio_sched_apply(priv, port, map);
+	return yt921x_mqprio_sched_apply(priv, port);
 }
 
 
@@ -1590,8 +1922,7 @@ yt921x_dsa_port_setup_tc(struct dsa_switch *ds, int port,
 						  YT921X_QOS_QUEUE_MAP_MCASTn(port),
 						  old_mcast);
 			} else {
-				res = yt921x_mqprio_sched_apply(priv, port,
-								prio_qid_map);
+				res = yt921x_mqprio_sched_apply(priv, port);
 				if (res) {
 					yt921x_reg_write(priv,
 							  YT921X_QOS_QUEUE_MAP_UCASTn(port),

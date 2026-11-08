@@ -2,18 +2,18 @@
 """Exercise the yt921x queue-table index mapping with production code.
 
 The queue/group macros and capacity constants are extracted from
-yt921x_enhanced.h; the queue-index helper and ETS apply function come from
-yt921x_qos_tc.c. Independent literal oracles cover modeled queue indexes and
-ETS register destinations. Named fake ETS dependencies do not model hardware
-scheduling or validate Linux band-to-queue policy.
+yt921x_enhanced.h; the queue-index helper comes from yt921x_qos_tc.c.
+Independent literal oracles cover modeled queue indexes. This harness
+validates packed flow layout only; scheduler planning and register
+transactions live in test_yt921x_scheduler.py.
 
 Usage:
     tools/nss/test_yt921x_queue_index.py
     tools/nss/test_yt921x_queue_index.py --source old.c
     tools/nss/test_yt921x_queue_index.py --sanitize address,undefined,leak
 
---source can test the old unicast index helper against the current header;
-the old helper compiles and fails the independent port/queue oracles.
+--source can test an alternate helper implementation against the current
+header; a stale helper compiles and fails the independent port/queue oracles.
 """
 
 from __future__ import annotations
@@ -89,15 +89,21 @@ def extract_define(src: str, name: str) -> str:
 
 
 def extract_function(src: str, name: str) -> str:
-    match = re.search(rf"(?m)^[ \t]*{re.escape(name)}\s*\(", src)
-    if not match:
-        match = re.search(
-            rf"(?m)^[ \t]*(?:static\s+)?[A-Za-z_][\w \t\*]*?\b{re.escape(name)}\s*\(",
-            src,
-        )
+    match = None
+    # A function call can start an indented line before the definition.
+    # Select a candidate only when its parameter list is followed by a body.
+    for candidate in re.finditer(rf"\b{re.escape(name)}\s*\(", src):
+        paren = src.find("(", candidate.start(), candidate.end())
+        close = _match_delim(src, paren, "(", ")")
+        body = close + 1
+        while body < len(src) and src[body].isspace():
+            body += 1
+        if body < len(src) and src[body] == "{":
+            match = candidate
+            break
     if not match:
         raise HarnessError(f"function {name} not found in source")
-    start = match.start()
+    start = src.rfind("\n", 0, match.start()) + 1
     name_pos = src.find(name, match.start(), match.end())
     if name_pos >= 0 and not src[start:name_pos].strip():
         # The return type sits on the previous line.
@@ -149,22 +155,6 @@ DEFINES = (
     "YT921X_QOS_SCHED_MCAST_FLOWS",
     "YT921X_QOS_SCHED_FLOWS_PER_PORT",
     "YT921X_QOS_QUEUE_FLOW_INDEX",
-    "YT921X_QOS_SCHED_FLOW_INDEX",
-    "YT921X_PRIO_NUM",
-    "YT921X_QOS_SCHED_SP",
-    "YT921X_QOS_SCHED_SPn",
-    "YT921X_QOS_SCHED_SP_MASK",
-    "YT921X_QOS_SCHED_DWRR",
-    "YT921X_QOS_SCHED_DWRRn",
-    "YT921X_QOS_SCHED_DWRR_MODE0",
-    "YT921X_QOS_SCHED_DWRR_MODE0n",
-    "YT921X_QOS_SCHED_DWRR_MODE1",
-    "YT921X_QOS_SCHED_DWRR_MODE1n",
-    "YT921X_QOS_SCHED_FLOW_F0_M",
-    "YT921X_QOS_SCHED_FLOW_F1_M",
-    "YT921X_QOS_SCHED_FLOW_F0",
-    "YT921X_QOS_SCHED_FLOW_F1",
-    "YT921X_QOS_SCHED_DWRR_CFG_EN",
     "YT921X_QSCH_SHP_PORTS",
     "YT921X_QSCH_SHP_QUEUES",
     "YT921X_QSCH_SHP_FLOWS_PER_PORT",
@@ -200,107 +190,6 @@ _Static_assert(YT921X_QOS_SCHED_PORTS == 11, "expected 11 modeled ports");
 _Static_assert(YT921X_QOS_SCHED_UCAST_FLOWS == 8, "expected 8 UC queues");
 _Static_assert(YT921X_QOS_SCHED_MCAST_FLOWS == 4, "expected 4 MC queues");
 
-"""
-
-ETS_DEPENDENCIES = r"""
-/* Named fakes: feed a precomputed band map/weights into the real apply body. */
-struct update { u32 addr, mask, value; };
-struct yt921x_priv {
-    struct update writes[32];
-    int calls, fail_at, map_error;
-};
-struct tc_ets_qopt_offload_replace_params {
-    s8 band[8];
-    u32 weight[8];
-};
-static int yt921x_qos_read_ucast_prio_qid_map(struct yt921x_priv *p,
-                                            int port, u8 *map)
-{
-    for (int i = 0; i < 8; i++) map[i] = i;
-    return p->map_error;
-}
-static int yt921x_ets_build_qid_band_map(
-    const struct tc_ets_qopt_offload_replace_params *p,
-    const u8 *map, s8 *out)
-{
-    memcpy(out, p->band, sizeof(p->band));
-    return 0;
-}
-static int yt921x_ets_band_weight(
-    const struct tc_ets_qopt_offload_replace_params *p, int band, u32 *out)
-{
-    *out = p->weight[band];
-    return 0;
-}
-static int yt921x_reg_update_bits(struct yt921x_priv *p,
-                                  u32 addr, u32 mask, u32 value)
-{
-    if (p->calls >= 32) abort();
-    p->writes[p->calls++] = (struct update){ addr, mask, value };
-    return p->calls == p->fail_at ? -EIO : 0;
-}
-"""
-
-ETS_TESTS = r"""
-static void check_ets_update(const struct yt921x_priv *p, int *n,
-                             u32 addr, u32 mask, u32 value)
-{
-    const struct update *u = &p->writes[(*n)++];
-    if (u->addr != addr || u->mask != mask || u->value != value)
-        fail("ETS update %d: %x/%x/%x, expected %x/%x/%x",
-             *n, u->addr, u->mask, u->value, addr, mask, value);
-}
-
-static void test_ets_table_destinations(void)
-{
-    for (int port = 0; port < 11; port++) {
-        for (int mixed = 0; mixed < 2; mixed++) {
-            struct yt921x_priv priv = { 0 };
-            struct tc_ets_qopt_offload_replace_params p = { 0 };
-            int n = 0;
-
-            for (int q = 0; q < 8; q++) {
-                p.band[q] = mixed && q == 7 ? -1 : q;
-                p.weight[q] = mixed && !(q & 1) ? 0 : q + 1;
-            }
-            if (yt921x_ets_apply(&priv, port, &p))
-                fail("ETS apply failed port%d mixed%d", port, mixed);
-            for (int q = 0; q < 8; q++) {
-                u32 en = 0, w = p.weight[q];
-                if (p.band[q] >= 0 && w) {
-                    /* Independent literals: packed flow stride 8. */
-                    check_ets_update(&priv, &n, 0x341000 + 4*(port*8+q),
-                                     0x0fffff00, (w << 18) | (w << 8));
-                    en = 1;
-                }
-                /* Preserve baseline mode traversal, stride12 plus qid.
-                 * Priority-group resolution is separate hardware coverage. */
-                check_ets_update(&priv, &n, 0x342000 + 4*(port*12+q), 1, en);
-                check_ets_update(&priv, &n, 0x343000 + 4*(port*12+q), 1, en);
-            }
-            /* The existing trailing SP write is opaque here. Vendor source
-             * identifies 0x300400 as flush_cfg, so do not turn that legacy
-             * assumption into a hardware oracle. Its redesign is separate. */
-            if (priv.calls != n + 1) fail("ETS unexpected update count");
-            n = priv.calls;
-
-            /* Each I/O error stops at that attempted operation, with no
-             * rollback claim for this existing ETS apply implementation. */
-            for (int fail_at = 1; fail_at <= n; fail_at++) {
-                struct yt921x_priv fault = { .fail_at = fail_at };
-                if (yt921x_ets_apply(&fault, port, &p) != -EIO ||
-                    fault.calls != fail_at ||
-                    memcmp(fault.writes, priv.writes,
-                           fail_at * sizeof(struct update)))
-                    fail("ETS I/O prefix port%d operation%d", port, fail_at);
-            }
-        }
-    }
-    struct yt921x_priv fault = { .map_error = -EUCLEAN };
-    struct tc_ets_qopt_offload_replace_params p = { 0 };
-    if (yt921x_ets_apply(&fault, 2, &p) != -EUCLEAN || fault.calls)
-        fail("ETS map-read failure must not write registers");
-}
 """
 
 TESTS = r"""
@@ -474,10 +363,6 @@ def compose(header: Path, source: Path) -> str:
     source_src = source.read_text()
     defines = "\n".join(extract_define(header_src, name) for name in DEFINES)
     function = extract_function(source_src, "yt921x_qsch_flow_index")
-    ets = extract_function(source_src, "yt921x_ets_apply")
-    tests = TESTS.replace("int main(void)", ETS_TESTS + "\nint main(void)")
-    tests = tests.replace("\ttest_invalid_inputs();",
-                          "\ttest_invalid_inputs();\n\ttest_ets_table_destinations();")
     return (
         PREAMBLE
         + defines
@@ -485,10 +370,7 @@ def compose(header: Path, source: Path) -> str:
         + STATIC_ASSERTS
         + function
         + "\n"
-        + ETS_DEPENDENCIES
-        + ets
-        + "\n"
-        + tests
+        + TESTS
     )
 
 

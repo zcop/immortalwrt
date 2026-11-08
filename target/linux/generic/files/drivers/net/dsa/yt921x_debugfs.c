@@ -963,7 +963,9 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_d4[] = {
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_d7[] = {
-	YT921X_PROC_FIELD(8, 0, 0, "sp_mask"),
+	YT921X_PROC_FIELD(1, 0, 31, "flush_req"),
+	YT921X_PROC_FIELD(1, 0, 30, "flush_done"),
+	YT921X_PROC_FIELD(8, 0, 0, "flush_qid"),
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e4[] = {
@@ -1060,18 +1062,18 @@ static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_ec[] = {
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e6[] = {
-	YT921X_PROC_FIELD(10, 0, 18, "flow_f0"),
-	YT921X_PROC_FIELD(10, 0, 8, "flow_f1"),
-	YT921X_PROC_FIELD(4, 0, 4, "flow_f2"),
-	YT921X_PROC_FIELD(4, 0, 0, "flow_f3"),
+	YT921X_PROC_FIELD(10, 0, 18, "eweight"),
+	YT921X_PROC_FIELD(10, 0, 8, "cweight"),
+	YT921X_PROC_FIELD(4, 0, 4, "epriority"),
+	YT921X_PROC_FIELD(4, 0, 0, "cpriority"),
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e7[] = {
-	YT921X_PROC_FIELD(1, 0, 0, "dwrr_en"),
+	YT921X_PROC_FIELD(1, 0, 0, "unit"),
 };
 
 static const struct yt921x_proc_tbl_field_desc yt921x_tbl_fields_e8[] = {
-	YT921X_PROC_FIELD(1, 0, 0, "dwrr_en"),
+	YT921X_PROC_FIELD(1, 0, 0, "unit"),
 };
 
 static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
@@ -1321,8 +1323,8 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_d4),
 	},
 	{
-		.id = 0xd7, .name = "qos-sched-sp", .base = YT921X_QOS_SCHED_SP,
-		.entry_words = 1, .rw_words = 1, .entries = YT921X_PORT_NUM,
+		.id = 0xd7, .name = "qos-flush-cfg", .base = YT921X_QOS_FLUSH_CFG,
+		.entry_words = 1, .rw_words = 1, .entries = 1,
 		.fields = yt921x_tbl_fields_d7,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_d7),
 	},
@@ -1367,21 +1369,23 @@ static const struct yt921x_proc_tbl_desc yt921x_proc_tbl_descs[] = {
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e5),
 	},
 	{
-		.id = 0xe6, .name = "qsch-flow-map", .base = YT921X_QOS_SCHED_DWRR,
+		.id = 0xe6, .name = "qsch-flow-map", .base = YT921X_QOS_SCHED_FLOW,
 		.entry_words = 1, .rw_words = 1,
 		.entries = YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_FLOWS_PER_PORT,
 		.fields = yt921x_tbl_fields_e6,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e6),
 	},
 	{
-		.id = 0xe7, .name = "qsch-dwrr-mode0", .base = YT921X_QOS_SCHED_DWRR_MODE0,
+		.id = 0xe7, .name = "qsch-group-unit-c",
+		.base = YT921X_QOS_SCHED_GROUP_UNIT_C,
 		.entry_words = 1, .rw_words = 1,
 		.entries = YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_FLOWS_PER_PORT,
 		.fields = yt921x_tbl_fields_e7,
 		.nfields = ARRAY_SIZE(yt921x_tbl_fields_e7),
 	},
 	{
-		.id = 0xe8, .name = "qsch-dwrr-mode1", .base = YT921X_QOS_SCHED_DWRR_MODE1,
+		.id = 0xe8, .name = "qsch-group-unit-e",
+		.base = YT921X_QOS_SCHED_GROUP_UNIT_E,
 		.entry_words = 1, .rw_words = 1,
 		.entries = YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_FLOWS_PER_PORT,
 		.fields = yt921x_tbl_fields_e8,
