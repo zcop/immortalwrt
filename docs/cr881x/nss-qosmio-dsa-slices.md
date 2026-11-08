@@ -1537,3 +1537,137 @@ panic. See `native-return-accept/` and `native-final-state.json`.
 Slice20 is accepted. Five planned slices remain:21 through25 in the table
 above. This slice adds userspace test tooling and acceptance evidence; it does
 not change driver/firmware source or create a release.
+
+## Slice21: host load and runtime MTU handling
+
+Native build22 and standard build23 were tested with Linux on LAN3 and
+Windows on WAN, both external links at1Gbps. The CPU8 conduit remains at
+2500Mbps. Temporary HTTP services, MTUs and packet captures are task-owned;
+persistent network, wireless and firewall configuration hashes are unchanged.
+This topology cannot establish sustained2.5Gbps host throughput.
+
+A temporary LAN-only uhttpd/CGI workload transferred256MiB in each direction.
+Native router-to-Linux measured174.34Mbps with37.65% average idle; the reverse
+measured223.37Mbps with12.09% idle and a lowest sample of2.53%. Standard mode
+measured271.18/224.51Mbps, with18.01/20.67% average idle. These include userspace
+HTTP and CGI work and are CPU-pressure observations, not dataplane ceilings.
+Native IPv4 forwarded counters did not rise during router-local transfers;
+N2H queue drops and allocation failures had no increments.
+
+A separate concurrent native test kept an already accelerated reverse flow
+paced at200Mbps while uploading128MiB to the router. Upload measured220.13Mbps;
+CPU idle averaged13.57% and reached4.46% in the lowest sample. Firmware TX
+increased91622 packets during the upload. Fully overlapping one-second routed
+intervals measured199.23–201.33Mbps, with199.93Mbps receiver average for the
+whole routed test. N2H queue/allocation failure counters did not increase.
+This proves the sampled paced flow survived host CPU pressure; it does not
+prove line-rate host delivery or full2.5Gbps capacity.
+
+### Native MTU receive bug and fix
+
+The original native build accepted MTU9190 and9000, updated physical and VLAN
+NSS interfaces synchronously, and programmed the expected switch frame limits.
+That configuration success did not establish reception. Linux-originated IP
+packets of2022 bytes passed and2023 bytes failed: Ethernet14 + internal S+C8 +
+IP2022 + FCS4 is exactly2048 bytes. LAN3 and CPU8 counters showed switch
+forwarding without CRC/drop increments. Failed sizes did not reach the logical
+LAN capture, and neither NSS nor physical-interface error counters explained
+them.
+
+`nss_dp_ipq5018.c` set GMAC jumbo reception only from phylink's initial MAC
+configuration. The native MTU handler updated the firmware and switch without
+updating that bit. Patch105 calls the native MAC helper only after dataplane
+MTU acceptance and the software MTU update. A per-port lock serializes MAC
+register updates with phylink callbacks; speed, duplex, pause and RX/TX state
+are preserved. Rejected dataplane requests leave MAC state unchanged. The
+ordinary SSDK path remains unchanged.
+
+Native build24, installed with normal sysupgrade to slot1 while standard23
+remained in slot0, resolves the measured failure. A guarded sweep passed IP
+lengths1500,2022,2023,2048,4000,8000 and9000. Packet decoding confirms both an
+unfragmented request and reply at every sampled jumbo size. A separate test
+passed three9000-byte echoes with switch RX/TX jumbo counters increasing by
+three each and no CRC/drop increment. An attempted9001-byte DF packet at host
+MTU9000 was rejected locally with `Message too long`. Both guards restored
+host/router MTUs, switch frame limits, NSS node semantics and workstation
+routes; no conduit restart or manual MAC register write was needed.
+
+Windows advertised Jumbo9014 in its NIC settings but retained effective IPv4
+MTU1500; it received router-originated9000-byte requests and replied as1500-byte
+fragments. Switch WAN counters independently showed TX-jumbo3 and RX-jumbo0.
+Those Windows exchanges are not counted as bidirectional jumbo or routed NSS
+jumbo acceptance. Windows was restored to Jumbo Disabled/1514 and VLAN0.
+Linux supplied the actual jumbo endpoint for the native LAN test. These are
+bounded packet checks, not sustained-jumbo memory/load acceptance.
+
+Native24's normal routed tests reached936.54/936.25Mbps with98.55/98.79% sampled
+CPU idle, active ECM rules, and777426/756078 additional firmware TX packets.
+Its packaged module hashes match the image; configuration and standard23
+fallback hashes were verified. A private verified native24 slot backup was
+saved before testing the separate standard-path correction.
+
+### Standard MTU ordering correction and installed validation
+
+The standard23 CPU conduit advertises maximum MTU9000, so a user MTU9000
+request correctly fails because the private tag requires another8 bytes.
+The tested effective user limit is8992. Requests at8992 were accepted but
+showed the same IP2022/2023 receive cutoff, followed by complete restoration.
+The upstream stmmac MTU handler reopened the MAC before storing the requested
+MTU; core initialization therefore read the old value. Patch823 publishes
+the new MTU before reopening and restores the previous value if reopening
+fails. Validation and DMA-allocation failures keep the previous MTU.
+
+`tools/nss/test_stmmac_mtu.py` extracts the actual handler and exercises XDP
+rejection, FIFO rejection, DMA-allocation failure, reopening failure, live
+increase, live decrease and an administratively down interface. The original
+handler reproduces stale MTU visibility at MAC open; the patched handler uses
+the requested value and preserves failure behavior. These seven scenarios
+pass. Standard25 built successfully and was installed with a single guarded
+sysupgrade to slot0 after NSS core shutdown. Native24 slot1 and its private
+recovery backup were preserved.
+
+On standard25 boot `7c863e63-9940-416e-b5d7-d7681fb4bb44`, the same sweep passed
+IP lengths1500,2022,2023,2048,4000,8000 and8992. Captures confirm unfragmented
+requests and replies at every sampled jumbo size. An8993-byte DF request at
+host MTU8992 was rejected locally. Host/router MTUs, switch frame registers,
+workstation routes and persistent configuration were restored. The CPU link
+remained2500Mbps, loop protection stayed enabled, and no kernel WARN/Oops/panic
+was found. Standard25's packaged files and preserved native24 partition hash
+were verified; the standard partition hash is
+`e62b9ca341f55bb3becc7f9cf530531e7f829db3fb34c34f4cf857c0120952ff`.
+
+The native maximum was also measured rather than inferred from the API:
+IP lengths9000,9001,9018,9100 and9190 passed with unfragmented request/reply
+captures at user MTU9190. User MAC frame limits were9212 bytes and CPU8's limit
+was9216. This was another bounded packet test with complete restoration.
+
+Evidence: ignored `logs/nss-slices-20261108/slice21-host-mtu/`, including
+size-probe command audits and pcaps, explicit restoration results, native24
+artifact and recovery manifests, host-load records, focused C-harness output
+and separately retained failed prerequisites/fixtures. The native link-restart
+attempt closed DSA user ports and obtained no jumbo measurements; UART
+restored those ports, and that attempt is not counted as a pass. External
+review findings are accepted only after primary source/build checks.
+
+
+Normal native operation was restored without reflashing after the standard25
+test. Final boot `01faf66b-a54a-4910-bf29-87c75bc4b008` is native24 slot1;
+standard25 remains verified in slot0. Fresh routed tests measured936.52 and
+936.64Mbps, with98.55% and99.16% sampled CPU idle, active ECM rules and
+777232/753786 additional firmware TX packets. Final checks confirm eight NSS
+nodes with no pending retries or allocation failures, restored1500-byte user
+and1508-byte conduit MTUs, original frame limits and configuration hashes,
+normal ath11k module loading, loop protection enabled, and no kernel
+WARN/Oops/panic. Windows remains WAN/VLAN0/Jumbo Disabled; Linux remains LAN3
+at MTU1500. No temporary HTTP service or task MTU guard remains active.
+
+The host-pressure and bounded MTU packet gates are accepted on this topology.
+Sustained2.5Gbps host load, sustained jumbo-buffer pressure and true routed9K
+acceleration remain unmeasured: the available external links are1Gbps and the
+Windows endpoint cannot originate full-size jumbo replies. These limits are
+not inferred as either pass or fail. The remaining functional plan is slices22
+through25; those capacity checks are retained explicitly for suitable hardware.
+Native24 predates the separate standard-kernel patch; standard25 validates that
+patch. Neither image is a new release. The native top-level build configuration
+is restored; the prepared kernel cache last built standard mode, so future
+native builds must rebuild against the native configuration.
