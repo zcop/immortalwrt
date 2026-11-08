@@ -2271,3 +2271,79 @@ task-owned RAM guards are removed and detached helper drafts are preserved.
 Only local `master` and `nss-experiment` branches remain. No push or release is
 performed. The committed experiment retains failed scheduler packet acceptance
 as an open gate.
+
+## Slice27: scheduler capacity and admission controls
+
+Source remains at `14b57414f836`, with native31 installed and native30 preserved
+in slot0. These are temporary hardware diagnostics; no driver change or new
+image is installed. Windows uses LAN1/VLAN0 and Linux stays on LAN3. The
+known-unicast VID35 fixture, static FDB, flood-off policy and distinct packet
+sizes are the same as Slice26. Rates below are frame-byte estimates from switch
+MIBs, rather than application delivery measurements.
+
+### Capacity, pacing and exact queue selection
+
+Each queue independently fills the physical10Mbps LAN1 bottleneck: PCP0 reaches
+9.47Mbps and PCP5 reaches9.87Mbps. The low-rate controls and1Gbps20+20Mbps
+baseline deliver every offered test frame. With both streams active, changing
+sender batch size changes the output split substantially:
+
+|Configured policy |Sender batch |PCP0 Mbps |PCP5 Mbps |
+| --- | --- | --- | --- |
+|PCP0 strict-high |1 |4.96 |4.72 |
+|PCP0 strict-high |4 |4.51 |5.18 |
+|PCP0 strict-high |64 |8.01 |1.59 |
+|PCP5 strict-high |1 |4.91 |4.75 |
+|Weight1:3 |1 |4.91 |4.75 |
+
+The single-queue throughput cap hypothesis is excluded for this fixture.
+Burst sensitivity alone does not establish an admission or scheduler defect;
+strict precedence and weighted sharing remain unaccepted.
+
+A separate two-stream enqueue-disable control tests queue identity under ETS.
+Disabling q0 drops all261 PCP0 test frames while all98 PCP5 frames leave LAN1;
+disabling q5 passes all261 PCP0 frames and drops all98 PCP5 frames. Source RX
+bins confirm both offered streams arrived. Enqueue state is restored between
+controls. This independently confirms the expected queue selection.
+
+Eight-band ETS repeats the failed strict/weighted behavior. Attaching normal
+100Mbps TBF children to q0 and q5 enables the documented C/E shaper gates
+without imposing the10Mbps bottleneck. Strict results are4.92/4.73Mbps and,
+after reversing precedence,4.91/4.75Mbps. Weighted results remain4.92/4.76Mbps.
+The gate hypothesis is not supported by these tests. Both completed matrices
+restore exact flow/group/enqueue/shaper words, VLANs, qdisc, advertisement,
+1Gbps link and persistent configuration.
+
+### Rejected backlog fixture and recovery
+
+An attempted zero-input drain control enables the port shaper with zero
+CIR/CBS to preload queues before releasing them at a low rate. SSH becomes
+unreachable after the preload, and the host cannot execute its remote cleanup.
+The independent180-second guard was armed, but automatic restoration is not
+verified. The drain phase never starts; this test provides no scheduling result
+and must not be counted as passing backlog validation.
+
+The primary opens UART, confirms the existing native31 shell, disables the
+temporary port shaper and replays the saved restoration script. It returns0;
+the boot ID remains `7c69832b-eea5-43ee-9110-5e5eae2a5b86`. Pinned Ethernet
+SSH recovers. An independent audit verifies every saved register, VLAN/PVID,
+qdisc/flood setting and persistent configuration hash; LAN1/LAN3 are1Gbps.
+Normal LAN TCP then reaches941.19Mbps with zero retransmits, eight automatic
+QinQ nodes and no new kernel warning. The cause of management loss remains
+unresolved, and the zero-rate fixture is not repeated.
+
+The switch driver selects its tagger in `yt921x_dsa_get_tag_protocol()` and has
+no runtime `change_tag_protocol` callback. A comparable ordinary DSA control
+therefore needs a separately built image using the same scheduler source.
+That comparison remains open; this slice does not infer a hardware limitation
+or identify NSS/QinQ as the cause of the failed scheduling gates.
+
+Windows is returned to WAN/VLAN0 and SharedAccess is restarted. DHCP assigns
+the router192.168.137.150. Final routed NSS reaches936.65/936.34Mbps with two
+active ECM rules,758563/755744 additional firmware TX packets and99.04/98.67%
+sampled CPU idle. Eight nodes remain automatic, configuration hashes match and
+no kernel warning appears. UART recovery did not require a reboot or flash.
+
+Evidence, raw commands, failed-test output, UART recovery and restoration
+audits are under ignored
+`logs/nss-slices-20261109/slice27-scheduler-controls/`.
