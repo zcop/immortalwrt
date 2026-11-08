@@ -245,7 +245,7 @@ static void yt921x_qos_telemetry_fill(struct yt921x_priv *priv, int port, u64 *d
 		if (port < 0 || port >= YT921X_QSCH_SHP_PORTS)
 			continue;
 
-		idx = (u32)port * YT921X_QSCH_SHP_FLOWS_PER_PORT + qid;
+		idx = YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, false);
 
 		res = yt921x_reg_read(priv, YT921X_QSCH_SHP_WORD2(idx), &w2);
 		if (res || !(w2 & YT921X_QSCH_SHP_C_SHAPER_EN))
@@ -985,7 +985,7 @@ static int yt921x_qsch_flow_index(int port, u8 qid, u32 *idxp)
 	if (qid >= YT921X_QSCH_SHP_QUEUES)
 		return -ERANGE;
 
-	*idxp = (u32)port * YT921X_QSCH_SHP_FLOWS_PER_PORT + qid;
+	*idxp = YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, false);
 	if (*idxp >= YT921X_QSCH_SHP_ENTRIES)
 		return -ERANGE;
 
@@ -1482,7 +1482,8 @@ yt921x_ets_apply(struct yt921x_priv *priv, int port,
 		return res;
 
 	for (qid = 0; qid < YT921X_QOS_SCHED_UCAST_FLOWS; qid++) {
-		u32 idx = YT921X_QOS_SCHED_FLOW_INDEX(port, qid, false);
+		u32 flow_idx = YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, false);
+		u32 mode_idx = YT921X_QOS_SCHED_FLOW_INDEX(port, qid, false);
 		u32 en = 0;
 		u32 weight = 0;
 		s8 band = qid_band[qid];
@@ -1499,7 +1500,7 @@ yt921x_ets_apply(struct yt921x_priv *priv, int port,
 			u32 w = min_t(u32, weight, (u32)GENMASK(9, 0));
 
 			res = yt921x_reg_update_bits(priv,
-						     YT921X_QOS_SCHED_DWRRn(idx),
+						     YT921X_QOS_SCHED_DWRRn(flow_idx),
 						     YT921X_QOS_SCHED_FLOW_F0_M |
 						     YT921X_QOS_SCHED_FLOW_F1_M,
 						     YT921X_QOS_SCHED_FLOW_F0(w) |
@@ -1510,14 +1511,14 @@ yt921x_ets_apply(struct yt921x_priv *priv, int port,
 		}
 
 		res = yt921x_reg_update_bits(priv,
-					     YT921X_QOS_SCHED_DWRR_MODE0n(idx),
+					     YT921X_QOS_SCHED_DWRR_MODE0n(mode_idx),
 					     YT921X_QOS_SCHED_DWRR_CFG_EN,
 					     en);
 		if (res)
 			return res;
 
 		res = yt921x_reg_update_bits(priv,
-					     YT921X_QOS_SCHED_DWRR_MODE1n(idx),
+					     YT921X_QOS_SCHED_DWRR_MODE1n(mode_idx),
 					     YT921X_QOS_SCHED_DWRR_CFG_EN,
 					     en);
 		if (res)

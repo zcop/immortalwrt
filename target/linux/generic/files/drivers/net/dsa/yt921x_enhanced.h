@@ -893,14 +893,25 @@ enum yt921x_acl_type {
 #define YT921X_QOS_SCHED_DWRR		0x341000	/* tbl 0xe6 */
 #define YT921X_QOS_SCHED_DWRR_MODE0	0x342000	/* tbl 0xe7 */
 #define YT921X_QOS_SCHED_DWRR_MODE1	0x343000	/* tbl 0xe8 */
-/* tbl 0xe6/0xe7/0xe8 are flow-indexed scheduler tables.
- * Decoded layout: 11 ports * 12 flows/port (8 unicast + 4 multicast) = 132 entries.
+/* Queue flow-map (0xe6) and shaper tables use two contiguous blocks:
+ * unicast is idx 0..87
+ * (port * 8 + qid) and multicast is idx 88..131 (88 + port * 4 + qid),
+ * for 132 entries total. Matches vendor fal_tiger_qos_queue_id_get().
  */
 #define YT921X_QOS_SCHED_PORTS		11U
 #define YT921X_QOS_SCHED_UCAST_FLOWS	8U
 #define YT921X_QOS_SCHED_MCAST_FLOWS	4U
+/* Per-port DWRR priority-group count; not the packed queue-flow stride. */
 #define YT921X_QOS_SCHED_FLOWS_PER_PORT \
 		(YT921X_QOS_SCHED_UCAST_FLOWS + YT921X_QOS_SCHED_MCAST_FLOWS)
+#define YT921X_QOS_QUEUE_FLOW_INDEX(port, qid, is_mcast) \
+		((is_mcast) ? \
+		 (YT921X_QOS_SCHED_PORTS * YT921X_QOS_SCHED_UCAST_FLOWS + \
+		  (port) * YT921X_QOS_SCHED_MCAST_FLOWS + (qid)) : \
+		 ((port) * YT921X_QOS_SCHED_UCAST_FLOWS + (qid)))
+/* Preserve existing DWRR group traversal. Its mode tables (0xe7/0xe8)
+ * use per-port priority groups, unlike the packed queue flow IDs above.
+ */
 #define YT921X_QOS_SCHED_FLOW_INDEX(port, qid, is_mcast) \
 		((port) * YT921X_QOS_SCHED_FLOWS_PER_PORT + \
 		 ((is_mcast) ? (YT921X_QOS_SCHED_UCAST_FLOWS + (qid)) : (qid)))
