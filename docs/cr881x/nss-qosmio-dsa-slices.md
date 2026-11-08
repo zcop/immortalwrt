@@ -1439,3 +1439,101 @@ Documentation corrects the stale existing-flow status using the already
 accepted build19 result and records the six-slice remaining plan. Source
 commits do not alter the installed build22 image. No push or release is part
 of this commit request.
+
+## Slice20: standard-mode customer QinQ packet matrix
+
+The installed standard build23 (Linux6.18.60, primary `yt921x-enhanced`
+private tag, secondary raw conduit) passed the customer-tag packet gates.
+This validates standard-mode packet preservation; native NSS continues to
+reserve its transport S-tag as documented earlier. No firmware rebuild or
+new driver change was needed for this slice.
+
+The primary operated a temporary LAN1↔WAN cable fixture at100Mbps/full, with
+Linux on LAN3. Both cable ports were standalone for conduit tests. LAN1 then
+joined `br-lan` for LAN3↔LAN1 delivery, isolation and bridge-group checks; WAN
+remained a standalone physical receiver/sender. A userspace helper sent three
+256-byte frames per direction, with unique cookies and sequence numbers,
+custom MACs and a deterministic payload. Receivers rejected outgoing copies,
+reconstructed VLAN metadata only when `PACKET_AUXDATA` reported it, and checked
+the whole frame through a fixed deadline to detect duplicates.
+
+| Outer TPID/TCI | Inner TPID/TCI | Both directions |
+| --- | --- | --- |
+|88a8/adac |8100/6023 |Passed: S3500/C35, PCP5/3, DEI0 |
+|88a8/bdac |8100/6023 |Passed: outer DEI1 |
+|88a8/adac |8100/7023 |Passed: inner DEI1 |
+|88a8/fffe |8100/fffe |Passed: VID4094, PCP7 and DEI1 on both tags |
+|8100/bdac |8100/7023 |Passed: C+C |
+|88a8/0000 |8100/0000 |Passed: both zero TCIs |
+|88a8/bdac |88a8/7023 |Passed: S+S |
+|8100/bdac |88a8/7023 |Passed: C+S |
+
+A separate Python oracle verified72 actual receive-file frames, including48
+from the16 conduit-direction cases and24 from positive LAN forwarding cases.
+The primary conduit capture shows LAN1 TX mask1 and RX source port0 while
+preserving both customer tags. The raw conduit has no private9988 header.
+Its legacy `DLT_DEBUG_ONLY` capture omits the outer tag removed into NIC VLAN
+metadata on ingress; full-tag validation therefore uses the logical receiver's
+actual auxiliary metadata rather than inferring that tag from expected input.
+Capture/filter integration remains Slice22.
+
+The LAN3↔LAN1 bridge matrix passed in both directions, using S3500/C35 with
+PCP5/3 and DEI1 on both tags:
+
+| Linux configuration | Received per direction |
+| --- | --- |
+|Same bridge |3/3, exact bytes |
+|Both LAN ports isolated |0/3 |
+|Isolation cleared |3/3, exact bytes |
+|LAN1 detached from the LAN bridge |0/3 |
+|LAN1 rejoined |3/3, exact bytes |
+
+Four negative policy cases blocked all12 probes. This is functional packet
+fate evidence; it does not independently establish which positive frames
+bypassed the CPU entirely.
+
+This artificial switch-to-itself fixture required recorded temporary policy.
+Unknown destination MACs avoided collisions with the switch's shared FDB,
+but normal CPU unknown-unicast filters also blocked them. Those CPU filter
+bits were relaxed for the fixture and reapplied after normal bridge changes
+recomputed the managed filters. User-port isolation remained enforced.
+An initial attempt produced repeated IPv6 MLD frames and lost Ethernet
+management before the next test packet was sent. UART stayed responsive;
+the independent35-second watchdog held the test ports down. The hardware
+loop detector stayed enabled throughout, with clear detection flags.
+Temporary multicast bypass changes, distinct fixture MACs and disabled
+IPv6 autoconfiguration on fixture interfaces kept later tests quiet. This
+is not a completed multicast-policy or loop-detector acceptance test; those
+remain with Slice24. Original policy, MACs, IPv6 settings, advertisements
+and autonegotiation were restored before normal operation.
+
+`tools/nss/qinq_packet_probe.c` contains the delegated and primary-reviewed
+userspace fixture. Primary corrections cover final unpadded ancillary
+messages and observed file length despite stale `fstat` metadata.
+`python3 tools/nss/test_qinq_packet_probe.py --sanitize` passes576 independent
+wire vectors,29 rejection controls and12 actual-C metadata/stale-size controls.
+A NET_RAW-only isolated socket pilot also verified outgoing-copy rejection
+and real VLAN auxiliary-data reconstruction for three stacked-tag profiles.
+The tool and these checks do not configure the router or workstation network.
+
+Evidence is retained under ignored
+`logs/nss-slices-20261107/slice20-qinq-matrix/`: `packet-acceptance.json`,
+the accepted per-direction results and receive files, conduit pcaps, command
+audits, restoration logs and the separate fixture failures. The temporary
+helper branch was removed after integration; its draft worktree remains
+detached. Only `master` and `nss-experiment` remain as local branches.
+
+Normal networking is restored with no UCI delta and unchanged persistent
+network/wireless/firewall configuration hashes. The spare cable was removed
+before normal LAN/WAN membership returned. The verified native build22 slot1
+booted without reflashing on boot `efac1eab-5d41-4a32-9e86-772f780beed6`;
+standard build23 remains verified in slot0. NSS and ECM started automatically
+with eight nodes, no allocation failures and a2500Mbps CPU link. Fresh8-second
+routed TCP tests reached936.66/936.28Mbps, with98.67%/98.44% CPU idle in the
+sampled transfer windows, active ECM rules and769132/755983 additional firmware
+TX packets. Module/binary hashes match; final kernel state has no WARN, Oops or
+panic. See `native-return-accept/` and `native-final-state.json`.
+
+Slice20 is accepted. Five planned slices remain:21 through25 in the table
+above. This slice adds userspace test tooling and acceptance evidence; it does
+not change driver/firmware source or create a release.
