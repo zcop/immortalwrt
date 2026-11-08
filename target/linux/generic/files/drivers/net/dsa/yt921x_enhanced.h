@@ -834,13 +834,13 @@ enum yt921x_acl_type {
 	(YT921X_QOS_QUEUE_MAP_UCAST + 4 * (port))
 #define YT921X_QOS_QUEUE_MAP_MCASTn(port) \
 	(YT921X_QOS_QUEUE_MAP_MCAST + 4 * (port))
-#define  YT921X_QOS_UCAST_QMAP_PRIO_SHIFT(prio)	(28 - 4 * (prio))
+#define  YT921X_QOS_UCAST_QMAP_PRIO_SHIFT(prio)	(4 * (prio))
 #define  YT921X_QOS_UCAST_QMAP_PRIO_M(prio) \
 		(GENMASK(2, 0) << YT921X_QOS_UCAST_QMAP_PRIO_SHIFT(prio))
 #define  YT921X_QOS_UCAST_QMAP_PRIO(prio, qid) \
 		(((u32)(qid) & GENMASK(2, 0)) << \
 		 YT921X_QOS_UCAST_QMAP_PRIO_SHIFT(prio))
-#define  YT921X_QOS_MCAST_QMAP_PRIO_SHIFT(prio)	(14 - 2 * (prio))
+#define  YT921X_QOS_MCAST_QMAP_PRIO_SHIFT(prio)	(2 * (prio))
 #define  YT921X_QOS_MCAST_QMAP_PRIO_M(prio) \
 		(GENMASK(1, 0) << YT921X_QOS_MCAST_QMAP_PRIO_SHIFT(prio))
 #define  YT921X_QOS_MCAST_QMAP_PRIO(prio, qid) \
