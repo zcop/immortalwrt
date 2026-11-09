@@ -1,11 +1,21 @@
 # YT9215S Feature Roadmap (CR881x, 2026-03-31)
 
+Historical roadmap; status reviewed 2026-11-09. The March inventory and home
+appliance verdict below are the original baseline, not a qualification of
+every native NSS/QinQ feature. Use the [driver README](../../README.yt921x.md)
+for the established DONE baseline and
+[current NSS acceptance status](../cr881x/nss-qosmio-dsa-slices.md#current-acceptance-status)
+for the6.18.60 implementation. The old NSS deferral is superseded: wired
+IPv4/IPv6 acceleration works while retaining DSA port identity. Advanced
+SP/weighted contention tests still fail, and the
+[daily delivery/recovery matrix](../cr881x/nss-qinq-daily-traffic.md) is incomplete.
+
 ## Scope
 - Platform: Xiaomi CR881x (`ipq5018` + `YT9215S`)
 - Tree: `backport-6.12` driver path
 - Goal: production-ready home appliance behavior, with clear path for optional advanced features
 
-## Current Status
+## March 2026 status
 
 ### Implemented Driver Surface (Full)
 - Statistics and telemetry:
@@ -91,13 +101,14 @@
 - Deep tuning of unknown QoS-adjacent islands (example: `0x355000..0x355028`)
 - Enterprise feature set expansion (complex trust/remark policy stacks)
 
-## Not Feasible or Not Worthwhile Now
-- NSS fastpath parity for this DSA topology:
-  - current evidence indicates practical limits with this hardware/firmware combination
-  - not a blocker for home QoS target because switch hardware offload already covers core data path needs
+## Superseded NSS assessment and remaining exclusions
+- NSS was deferred in the March roadmap. The later Qosmio/QinQ integration
+  now provides wired IPv4/IPv6 acceleration with DSA. Its measured feature
+  boundaries and remaining gates are linked above; it is no longer classified
+  as impractical for this topology.
 - Unsafe write exploration of unknown critical registers:
   - avoid on production branch unless protected by isolated bring-up branch and UART recovery path
 
-## Home Appliance Verdict
+## Original March home appliance verdict
 - Mark YT9215S integration as **feature-complete for home deployment**.
 - Remaining work is mostly observability depth and optional advanced policy expansion, not baseline functionality.

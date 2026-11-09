@@ -1,5 +1,9 @@
 > Historical reference: measurements used the Kuncy7 foundation.
 
+Manual-controller, reboot and slot procedures below apply to that old image.
+For the native Qosmio stack, use [the current SerDes guide](../nss-serdes-2500.md)
+and [current NSS status](../NSS%20Offload%20status.md).
+
 # CR881x 2.5G LAN CPU SerDes with NSS
 
 ## Source change

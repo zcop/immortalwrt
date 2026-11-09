@@ -1,5 +1,11 @@
 # Upstream sync, 2026-11-07
 
+Historical merge report. The checks and running-image identity below are
+those at merge time. Later Slice18 closes reload cleanup, Slice20 accepts the
+standard customer-QinQ matrix, and subsequent images run Linux6.18.60. See
+[current acceptance status](nss-qosmio-dsa-slices.md#current-acceptance-status)
+for installed native31 and the remaining tests.
+
 Merged upstream `4765b657625ec5bbda74b44400465fe043802b30` into the local
 NSS development/release source at `8125a0a2f9`. The merge includes229 upstream
 commits and advances the selected kernel from6.18.55 to6.18.60.
@@ -51,8 +57,8 @@ local source names. Existing application profiles and NSS feed pin are retained.
 
 These are patch, source and object-compilation checks. No complete firmware
 image was built or flashed, and there is no new hardware acceptance claim.
-The NSS reload-cleanup and customer-QinQ runtime gates from Slice17 remain open.
-The running build21 is still based on6.18.55.
+At this merge checkpoint, the NSS reload-cleanup and customer-QinQ runtime
+gates from Slice17 remained open, and running build21 still used6.18.55.
 
 Ignored evidence: `logs/upstream-merge-20261107/`. A bounded Qoder source review
 is saved under `logs/agents/20261107-134922-135b1079/`; primary review and actual

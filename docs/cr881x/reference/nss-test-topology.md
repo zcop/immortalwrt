@@ -1,5 +1,10 @@
 > Historical reference: measurements used the Kuncy7 foundation.
 
+Wiring evidence below is historical; its manual-start controller and build
+identities do not describe native Qosmio. Current topology/results are in
+[native status](../NSS%20Offload%20status.md) and
+[implementation notes](../nss-qosmio-port.md#ecm-scope-and-packet-ownership).
+
 # CR881x wired NSS test topology
 
 Validated 2026-11-01/02. The same wiring was tested on the original host path,

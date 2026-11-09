@@ -1,5 +1,9 @@
 > Reference only: these tests used the Kuncy7 foundation, not the new qosmio branch.
 
+The prototype/uncommitted state below is historical. For the active native
+Qosmio implementation and validation, use [current status](../NSS%20Offload%20status.md)
+and [implementation notes](../nss-qosmio-port.md).
+
 # CR881x NSS QinQ port-ID transport (design)
 
 Status: working experimental wired IPv4 NAT prototype, integrated as

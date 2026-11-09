@@ -1,32 +1,35 @@
 # Qosmio native NSS / YT921x QinQ port
 
-Status: native CR881x DT, phylink dataplane adapter, automatic QinQ node
-provisioning and routed IPv4/IPv6 ECM mapping are implemented and build on
-Linux 6.18.55. Native sysupgrade, automatic NSS/QinQ startup and routed IPv4
-acceleration are now hardware-validated (2026-11-05): 935–936 Mbps TCP in
-both directions and 900 Mbps UDP without loss. Build19 now runs in slot0 and
-tested build18 remains in slot1; the Kuncy7 source and host backups
-remain references. See [device test details](nss-qosmio-device-test.md) for
-the initial migration and [subsequent slices](nss-qosmio-dsa-slices.md) for
-the current image, tagged WAN/LAN traffic, persistent MTU fix and remaining
-gates. The shared-conduit netifd reload failure is corrected and validated in
-build18. Build19 also validates existing TCP flow reacceleration after LAN1
-detach, direct VLAN-interface creation/removal and rejoin. The same connection
-returns to NSS after each transition, without restarting LAN or the test.
+Updated: 2026-11-09. Native CR881x DT, phylink dataplane adapter, automatic QinQ
+node provisioning and routed IPv4/IPv6 ECM mapping are implemented on
+Linux6.18.60. Installed native31 is in slot1; tested native30 remains in slot0.
+Latest restored IPv4 TCP reaches936.60/936.51Mbps with firmware counters
+advancing and about98% sampled CPU idle. Native30 also passes routed IPv6,
+one physical cold boot and one ordinary warm reboot. NSS/QinQ starts without
+a manual arm/controller; Wi-Fi NSS remains disabled.
+
+Build18 repairs shared-conduit reload; build19 accepts existing TCP flow
+reacceleration. Subsequent slices accept customer VLANs, standard customer
+QinQ fallback, capture, bounded node exhaustion/churn and the specified daily
+delivery/FDB cases. Advanced SP/weighted scheduling and broader daily-use
+recovery remain open. See [current acceptance status](nss-qosmio-dsa-slices.md#current-acceptance-status),
+the [daily delivery matrix](nss-qinq-daily-traffic.md) and
+[initial migration tests](nss-qosmio-device-test.md). Older build logs and
+artifacts below retain their original scope.
 
 ## Sources and branch ownership
 
-- Branch: `nss-qosmio-qinq`, isolated worktree
-  `logs/worktrees/nss-qosmio-qinq` under the original repository.
+- Development branch: `nss-experiment`; `master` is the release/build branch.
+  The local development worktree retains the directory name
+  `logs/worktrees/nss-qosmio-qinq`; that is no longer a branch name.
 - Qosmio feed: `qosmio/nss-packages`, branch `NSS-12.5-K6.x`, pinned to
   `0d970dbf0185e3f53709bd803e8a466598023c57` in `feeds.conf.default`.
 - Native platform reference: `qosmio/openwrt-ipq`, `main-nss`,
   `92a2d104145c8d265851c4b388a41bd8e9c21cd9`. Its current platform patches
-  target kernel 6.12; this ImmortalWrt target remains on 6.18.55.
-- Kuncy7 reference: original worktree on `nss-qinq-experiment`, unchanged,
-  based on `9cca0ec1e74d5d3de53fd30a02999447249dd501` with its existing
-  uncommitted QinQ work. Full dirty source/diff/config/feed overlay snapshots
-  are under the original repository's
+  target kernel6.12 at that revision; this ImmortalWrt target uses6.18.60.
+- Kuncy7 reference: the former `nss-qinq-experiment` source was based on
+  `9cca0ec1e74d5d3de53fd30a02999447249dd501`. Its full dirty
+  source/diff/config/feed overlay snapshots are preserved under
   `logs/qosmio-migration-20261104/kuncy-reference/`.
 - Kuncy7 tree/feed donor revisions remain recorded in the archived
   [reference notes](reference/nss-kuncy-port.md). Use these for a specific
@@ -36,8 +39,8 @@ The migration removes the Kuncy7 backend introduced by
 `dabf634cc4836867383fe7f91cefd0f1f63cf0a8` in this new worktree. The later
 2.5G SerDes commit and independent YT921x transport foundation remain.
 Removal, QinQ transport, native integration and individual driver fixes are
-recorded in separate commits. No branch was pushed, and the original
-reference's index/worktree were not changed.
+recorded in separate commits. Development has since been merged into and
+pushed on `master`; the preserved Kuncy7 snapshots remain historical inputs.
 
 ## Removed active foundation
 
@@ -104,8 +107,10 @@ before reset release, write-combined meminfo request mapping, and the single
 NSS core clock kept across unused-clock gating. No shared NSS GCC block
 reset is pulsed. Native dataplane registration/removal holds RTNL for
 phylink; host restore clears the old DMA initialization flags and rebuilds
-host rings. A native sysupgrade boot and 1G/2.5G links are device-proven;
-NSS driver removal/host restore and a cold/warm reboot matrix remain pending.
+host rings. Native sysupgrade and1G/2.5G links are device-proven. Slice18
+accepts two core unload/reload cycles and both host Ethernet paths. Slice25
+accepts one physical cold boot and one ordinary warm reboot on native30;
+repeated power-cycle qualification remains open.
 
 `qca-nss-qinq` autoloads and waits/retries for physical NSS interfaces. It
 creates a root for each physical port's outer SVID and a leaf for each inner
@@ -118,8 +123,9 @@ lookup failures. ECM keeps IPv4/IPv6 acceleration attempts decelerated during
 that window, releases both interface lists and the message, and retries on a
 later packet. Terminal exhaustion and mixed hard errors remain failures; a
 generation check prevents an older give-up from closing a new retry window.
-IPv4 behavior is device-tested; IPv6 has source tests and cross-compilation
-coverage, with live IPv6 traffic still pending.
+IPv4 retry behavior is device-tested. IPv6 has source/cross-compilation checks
+and subsequent native30 routed-traffic/boot acceptance; that is not a separate
+IPv6 existing-flow retry-transition acceptance claim.
 
 A recoverable sysupgrade boot, automatic startup, link inspection and
 bidirectional routed IPv4 flows with firmware counters have passed. The
@@ -127,9 +133,10 @@ slice report adds cross-conduit switching/isolation, high customer VIDs,
 MST state/FID flushing and hardware ACL/mirror/rate-control evidence.
 Build17 includes the libpcap correction, and physical-loop/STP control delivery
 passed in build13. Native and standalone tagged WAN/LAN NSS, including
-customer VID4094, now have packet-level evidence. Remaining gates include
-transparent tagged unaware bridges, cold/warm boot, native host restore
-and IPv6 traffic.
+customer VID4094, have packet-level evidence. Later slices add transparent
+customer C-tags on unaware bridges, standard customer QinQ, native host restore,
+routed IPv6 and the bounded boot checks above. Remaining gates are tracked in
+the current acceptance status and daily delivery matrix.
 Compilation or a rule ACK alone does not prove packet fate. Wi-Fi NSS remains
 disabled; no radio acceleration is claimed.
 
@@ -185,8 +192,9 @@ Wire format remains:
 
 WAN is physical switch port 3 over CPU4/native `eth0`/NSS interface 0.
 Its standalone pair is SVID 3075 / inner VID 3075. Native routed IPv4
-throughput and firmware packet counters now confirm the LAN3/WAN path;
-a native two-tag wire capture remains pending.
+throughput and firmware packet counters confirm the LAN3/WAN path. Slice22
+also accepts native `eth1` capture with exact S3074/C3088 framing; capture
+and packet counters have different visibility of accelerated bulk traffic.
 
 ## Local metadata checks
 
@@ -216,9 +224,10 @@ appear in the earlier baseline logs. These metadata warnings remain; the
 full selected image nevertheless builds successfully. Logs are retained
 under this worktree's `logs/qosmio-build/`.
 
-The retained transport/fault harness passes, including 60 ACL commit-write
-failure points. The original reference branch and all 30 dirty source hashes
-were checked unchanged. No Git conflict or revert sequence remains.
+The retained transport/fault harness passes, including60 ACL commit-write
+failure points. At migration, all30 saved Kuncy7 dirty-source hashes were
+checked unchanged. Those snapshots remain preserved; no old reference branch
+is required for the active implementation.
 
 ## Linux 6.18 dependency fixes
 
@@ -287,7 +296,10 @@ hashes still match. No device operation, commit or push was performed.
 Detailed evidence: `logs/qosmio-build/RESULT.md` and
 `logs/qosmio-build/artifact-inspection/verification.json`.
 
-## Current native image result
+## Initial native image result: builds05–06
+
+This is the original6.18.55 artifact record. Installed native31 and its
+6.18.60 validation are identified in the current status above.
 
 The active native image builds with `make -j12 V=s`, exit 0. Final log:
 `logs/qosmio-native/build-05.log` records the pre-device implementation;
@@ -345,12 +357,16 @@ setting both TCP direction flags under the existing conntrack lock when
 creating an NSS TCP rule. IPv4 and IPv6 use the same handling. See the
 device report for the result with the global flag left at zero.
 
-The TCP transition fix guarantees neither automatic regeneration nor renewed
-acceleration of an already retired connection. The persistent-image resync
+That initial TCP transition fix did not establish automatic regeneration or
+renewed acceleration of an already retired connection. The build08 resync
 test kept TCP alive but moved the old transfer to CPU forwarding at about
 650–665 Mbps; its strict near-line-rate resync gate failed. New flows were
 checked separately with packet counters. Retaining/rebuilding acceleration
-for surviving connections after topology changes remains improvement work.
+for surviving connections was still open at that checkpoint. Build19 later
+adds retryable resolver handling and accepts reacceleration on the same TCP
+session; Slice23 adds bounded topology churn. The original failed build08
+result remains in the migration report.
 
-DSA feature comparison, actual packet tests, current image gaps and ordered
-fix plan: [native DSA feature audit](nss-qosmio-dsa-feature-audit.md).
+The [original DSA audit](nss-qosmio-dsa-feature-audit.md) explains the initial
+gaps; use [current acceptance status](nss-qosmio-dsa-slices.md#current-acceptance-status)
+for implemented work and remaining tests.

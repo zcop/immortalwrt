@@ -1,6 +1,6 @@
 # Native NSS/QinQ DSA implementation slices
 
-2026-11-05, branch `nss-qosmio-qinq`, base `9cca0ec1e74d`.
+Started: 2026-11-05 on the former `nss-qosmio-qinq` branch, base `9cca0ec1e74d`.
 This records execution of [the feature-audit plan](nss-qosmio-dsa-feature-audit.md).
 The original Kuncy reference remains unchanged; its 30 saved source hashes match.
 Source commits, image identity and device validation are recorded per slice.
@@ -10,6 +10,39 @@ native/standard images retained as verified private raw backups. Slice22 accepts
 installed-library capture on both images and a userspace capture package tested
 from RAM. Slice24 records multicast/queue fixes and remaining scheduler/policy
 limits; Slice25 records actual IPv6 acceleration and boot acceptance below.
+
+## Current acceptance status
+
+Updated: 2026-11-09. Development is on `nss-experiment`; `master` is the
+release/build branch. Installed native31 runs Linux6.18.60 in slot1 with
+native30 retained in slot0. NSS/QinQ startup is automatic. The numbered
+sections below retain each test's image, failed attempts and state at the
+time; their old "remaining" counts are not the current backlog.
+
+| Work | Current result | Remaining boundary |
+| --- | --- | --- |
+| Slices01–19: DSA/VLAN/lifecycle foundation | Scoped packet and lifecycle gates accepted, including build19 existing-flow reacceleration | Original build08 audit restrictions are historical; general egress flower remains unsupported |
+| Slice20: standard customer QinQ | Multiport, raw-conduit and tag matrix accepted | Host forwarding; no triple-tag NSS acceleration |
+| Slice21: host load/MTU | Bounded host-pressure and runtime MTU gates accepted | External2.5G saturation, sustained jumbo pressure and end-to-end9K need suitable endpoints |
+| Slice22: capture | Installed libraries, utility, filters and VLAN metadata accepted | NSS and switch bulk traffic can bypass CPU capture |
+| Slice23: node/topology stress |64-node admission/promotion, allocation recovery and surviving TCP churn accepted | Bounded stress does not establish long-term reliability |
+| Slice24: L2 and policy | Multicast join/leave, PCP queues, TBF and raw802.1X gates accepted | General egress flower, software storm containment, bridged802.1X and two-member LACP remain limited/open |
+| Slice25: IPv6 and boot | Routed IPv6, one cold boot, one ordinary warm reboot and guarded sysupgrade accepted on native30 | No repeated power-cycle qualification or fresh native30→standard transition |
+| Slices26–27: advanced scheduling | Source/register and diagnostic results recorded on native31 | SP/weighted contention gates fail; further QoS work is deferred |
+| Slice28: daily delivery/recovery | Native/VLAN35 flooding, VID0, CPU broadcast copies and independent FDB/IPv4-neighbour cases tested | Physical/silent port moves, broader discovery/IPv6/empty-state, malformed-tag and soak gates remain open |
+
+Latest restored native IPv4 TCP reaches936.60/936.51Mbps at98.80%/98.43%
+sampled CPU idle with firmware counters advancing. Hardware FDB expiry and
+Linux FDB deletion each pass with0 UDP loss. IPv4 endpoint MAC replacement
+recovers with156/208282 packets lost,0.0749%, in one interval; it is not a
+lossless result. See the [daily delivery matrix](nss-qinq-daily-traffic.md).
+Original configuration and loop protection are restored, temporary test
+resources are removed and no test remains active.
+
+The 2026-11-09 subject-format rewrite changes commit IDs without changing file
+contents. Older per-slice IDs below identify the preserved historical history;
+the former tip is retained at `refs/backups/title-format-20261109/master`.
+Do not infer that installed image contents changed with the rewritten titles.
 
 ## Slice 01: control packages, MST and policy validation
 
@@ -1409,9 +1442,10 @@ Evidence: original ignored `logs/nss-slices-20261107/slice19-standard-hardware/`
 
 ## Remaining DSA/QinQ plan after Slice19
 
-Six further slices group the remaining parity and acceptance work from the
-original audit. This is a planning count; a failing test may require another
-fix slice. Existing-flow reacceleration is already accepted in build19, and
+This is the historical six-slice plan recorded after Slice19, not the current
+backlog. Its results and remaining boundaries are summarized in
+[current acceptance status](#current-acceptance-status). Existing-flow
+reacceleration was already accepted in build19, and
 routed policer/mirror checks already have device evidence. Their repetition
 under stress belongs to the remaining matrix, not a new implementation claim.
 
@@ -2347,3 +2381,100 @@ no kernel warning appears. UART recovery did not require a reboot or flash.
 Evidence, raw commands, failed-test output, UART recovery and restoration
 audits are under ignored
 `logs/nss-slices-20261109/slice27-scheduler-controls/`.
+
+## Slice28 in progress: ordinary packet delivery and MAC-state recovery
+
+Daily-use packet delivery and recovery take priority over further scheduler
+experiments. The [acceptance matrix](nss-qinq-daily-traffic.md) separates
+untagged external ingress, unknown destinations and invalid internal tags. It
+requires endpoint packet evidence for empty tables, broadcasts, unknown unicast,
+independent Linux/hardware FDB expiration, cable moves, neighbour changes,
+discovery traffic and acceleration fallback.
+
+Current source includes ECM callbacks for software FDB moves/deletions,
+neighbour MAC changes and carrier loss. Their build flags are present. QinQ
+topology resync suppresses new lookups immediately and invalidates flows after
+coalescing. A read-only native31 snapshot confirms normal unknown-unicast flood
+configuration and eight nodes; no network/register settings are changed.
+At this initial audit, hardware-only learning and notification-to-packet
+recovery still needed live tests; the independent cases below now provide
+bounded evidence while silent hardware-only movement remains open.
+The source audit also flags C-tag VID0 priority traffic for a positive packet
+test; the external-ingress result below now passes without a driver change.
+
+The bounded read-only helper review is checked against the full source; its
+initial neighbour-comparison bug claim is rejected and corrected. No production
+code or firmware is changed by this work. Initial live results now pass:
+
+- Native LAN and customer VLAN35 unknown-unicast delivery with the Windows
+  hardware FDB entry demonstrably absent:3/3 replies with flooding on and0/3
+  with flooding off. Broadcast remains independent and obeys its own control.
+- Every admitted ARP probe has one reply, with no reflection or duplicate.
+  Unregistered VID36 unicast/broadcast receive0/3. Exact touched register,
+  VLAN/root/PVID, bridge-flag and persistent configuration restoration passes.
+- External VID0 priority ARP with PCP0/5 reaches both router and Windows3/3.
+- Router-originated broadcasts have one SVID3072 copy for LAN1 and one
+  SVID3074 copy for LAN3 per probe, both with inner3088. Windows replies once
+  and an independent Linux wire receiver sees one untagged request per probe.
+
+Windows remains192.168.137.1/VLAN0 during the LAN tests. Initial probes using
+its old192.168.2.169 lease, or a sender outside its current subnet, receive no
+replies; corrected positive controls pass without an endpoint setting change.
+Failed controls are retained. The learning-off fixture is not natural aging,
+and ARP replies are not general application or sustained-flow recovery proof.
+The sustained-flow FDB/neighbour cases are recorded below; silent MAC moves
+and broader discovery protocols remain open.
+Windows returns to WAN/VLAN0 and SharedAccess is restarted. DHCP assigns
+the router192.168.137.65. Routed NSS reaches936.56/936.61Mbps, with two active
+ECM rules,761396/753437 additional firmware TX packets and98.91/98.09% sampled
+CPU idle. Eight nodes are automatic, original configuration and flags are
+restored, loop protection stays enabled and no kernel warning appears. No
+flash or reboot occurs. Both completed RAM guards and the temporary sender are
+removed; UART is closed without reset.
+
+No new commit or push is performed. Evidence is under ignored
+`logs/nss-slices-20261109/slice28-daily-traffic/`.
+
+### Independent MAC-table and neighbour recovery
+
+An isolated macvlan endpoint192.168.2.253/02:28:29:00:00:fd uses the existing
+LAN3 wire without changing management IP/MAC or cables. Three40-second reverse
+UDP tests at50Mbps record actual receiver loss and separate Linux/hardware FDB
+state. ECM's existing bidirectional classifier condition initially keeps the
+one-way stream in software; one matching opposite-direction UDP packet permits
+acceleration without a policy change. Every accepted case confirms UDP
+accel_mode2 and firmware packet increments.
+
+- Natural hardware FDB expiry leaves the Linux entry present across15
+  consecutive samples spanning about24s. The session delivers208279 packets
+  with0 loss at49.99Mbps; firmware TX increases202002 packets.
+- Deleting only the exact test MAC's Linux entry leaves its hardware entry
+  present across four observations. The flow decelerates and continues in
+  software, then relearns and re-accelerates after an endpoint packet. The
+  same session delivers208320 packets with0 loss at50.00Mbps; firmware TX
+  increases185655 packets.
+- Changing only the endpoint's MAC to02:28:29:00:00:fe, retaining IP and UDP
+  socket, and immediately announcing it to the gateway updates the neighbour
+  and the accelerated connection's endpoint MAC. Acceleration is observed
+  367ms after neighbour observation, including polling/command latency. The
+  session delivers49.95Mbps and loses156/208282 packets,0.0749%, all in one
+  interval near the transition. Later intervals report no further loss. It
+  passes the bounded2s/<0.1% recovery gate; it is not a lossless result and no
+  ordinary-DSA comparison attributes the loss specifically to NSS/QinQ.
+
+The first fixture fails before data transmission because iperf needs writable
+temporary storage; a corrected container keeps a read-only root and adds a
+small RAM /tmp. A subsequent result-parser failure is also retained separately.
+An attempted `self` deletion does not remove the learned hardware entry and
+is not counted as a hardware-delete test. Cleanup creates/deletes tracked
+bridge entries for only the task MACs and verifies both tables empty for them.
+No global aging interval, management FDB, raw FDB engine or forwarding policy
+is changed. All temporary containers/networks, task neighbour/FDB state and
+ECM character nodes are removed.
+
+Final ordinary-workstation routed NSS reaches936.60/936.51Mbps with
+778833/754723 firmware TX increments, two active ECM rules and98.80/98.43%
+sampled CPU idle. Eight nodes remain automatic; original boot/configuration
+and normal physical topology are preserved and no kernel warning appears.
+Physical port moves, silent hardware-only movement, IPv6 neighbour replacement
+and broader discovery/long-term checks remain open in the linked matrix.

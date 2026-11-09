@@ -1,9 +1,16 @@
 # Standard DSA fallback for customer QinQ
 
-Status: build23 boots the standard DSA path on Linux6.18.60. The LAN3 hardware
-test passes customer S3500/C35 in both directions, including unfragmented
-1500-byte IP packets and preserved S/C PCP5/3. NSS is absent in this mode.
-Multiport customer-QinQ isolation and sustained host-path load remain open.
+Updated: 2026-11-09. Standard builds23/25 on Linux6.18.60 have accepted
+customer-QinQ packet, isolation, raw-conduit, capture and bounded host-load/MTU
+results in Slices19–22. The original build23 LAN3 exchange includes1500-byte
+IP packets and preserved S/C PCP5/3; Slice20 adds multiport separation and
+additional TPID/VID/PCP/DEI combinations. NSS is absent in this mode.
+
+This is a separately built profile, not the installed native31 transport or
+its on-device native30 fallback. Verified standard-image backups are retained.
+Full external2.5G host saturation and sustained jumbo pressure remain
+unmeasured; the available endpoint links are1G. See
+[current acceptance status](nss-qosmio-dsa-slices.md#current-acceptance-status).
 
 `configs/xiaomi_cr881x_standard_dsa.config` selects the ordinary CR881x DTS,
 stmmac and the original YT921x DSA tagger. Both experimental transport options
@@ -39,7 +46,10 @@ uses the outer S-tag for private port identity and supports one customer C-tag.
 It does not provide triple-tag firmware acceleration for customer S+C plus the
 private identity tag. No PCP or DEI bits are repurposed in either change here.
 
-## Frame limits and source checks
+## Initial frame-limit and source checks
+
+These are the original source checks. Subsequent installed MTU and capture
+results are summarized under [later acceptance](#later-standard-mode-acceptance).
 
 At L3 MTU1500, the switch allowance including FCS is1526 bytes on user ports and
 the raw CPU port, and1534 bytes on the primary CPU port (customer S+C plus the
@@ -57,12 +67,13 @@ AArch64 kernel. Expanded defconfig selects the ordinary DSA device and no NSS
 packages; the current native `.config` hash remains unchanged. These checks do
 not prove switch delivery or MTU acceptance on a standard-mode image.
 
-## Device gate before a fallback boot
+## Lifecycle prerequisite and original device tests
 
-A clean native-to-standard transition is still required. NSS firmware can survive
-a warm reboot; an ordinary DTS lacks the NSS reservation/probe. Stop the old core
-through a validated lifecycle path before allowing the new kernel to reuse its
-memory. Do not pulse shared GCC resets or assume that a normal reboot stops it.
+Every native-to-standard transition requires stopping the old NSS core through
+a validated lifecycle path before the new kernel reuses its memory. NSS
+firmware can survive a warm reboot; the ordinary DTS lacks the NSS
+reservation/probe. Do not pulse shared GCC resets or assume that a normal
+reboot stops it.
 
 A bounded build21 unload/reload test removed ECM, QinQ, PPPoE and the NSS core.
 Core removal returned success; the raw WAN host path answered two pings. The
@@ -70,9 +81,9 @@ initial LAN ping was inconclusive: the workstation policy route sent replies
 over Wi-Fi. Slice18 corrects this with Ethernet-bound probes. Reload recreated
 all eight nodes and SSH, but emitted duplicate stats-sysctl and panic-notifier
 registration warnings.
-Source inspection confirms that registration has no matching module-exit cleanup
-for those two resources. This is a lifecycle defect to fix before further reload
-or mode-transition tests, not proof of a customer-QinQ hardware limitation.
+Source inspection found no matching module-exit cleanup for those two
+registrations. This was a lifecycle defect, not a customer-QinQ hardware
+limitation; Slice18's correction and accepted tests follow below.
 
 The primary saved the UART/dmesg evidence and rebooted the same build21. The
 clean boot has no new WARN taint, all eight nodes and unchanged configuration
@@ -94,6 +105,8 @@ These results establish the unload prerequisite, not the standard-mode boot or
 full customer-QinQ delivery. See [slice18](nss-qosmio-dsa-slices.md#slice18-nss-core-lifecycle-cleanup).
 
 ## Installed standard-mode validation
+
+This subsection is the original build23 record, followed by the later results.
 
 Slice19 builds the unchanged standard profile after adding an explicit disabled
 default for `NF_CONNTRACK_DSCPREMARK_EXT` in the qualcommax kernel configuration.
@@ -146,10 +159,10 @@ hash match. Fresh routed traffic reaches936.50/936.68Mbps,98.67%/98.30% CPU
 idle, with active ECM connections and more than750000 additional firmware
 IPv4 TX packets per direction. Loop protection stays enabled.
 
-Remaining checks: customer-QinQ multiport isolation, other tag combinations,
-the secondary raw conduit and controlled host-path load at2.5Gbps. Previous
-CPU-saturation trouble is not resolved by these low-rate ICMP tests. This mode
-continues to use host forwarding; triple-tag NSS acceleration is not provided.
+At the Slice19 checkpoint, multiport isolation, other tag combinations,
+the raw conduit and host-load coverage were still pending. Later slices below
+close the bounded packet/load gates; sustained2.5Gbps capacity remains open.
+This mode uses host forwarding; triple-tag NSS acceleration is not provided.
 
 Evidence is in original ignored
 `logs/nss-slices-20261107/slice17-standard-fallback/`, including the profile
@@ -161,3 +174,28 @@ Build23 and packet evidence are in original ignored
 `build23-artifacts.json`, `standard-identity.json`, `native-dscp-selection.json`,
 `qinq-lan3-3500-35-final/` and `decode_qinq_pcaps.py`. UART for the transition
 continues in slice18's `minicom.log` under the `SLICE19_` markers.
+
+## Later standard-mode acceptance
+
+Slice20 accepts exact customer-tag bytes in both conduit directions and
+LAN3↔LAN1 bridge forwarding/isolation. Cases include S+C, C+C, S+S, C+S,
+VID4094, outer/inner DEI1 and zero TCIs. Negative isolation and separate-bridge
+controls reject the tested frames without duplicates. The secondary conduit
+stays raw; it does not acquire a private port header.
+
+Slice21 measures bounded router-local CPU pressure and fixes standard MAC MTU
+ordering. Standard25 validates the installed correction; the stmmac conduit
+limit makes8992 the tested effective user MTU, not a full9000-byte user path.
+Native24's separate LAN9000-byte echo result must not be attributed to the
+standard profile or to bidirectional routed9K NSS traffic.
+
+Slice22 accepts installed-library capture and the packaged utility from RAM
+on standard25, including enhanced-header normalization, live/offline filters
+and VLAN auxiliary metadata. Raw DEBUG_ONLY capture limitations in the
+original build23 parser record are not the current capture-tool status.
+
+These tests restore normal native operation, configuration and physical
+topology after completion. Their evidence is in the corresponding Slice20,
+21 and22 sections of the [execution report](nss-qosmio-dsa-slices.md). The
+report retains the image transitions and rejected fixtures; no claim of
+runtime tag-protocol switching or complete host-capacity qualification follows.

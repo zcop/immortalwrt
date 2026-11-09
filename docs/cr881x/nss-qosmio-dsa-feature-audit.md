@@ -1,22 +1,25 @@
 # Native NSS/QinQ versus the YT921x DSA baseline
 
-Date: 2026-11-05. Branch: `nss-qosmio-qinq`. Firmware build08, kernel6.18.55.
-This is a test report and implementation plan; it does not deploy fixes.
+Historical audit: 2026-11-05, former branch `nss-qosmio-qinq`, build08,
+kernel6.18.55. The comparison, restrictions and ordered plan below describe
+that image. They are retained as evidence of the original failures and are
+not a list of current defects.
 
-Subsequent implementation and device results through native build22 and the
-standard DSA build23 test are recorded in
-[the execution report](nss-qosmio-dsa-slices.md#slice19-standard-dsa-customer-qinq-hardware-path).
-They include control TX/RX and physical STP convergence at100Mbps with the
-hardware loop guard on, direct VLAN uppers, private SVID bridge domains and
-routed customer VLANs on unaware bridges. The comparison below remains the
-original build08 snapshot; later accepted results are recorded in that report.
+As of 2026-11-09, development is on `nss-experiment`, installed native31 on
+Linux6.18.60. Later slices implement and test MST/control delivery, high
+customer VIDs, direct and unaware-bridge VLAN uppers, cross-conduit switching,
+core reload cleanup, standard customer QinQ, capture and bounded node/churn
+recovery. Native30 also passes routed IPv6 and cold/ordinary warm boot checks.
+Slices20–25 now have scoped results. Their remaining acceptance boundaries
+are listed in the current status linked below.
 
-Slices18-19 repair NSS core reload cleanup, validate both Ethernet host paths,
-and boot the standard DSA/customer-QinQ profile. LAN3 customer S3500/C35 passes
-both directions with1500-byte IP datagrams and preserved PCP5/3. The router
-returns to automatic native NSS startup. The [six remaining slices](nss-qosmio-dsa-slices.md#remaining-dsaqinq-plan-after-slice19)
-cover the remaining parity and acceptance gates; this original audit table
-continues to describe build08.
+Current limitations include failed SP/weighted scheduler contention acceptance,
+general hardware egress flower, software storm containment, bridged802.1X and
+external-peer capacity/LACP gates. Daily packet delivery and FDB/neighbour
+recovery now have bounded results, including measured loss during an IPv4
+MAC replacement. Physical/silent port moves and broader reliability remain open.
+Use [current acceptance status](nss-qosmio-dsa-slices.md#current-acceptance-status)
+and the [daily delivery matrix](nss-qinq-daily-traffic.md) for today's status.
 
 `README.yt921x.md` DONE entries remain the established driver baseline.
 This audit checks the selected native image and QinQ integration against it.
@@ -44,7 +47,7 @@ ignored `logs/qosmio-dsa-feature-audit-20261105/`. Temporary utilities were
 built from this worktree and loaded into router RAM. No package was installed
 persistently, and no firmware, driver source, or UCI configuration was changed.
 
-## Comparison and actual results
+## Original build08 comparison and actual results
 
 | Feature | Native image result | What this establishes |
 | --- | --- | --- |
@@ -107,7 +110,7 @@ The successful LAG correction is recorded separately: a member must be down
 before enslaving it. The initial EPERM with an up member is not a confirmed
 LAG regression.
 
-## Scope of the other confirmed restrictions
+## Scope of the other restrictions in build08
 
 The high-VID restriction is explicit in
 `yt921x_8021q_bridge_vlan()`: tracker arrays have3072 entries and all customer
@@ -137,7 +140,7 @@ S-tag/C-tag stack, while Ethernet-address BPF filters cannot compile for
 that DLT. Accelerated NSS traffic also bypasses normal Linux capture paths;
 fixing decoding alone will not make tcpdump observe every accelerated frame.
 
-## Ordered fix plan and acceptance gates
+## Original ordered fix plan and acceptance gates
 
 1. **Restore image test/control parity.** Add `ip-bridge`, `tc-tiny`,
    `devlink`, `kmod-sched-core`, `kmod-sched-flower`,
@@ -199,11 +202,12 @@ independent execution was verified. Conduit capture required raw unfiltered
 mode, and one MST dump returned a valid JSON fragment followed by a diagnostic.
 None of these aborted/inconclusive tests is relabeled as a hardware pass.
 
-Still requiring end-to-end tests after the above prerequisites:9K delivery,
+At the end of this original audit, the pending end-to-end tests were9K delivery,
 two-member LACP/load balancing, multicast delivery/leave/MVR,802.1X policies,
 mirror/policer/shaper/PCP queues, unaware tagged trunks and direct VLAN uppers.
 The baseline DONE features remain the reference; these rows describe the
-limits of this current image and the validation actually performed.
+limits of build08 and the validation actually performed at that time. Later
+results and the remaining boundaries are linked at the top of this document.
 
 ## Final post-audit check
 

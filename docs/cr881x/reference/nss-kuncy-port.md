@@ -1,7 +1,12 @@
 # Archived Kuncy7 integration reference
 
-Inactive on the qosmio branch. The working reference remains in the original
-`nss-qinq-experiment` worktree. Measurements below used that foundation.
+Historical foundation, inactive in the native Qosmio stack. The former
+`nss-qinq-experiment` branch is no longer an active branch; its source/diff/
+config/feed snapshots remain in ignored
+`logs/qosmio-migration-20261104/kuncy-reference/`. Measurements and manual
+controller procedures below apply only to that foundation. Use
+[current native status](../NSS%20Offload%20status.md) for the active image,
+automatic startup and remaining acceptance gates.
 
 # CR881x NSS integration
 

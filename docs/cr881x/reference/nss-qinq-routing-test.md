@@ -1,5 +1,9 @@
 > Reference only: these tests used the Kuncy7 foundation, not the new qosmio branch.
 
+The RAM-only/uncommitted state below is historical. Native Qosmio image and
+automatic-startup results are in [current status](../NSS%20Offload%20status.md)
+and [the execution report](../nss-qosmio-dsa-slices.md#current-acceptance-status).
+
 # CR881x QinQ DSA/NSS routing acceptance, 2026-11-04
 
 The QinQ port-ID transport works with wired IPv4 NAT acceleration on the

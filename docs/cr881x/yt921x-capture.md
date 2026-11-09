@@ -2,9 +2,10 @@
 
 `yt921x-capture` writes a paired packet view and per-record metadata without
 changing the router's network configuration. Both CR881x build profiles select
-the package. The Slice22 acceptance used the packaged executable from RAM on
-native24 and standard25; those existing images do not contain this new tool.
-Future images built from these profiles install `/usr/bin/yt921x-capture`.
+the package, which installs `/usr/bin/yt921x-capture`. The original Slice22
+acceptance used the packaged executable from RAM on native24 and standard25,
+whose images predate that profile selection. Current image and acceptance
+boundaries are in [the execution status](nss-qosmio-dsa-slices.md#current-acceptance-status).
 
 Choose the mode from the actual conduit role:
 
@@ -12,13 +13,14 @@ Choose the mode from the actual conduit role:
 | --- | --- | --- |
 | Native NSS primary `eth1` | `qinq` | Ethernet with transport S-tag and inner C-tag |
 | Standard DSA primary `eth1` | `enhanced` | Ethernet addresses, private8-byte9988 header, original EtherType |
-| Secondary `eth0` in either image | `raw` | Ordinary Ethernet, possibly with customer VLANs |
+| Native NSS secondary `eth0` | `qinq` | Ethernet with WAN transport S-tag and inner C-tag |
+| Standard DSA secondary `eth0` | `raw` | Ordinary Ethernet, possibly with customer VLANs |
 | Logical user port, such as `lan3` | `raw` | Ethernet after the DSA receive tagger |
 
-The secondary conduit's DSA sysfs attribute can report the tree's enhanced
-tagger despite carrying raw Ethernet. The utility requires an explicit mode;
-it does not infer framing from sysfs or mistake an ordinary9988 EtherType for
-a private header in raw mode.
+In standard mode, the secondary conduit's DSA sysfs attribute can report the
+tree's enhanced tagger despite carrying raw Ethernet. The utility requires an
+explicit mode; it does not infer framing from sysfs or mistake an ordinary9988
+EtherType for a private header in raw mode.
 
 For a bounded native LAN3 probe capture:
 

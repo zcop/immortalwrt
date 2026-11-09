@@ -1,5 +1,9 @@
 > Reference only: these tests used the Kuncy7 foundation, not the new qosmio branch.
 
+Later native Qosmio results are in [current status](../NSS%20Offload%20status.md).
+The low-rate firmware experiment and its then-pending implementation below
+are retained as historical evidence, not the active port's current status.
+
 # NSS double-tag firmware capability test, 2026-11-02
 
 The CR881x IPQ5018 NSS firmware accepted explicit two-VLAN rules and routed

@@ -1,7 +1,19 @@
 # CR881x native qosmio NSS / QinQ device tests
 
-Date: 2026-11-05. This report covers the native qosmio branch, not the
-historical Kuncy7 measurements. Primary performed all device operations.
+Historical migration report: 2026-11-05, native builds06–08 on Linux6.18.55.
+Primary performed all device operations. Measurements, failed gates, slot
+identities and pending work below describe those builds; they are not the
+current device inventory.
+
+As of 2026-11-09, development uses `nss-experiment`; installed native31 runs
+Linux6.18.60 in slot1 with native30 in slot0. Subsequent slices add tagged
+WAN/LAN and high-VID support, build19 existing-flow reacceleration, lifecycle
+cleanup, standard customer QinQ, capture/node stress and native30 IPv6/boot
+acceptance. See [current status](NSS%20Offload%20status.md),
+[execution status](nss-qosmio-dsa-slices.md#current-acceptance-status) and
+[daily packet recovery](nss-qinq-daily-traffic.md). The original strict
+resync/zero-loss failures below remain recorded; they are not erased by later
+passes with different images or fixtures.
 
 ## Topology and packet mapping
 
@@ -108,7 +120,7 @@ retires connections, so automatic reacceleration of every surviving session
 is not accepted as working. Fresh-flow acceptance is recorded separately;
 this limitation must not be hidden by the earlier fast RAM runs.
 
-## Final persistent-image validation
+## Original build08 persistent-image validation
 
 Build08 booted from slot1/rootfs_1 without a manual start or RAM module
 replacement. Rootfs ECM, QinQ adapter and NSS core module hashes match the
@@ -153,7 +165,7 @@ backup; all four config hashes were unchanged across the second upgrade.
 The temporary Wi-Fi shutdown used to free upgrade RAM was not persisted;
 host ath11k loaded again on boot.
 
-## Source checks and remaining scope
+## Source checks and remaining scope at the migration checkpoint
 
 Full builds06,07,08 exited0. Build08 contains the packaging, PLL ordering,
 GPL invalidation and TCP transition fixes. Artifact inspection verifies
@@ -166,18 +178,21 @@ unsupported double-lock assertion against the actual nonlocking helper;
 builds and hardware tests determine acceptance. No helper performed live
 operations. All30 original reference source hashes remain unchanged.
 
-Still pending on native qosmio: customer VLAN/multiport isolation and
+At this build08 checkpoint, the pending tests were customer VLAN/multiport isolation and
 reconfiguration, native captures showing both tags, routed IPv6, cold/warm
 boot matrix, core-driver removal/host restore and unsupported-path fallback.
 Wi-Fi remains host ath11k; Wi-Fi NSS is disabled. PPP/tunnel, direct port
 VLAN uppers, ambiguous VLAN defaults, L2/multicast/non-ported NSS acceleration
-remain outside the initial port. No commit, push or release was performed.
+were outside the initial port. Direct port VLAN uppers and several test gates
+were subsequently implemented/accepted in the slices linked above; Wi-Fi NSS,
+PPP/tunnel and L2/multicast NSS acceleration remain outside the accepted scope.
+No commit, push or release was performed during this migration test.
 
 Raw evidence is under the original repository's
 `logs/qosmio-device-20261105/`: minicom capture, guarded upgrade scripts,
 preflight/hash records, iperf JSON, active firmware snapshots, RAM module
-hashes and TCP fix results. Build logs and current artifact metadata are in
+hashes and TCP fix results. Build logs and migration artifact metadata are in
 this worktree's `logs/qosmio-native/`.
 
-DSA feature comparison, actual packet tests, current image gaps and ordered
-fix plan: [native DSA feature audit](nss-qosmio-dsa-feature-audit.md).
+The [original DSA feature audit](nss-qosmio-dsa-feature-audit.md) records the
+build08 comparison; current results are in the execution status linked above.

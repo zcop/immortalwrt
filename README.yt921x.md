@@ -4,13 +4,23 @@ This document is the feature-focused README for the YT921x switch driver used in
 
 Scope:
 - Driver: `target/linux/generic/files/drivers/net/dsa/yt921x*.{c,h}`
-- Tagger: `target/linux/generic/files/net/dsa/tag_yt921x_enhanced.c`
+- Taggers: `target/linux/generic/files/net/dsa/tag_yt921x_enhanced.c`,
+  `tag_yt921x_8021q.c` and `tag_yt921x_qinq.c`, selected by profile/mode
 - Validation baseline: Xiaomi CR881x runtime in this workspace
 
 The enhanced driver is built as `yt921x_driver.ko`, using
 `motorcomm,yt9215-enhanced` on the local CR881x DTS. Its private tagger module
 is `tag_yt921x_enhanced.ko`. The upstream YT921x/YT922x backports remain
 separate; the enhanced module parameters and on-wire formats are unchanged.
+
+CR881x NSS/QinQ status, updated 2026-11-09: the native Qosmio profile starts
+automatically on Linux6.18.60 and retains DSA port identity. Development uses
+`nss-experiment`; `master` is the release/build branch. See
+[current acceptance status](docs/cr881x/nss-qosmio-dsa-slices.md#current-acceptance-status)
+and the [daily packet-delivery matrix](docs/cr881x/nss-qinq-daily-traffic.md).
+The DONE baseline below is preserved; it does not imply every native-QinQ
+combination has been retested. End-to-end9K and two-member LACP still need
+suitable peers, and strict/weighted scheduler packet acceptance remains open.
 
 Key register-map references:
 - Canonical map: `docs/yt921x/yt9215-register-map.md`
