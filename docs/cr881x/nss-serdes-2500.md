@@ -18,7 +18,7 @@ GMAC/UNIPHY description, not the old ESS `dp1`/`dp2` properties. The native
 CPU transport carries an outer per-port SVID and an inner transport/customer
 CVID; it is no longer the original single-tag NSS experiment.
 
-Latest restored native31 routed IPv4 reaches936.60/936.51Mbps with firmware
+Restored native31 routed IPv4 reaches about936Mbps in both directions with firmware
 packet increments and about98% sampled CPU idle. Both endpoint links are1G,
 so this verifies forwarding through the faster internal link, not aggregate
 2.5Gbps saturation. Native30 also passes actual routed IPv6, one physical

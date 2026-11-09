@@ -5,7 +5,8 @@ wired NSS/QinQ forwarding has passed throughput, VLAN, isolation and lifecycle
 checks. The initial unknown-destination, broadcast and priority-tag packet
 matrix below passes on native31. Independent hardware/software FDB cases also
 pass, and a live neighbour-MAC change recovers with measured transition loss.
-Physical port movement and the remaining recovery tests stay open.
+IPv6 neighbour deletion and an announced MAC change also have bounded packet
+results below. Physical port movement and broader recovery tests stay open.
 
 Source baseline: `c5ad88b702dc`. The installed native31 source predates the
 commit-title rewrite but has identical file contents. The router retains
@@ -51,7 +52,7 @@ bridge support. Prepared kernel and ECM sources show these paths:
 | Linux bridge learns the same MAC on another port | Bridge move notifier calls ECM invalidation by MAC | Observe the actual callback effect and packet recovery |
 | Linux FDB entry is deleted or expires | `fdb_delete()` sends the delete event; ECM invalidates nonlocal MAC connections | Exact test-MAC deletion with hardware entry retained passes with0 UDP loss; natural Linux expiry remains open |
 | Device goes down or loses carrier | Generic ECM netdev notifier invalidates connections using the device | Measure recovery and re-acceleration after carrier returns |
-| Neighbour MAC changes | ECM invalidates connections using the old MAC | Live IPv4 MAC replacement recovers with0.0749% transition loss; IPv6/reuse cases remain open |
+| Neighbour MAC changes | ECM invalidates connections using the old MAC | Announced IPv4/IPv6 MAC replacement recovers with0.0749%/0.03984% transition loss; other reuse/ND cases remain open |
 | VLAN/bridge topology changes | QinQ blocks new lookups immediately; coalesced resync invalidates flows and reconciles nodes | Slice23 accepts bounded surviving-TCP topology churn; broader combined recovery remains open |
 
 QinQ resync has a100ms coalescing delay plus workqueue latency. Suppressing
@@ -214,9 +215,65 @@ are absent. Original management IP/MAC, boot ID, configuration hashes and
 bridge flags are preserved. Loop protection remains enabled and the normal
 Linux-LAN3/Windows-WAN topology is restored. No test remains active.
 
-These results accept the specified IPv4 ARP/UDP cases. IPv6 neighbour
-replacement, physical port moves, silent hardware-only port movement, broader
+These results accept the specified IPv4 ARP/UDP cases. The IPv6 follow-up is
+recorded below; physical and silent hardware-only port movement, broader
 discovery protocols and long-term reliability remain open.
+
+## IPv6 neighbour deletion and MAC replacement
+
+On unchanged native31, an IPv6-only macvlan endpoint on LAN3 uses
+`fd42:28:1::253`, with Windows on WAN at `fd42:28:2::1`. Each case retains one
+reverse UDP6 socket for40seconds at50Mbps with1200-byte payloads. Valid
+opposite-direction UDP primers satisfy the existing ECM classifier condition.
+Both cases show an initial gateway NS/NA pair in the actual br-lan capture.
+The independent decoder verifies ND code, checksum, hop limit255, target
+address and link-layer options; captures report zero kernel drops.
+
+| Case | Receiver result | Firmware evidence |
+| --- | --- | --- |
+| Delete only the test IPv6 neighbour; send a router probe to trigger real NS/NA resolution |208328 packets,0 lost;50.00Mbps | UDP6 accelerated before/after; TX+201931, hash hits+201932 |
+| Retain IPv6 address/socket; change MAC from02:28:30:00:00:fd to02:28:30:00:00:fe and announce it |208338 packets,83 lost,0.03984%;49.98Mbps | New-MAC UDP6 connection accelerated; TX+211135, hash hits+211136 |
+
+The deletion test captures three router-to-endpoint NS packets and three
+solicited NA responses. A new neighbour can appear immediately, so no extended
+cache-absence window is inferred from the delete command. In the MAC test,
+one captured unsolicited unicast NA has Override=1, Solicited=0, Router=0 and
+the correct new target MAC. The retained global address is checked after the
+change. NSS uses the new MAC and the old-MAC UDP connection is no longer
+accelerated. Acceleration is observed339ms after neighbour observation,
+including polling/command latency. All83 losses occur in one transition
+interval; the minimum complete interval is49.02Mbps. This passes the same
+2s/<0.1% bounded gate as IPv4; it is not lossless acceptance.
+
+The earlier MAC test is retained as FAILED:328/208327 lost,0.1574%. Its
+sender opens/binds the packet socket after changing MAC, creating a measured
+67.54ms post-command announcement gap. That gap confounds attribution to
+router recovery. The corrected sender pre-opens the socket, as in the IPv4
+test; its measured gap is0.023ms. One new run uses the unchanged rate,
+duration and loss gate, plus an announcement-gap prerequisite below5ms.
+Neither the failed result nor this correction establishes an NSS-specific
+regression without an ordinary-DSA comparison.
+
+A ping-summary parser mismatch stops the first fixture before UDP and is
+retained separately. The first completed test also exposes incomplete fixture
+cleanup: a temporary router /64 is advertised, producing extra endpoint ND
+entries and a deprecated workstation SLAAC address. Those exact task entries
+are removed and the user removes the test-derived workstation address; its
+saved address baseline is verified. The corrected fixture uses router /128
+addresses with exact host routes and cleans every ND entry belonging to its
+two task MACs. Its workstation address sets match before/after. No persistent
+RA setting, management route, firmware or driver is changed.
+
+Router/container resources, task ND/FDB entries, guards and state nodes are
+removed; boot and configuration hashes remain unchanged. The user confirms
+Windows temporary address/route removal. A final read-only audit verifies no
+test IPv6 addresses/routes/neighbours on the router/workstation, no task
+resources, eight automatic nodes, loop protection enabled and no kernel
+warning. Restored native IPv4 TCP reaches936.47/936.28Mbps with770286/754899
+firmware TX increments and97.86%/98.07% sampled CPU idle. Evidence is under ignored
+`logs/nss-slices-20261109/slice28-ipv6-recovery/`. RA/DAD policy, DHCPv6,
+broader multicast/discovery, silent/cable moves and longer reliability tests
+remain open.
 
 ## Packet test matrix
 
@@ -226,15 +283,15 @@ Keep management outside every modified test domain.
 
 | Case | Required result | Existing evidence / next gate |
 | --- | --- | --- |
-| New host with empty neighbour and destination-FDB state | ARP/ND resolves; DHCP where applicable succeeds; first application packets arrive | Basic ARP/DHCP passed previously; explicitly empty-state gate OPEN |
+| New host with empty neighbour and destination-FDB state | ARP/ND resolves; DHCP where applicable succeeds; first application packets arrive | Fresh IPv6 gateway NS/NA pair and subsequent UDP6 pass; full empty-state DHCP/first-application matrix OPEN |
 | Real Ethernet broadcast, host-originated and LAN-originated | One delivery per eligible receiver, no reflection to ingress, no wrong VLAN/bridge delivery | Initial native CPU replication and native/VLAN35 LAN policy PASS; broader discovery protocol/domain coverage OPEN |
 | Unknown unicast to a real receiver | Hardware FDB is demonstrably absent; enabled flood reaches eligible receiver, disabled flood obeys policy | Controlled learning-off ARP gate PASS on native LAN and VLAN35; general application/accelerated-state recovery OPEN |
 | Hardware FDB expires or is removed while Linux/NSS still know the destination | Existing traffic recovers or continues correctly without reset; relearning is observed | Natural hardware expiry during reverse UDP PASS with0 loss; arbitrary deletion/other patterns OPEN |
 | Linux FDB expires or is deleted while hardware still knows the MAC | Flow invalidation and fallback/rebuild preserve delivery and isolation | Exact test-MAC deletion/fallback/relearning PASS with0 loss; natural Linux expiry/other protocols OPEN |
 | Device cable moves from one LAN socket to another | Old output stops receiving after the controlled transition; traffic and acceleration resume on the new port | Cable-move gate OPEN; carrier events must be recorded |
 | Same MAC moves while old and new links both remain up | New source observation updates the destination; stale NSS steering cannot persist | Independent source fixture needed; OPEN |
-| ARP/ND mapping changes or an address is reused | Old MAC stops receiving application data; new owner receives it after resolution | IPv4 MAC replacement recovers on the same UDP session with0.0749% transition loss; IPv6/other reuse cases OPEN |
-| Discovery and IPv6 control | ARP, DHCP broadcast/unicast, IPv6 ND/RA/DAD and mDNS/SSDP follow their actual delivery policies | Existing ordinary traffic/IGMP tests are partial evidence; protocol matrix OPEN |
+| ARP/ND mapping changes or an address is reused | Old MAC stops receiving application data; new owner receives it after resolution | Announced IPv4/IPv6 MAC changes recover with0.0749%/0.03984% UDP loss; other reuse/NUD cases OPEN |
+| Discovery and IPv6 control | ARP, DHCP broadcast/unicast, IPv6 ND/RA/DAD and mDNS/SSDP follow their actual delivery policies | Actual NS/NA resolution/deletion and announced IPv6 MAC update pass bounded gates; full RA/DAD/DHCP/discovery matrix OPEN |
 | Valid uncommon L2/priority-tagged traffic | Supported host forwarding works; unsupported customer encapsulation is explicitly recorded | External VID0/PCP0/5 ARP to CPU and LAN peer PASS on native bridge; other L2 protocols and host-generated priority TX OPEN |
 | Corrupt/missing internal S-tag, wrong port/conduit, or forged external S-tag | Rejected without cross-port/cross-VLAN leakage | Source guards present; controlled negative packet gate OPEN |
 | NSS interface or rule temporarily unavailable | Valid traffic uses the intended host path and subsequently re-accelerates | Allocation/topology stress passed; combine with unknown-state gates above |

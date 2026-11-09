@@ -6,8 +6,8 @@ Linux6.18.60, in slot1, with tested native30 preserved in slot0. Qosmio's
 native dataplane/core/ECM and `qca-nss-qinq` start automatically. YT921x
 retains DSA port identity through the internal S-tag/C-tag transport.
 
-Latest restored IPv4 TCP is936.60/936.51Mbps LAN→WAN/WAN→LAN, with
-98.80%/98.43% sampled CPU idle, active ECM rules and778833/754723 additional
+Latest restored IPv4 TCP is936.47/936.28Mbps LAN→WAN/WAN→LAN, with
+97.86%/98.07% sampled CPU idle, active ECM rules and770286/754899 additional
 firmware TX packets. These are bounded runs on1Gbps endpoint links.
 
 | Area | Accepted evidence and limits |
@@ -19,6 +19,7 @@ firmware TX packets. These are bounded runs on1Gbps endpoint links.
 | Capture | Installed-library native/standard capture and the capture utility pass their bounded matrix; CPU capture cannot see all NSS/switch traffic |
 | Daily packet delivery | Native/VLAN35 unknown-unicast and broadcast policy, external VID0 priority tags and CPU broadcast replication pass without duplicate replies |
 | FDB and neighbour recovery | Natural hardware expiry and exact Linux FDB deletion during UDP each lose0 packets; IPv4 endpoint MAC replacement recovers with156/208282 packets lost,0.0749%, in one transition interval |
+| IPv6 neighbour recovery | NS/NA resolution and exact neighbour deletion during UDP6 pass with0 loss; announced MAC replacement recovers with83/208338 lost,0.03984%, in one interval; the earlier delayed-announcement failure remains recorded |
 
 Remaining work is explicit in the [current slice status](nss-qosmio-dsa-slices.md#current-acceptance-status)
 and [daily delivery matrix](nss-qinq-daily-traffic.md). Physical cable moves,

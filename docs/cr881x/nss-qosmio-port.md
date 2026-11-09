@@ -3,7 +3,7 @@
 Updated: 2026-11-09. Native CR881x DT, phylink dataplane adapter, automatic QinQ
 node provisioning and routed IPv4/IPv6 ECM mapping are implemented on
 Linux6.18.60. Installed native31 is in slot1; tested native30 remains in slot0.
-Latest restored IPv4 TCP reaches936.60/936.51Mbps with firmware counters
+Restored IPv4 TCP reaches about936Mbps in both directions with firmware counters
 advancing and about98% sampled CPU idle. Native30 also passes routed IPv6,
 one physical cold boot and one ordinary warm reboot. NSS/QinQ starts without
 a manual arm/controller; Wi-Fi NSS remains disabled.

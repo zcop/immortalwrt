@@ -29,9 +29,9 @@ time; their old "remaining" counts are not the current backlog.
 | Slice24: L2 and policy | Multicast join/leave, PCP queues, TBF and raw802.1X gates accepted | General egress flower, software storm containment, bridged802.1X and two-member LACP remain limited/open |
 | Slice25: IPv6 and boot | Routed IPv6, one cold boot, one ordinary warm reboot and guarded sysupgrade accepted on native30 | No repeated power-cycle qualification or fresh native30→standard transition |
 | Slices26–27: advanced scheduling | Source/register and diagnostic results recorded on native31 | SP/weighted contention gates fail; further QoS work is deferred |
-| Slice28: daily delivery/recovery | Native/VLAN35 flooding, VID0, CPU broadcast copies and independent FDB/IPv4-neighbour cases tested | Physical/silent port moves, broader discovery/IPv6/empty-state, malformed-tag and soak gates remain open |
+| Slice28: daily delivery/recovery | Native/VLAN35 flooding, VID0, CPU broadcast copies and bounded FDB/IPv4/IPv6-neighbour cases tested | Physical/silent port moves, broader discovery/IPv6/empty-state, malformed-tag and soak gates remain open |
 
-Latest restored native IPv4 TCP reaches936.60/936.51Mbps at98.80%/98.43%
+Latest restored native IPv4 TCP reaches936.47/936.28Mbps at97.86%/98.07%
 sampled CPU idle with firmware counters advancing. Hardware FDB expiry and
 Linux FDB deletion each pass with0 UDP loss. IPv4 endpoint MAC replacement
 recovers with156/208282 packets lost,0.0749%, in one interval; it is not a
@@ -2476,5 +2476,52 @@ Final ordinary-workstation routed NSS reaches936.60/936.51Mbps with
 778833/754723 firmware TX increments, two active ECM rules and98.80/98.43%
 sampled CPU idle. Eight nodes remain automatic; original boot/configuration
 and normal physical topology are preserved and no kernel warning appears.
-Physical port moves, silent hardware-only movement, IPv6 neighbour replacement
-and broader discovery/long-term checks remain open in the linked matrix.
+Physical port moves, silent hardware-only movement and broader discovery/
+long-term checks remain open. The IPv6 follow-up below adds bounded neighbour
+deletion and announced MAC replacement coverage.
+
+### IPv6 neighbour recovery follow-up
+
+Documentation through the IPv4 acceptance checkpoint is committed as
+`bb29aad7272` (`docs: refresh NSS QinQ status and packet recovery results`).
+This follow-up uses the same native31 boot, not a new image. An isolated
+LAN3 endpoint talks to Windows on WAN using temporary IPv6 addresses/routes.
+Two40-second reverse UDP6 cases at50Mbps preserve their application socket
+and confirm actual firmware TX/hash-hit increments.
+
+- Exact neighbour deletion followed by a router probe captures real NS/NA
+  resolution and delivers208328 packets with0 loss at50.00Mbps. Firmware
+  TX/hash hits increase201931/201932; UDP6 is accelerated before and after.
+- An announced MAC change retains the IPv6 address and socket, updates the
+  neighbour and creates an accelerated UDP6 connection using the new MAC.
+  The receiver gets49.98Mbps with83/208338 lost,0.03984%, all in one interval.
+  Reacceleration is observed339ms after neighbour observation, including
+  polling latency; TX/hash hits increase211135/211136. This accepts bounded
+  recovery, not lossless delivery or all IPv6 neighbour states.
+
+Actual packet decoding validates checksum, hop limit255 and the initial
+NS/NA pair. The new-MAC NA is unsolicited/unicast with Override=1 and the
+correct target-link-layer option. Captures have0 kernel drops. The first
+MAC run fails the loss gate with328/208327 lost,0.1574%; its sender introduces
+a67.54ms gap while opening a socket after the MAC change. It is preserved.
+Pre-opening the socket reduces the measured post-command gap to0.023ms;
+one corrected run passes the unchanged2s/<0.1% gate. No ordinary-DSA A/B
+attributes either transition's loss specifically to NSS/QinQ.
+
+The initial ping-summary parser rejection and a /64 fixture's extra SLAAC
+state are also retained. Router task-neighbour cleanup is repaired, and the
+user removes the exact advertised workstation address. Its baseline is
+verified. The corrected fixture uses /128 router addresses/exact routes;
+before/after workstation address sets match. Task containers, ND/FDB state,
+guards, addresses/routes and character nodes are removed. Boot/configuration
+are preserved and Windows temporary-setting removal is user-confirmed. A final
+read-only router/workstation audit passes; no test remains active. Restored
+native IPv4 reaches936.47/936.28Mbps, with770286/754899 firmware TX increments,
+two active ECM rules,97.86%/98.07% sampled CPU idle and eight automatic nodes.
+Loop protection remains on and no kernel warning appears.
+
+Detailed gate boundaries and raw evidence are in the
+[daily delivery matrix](nss-qinq-daily-traffic.md#ipv6-neighbour-deletion-and-mac-replacement)
+and ignored `logs/nss-slices-20261109/slice28-ipv6-recovery/`. RA/DAD policy,
+DHCPv6, broader discovery, physical/silent moves and long-term checks remain
+open. No source-driver change, flash, reboot or push occurs in this follow-up.
