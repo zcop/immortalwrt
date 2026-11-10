@@ -1,0 +1,242 @@
+From: Georg Seema <georgseema@gmail.com>
+Subject: [PATCH] wifi: ath11k: skip unused host TX arrays in the NSS 256 MiB profile
+
+Add an optional profile for IPQ5018 and QCN6122 with the 256M memory
+profile and active NSS. Skip unused host TX software arrays, retain DMA
+rings, and guard cleanup and completion paths. Keep the allocation
+decision stable through recovery. Other hardware keeps normal arrays.
+
+Signed-off-by: Georg Seema <georgseema@gmail.com>
+---
+
+--- a/drivers/net/wireless/ath/ath11k/Kconfig
++++ b/drivers/net/wireless/ath/ath11k/Kconfig
+@@ -103,3 +103,14 @@ config ATH11K_CFR
+ 	  to enable, disable, and dump data.
+ 
+ 	  Say Y to enable CFR data dump collection via debugfs.
++
++config ATH11K_NSS_MEM_PROFILE_256M
++	bool "Smaller NSS allocations for 256 MiB IPQ5018/QCN6122 devices"
++	depends on ATH11K_NSS_SUPPORT && ATH11K_MEM_PROFILE_256M
++	default n
++	help
++	  Skip unused host TX arrays, reduce NSS TX pools and completion
++	  rings, use private RX fragment caches, and reduce CE5 buffers.
++	  Only IPQ5018 and QCN6122 with active NSS use this profile.
++	  TX and CE5 queue capacity is lower. Other hardware and the
++	  host-only data path retain their existing allocations.
+--- a/drivers/net/wireless/ath/ath11k/core.h
++++ b/drivers/net/wireless/ath/ath11k/core.h
+@@ -1416,6 +1416,16 @@ static inline const char *ath11k_scan_state_str(enum ath11k_scan_state state)
+ 	return "unknown";
+ }
+ 
++/* Keep untested hardware and the host data path on their normal sizes. */
++static inline bool ath11k_nss_256m_enabled(struct ath11k_base *ab)
++{
++	return IS_ENABLED(CPTCFG_ATH11K_NSS_MEM_PROFILE_256M) &&
++	       IS_ENABLED(CPTCFG_ATH11K_MEM_PROFILE_256M) &&
++	       ab->nss.enabled &&
++	       (ab->hw_rev == ATH11K_HW_IPQ5018_HW10 ||
++		ab->hw_rev == ATH11K_HW_QCN6122_HW10);
++}
++
+ static inline struct ath11k_skb_cb *ATH11K_SKB_CB(struct sk_buff *skb)
+ {
+ 	BUILD_BUG_ON(sizeof(struct ath11k_skb_cb) >
+--- a/drivers/net/wireless/ath/ath11k/dp.c
++++ b/drivers/net/wireless/ath/ath11k/dp.c
+@@ -445,6 +445,9 @@ static int ath11k_dp_srng_common_setup(struct ath11k_base *ab)
+ 					    ATH11K_SHADOW_DP_TIMER_INTERVAL,
+ 					    dp->tx_ring[i].tcl_data_ring.ring_id);
+ 
++		if (!dp->host_tx_allocated)
++			continue;
++
+ 		dp->tx_ring[i].idr_pool = kcalloc(DP_TX_IDR_SIZE,
+ 						  sizeof(struct idr_entry), GFP_KERNEL);
+ 		if (!dp->tx_ring[i].idr_pool) {
+@@ -1098,19 +1101,25 @@ void ath11k_dp_free(struct ath11k_base *ab)
+ 	struct ath11k_dp *dp = &ab->dp;
+ 	int i, j;
+ 
++	if (ath11k_nss_256m_enabled(ab) && !dp->host_tx_allocated)
++		ath11k_dbg(ab, ATH11K_DBG_DP_TX, "NSS 256 MiB: host TX cleanup, host=%d\n",
++			   dp->host_tx_allocated);
++
+ 	ath11k_dp_link_desc_cleanup(ab, dp->link_desc_banks,
+ 				    HAL_WBM_IDLE_LINK, &dp->wbm_idle_ring);
+ 
+-	for (i = 0; i < DP_TCL_NUM_RING_MAX; i++) {
+-		struct dp_tx_ring *tx_ring = &dp->tx_ring[i];
+-		spin_lock_bh(&tx_ring->tx_idr_lock);
+-		for(j = 0; j < DP_TX_IDR_SIZE; j++) {
++	if (dp->host_tx_allocated) {
++		for (i = 0; i < DP_TCL_NUM_RING_MAX; i++) {
++			struct dp_tx_ring *tx_ring = &dp->tx_ring[i];
+ 
+-			if (test_and_clear_bit(j, tx_ring->idrs))
+-				ath11k_dp_tx_pending_cleanup(ab, tx_ring->idr_pool[j].buf);
+-		}
++			spin_lock_bh(&tx_ring->tx_idr_lock);
++			for (j = 0; j < DP_TX_IDR_SIZE; j++) {
++				if (test_and_clear_bit(j, tx_ring->idrs))
++					ath11k_dp_tx_pending_cleanup(ab, tx_ring->idr_pool[j].buf);
++			}
+ 
+-		spin_unlock_bh(&tx_ring->tx_idr_lock);
++			spin_unlock_bh(&tx_ring->tx_idr_lock);
++		}
+ 	}
+ 
+ 	ath11k_dp_srng_common_cleanup(ab);
+@@ -1120,8 +1129,11 @@ void ath11k_dp_free(struct ath11k_base *ab)
+ 	for (i = 0; i < ab->hw_params.hal_params->num_tx_rings; i++) {
+ 		kfree(dp->tx_ring[i].tx_status);
+ 		dp->tx_ring[i].tx_status = NULL;
++		dp->tx_ring[i].tx_status = NULL;
+ 	}
+ 
++	dp->host_tx_allocated = false;
++
+ 	/* Deinit any SOC level resource */
+ }
+ 
+@@ -1135,6 +1147,11 @@ int ath11k_dp_alloc(struct ath11k_base *ab)
+ 	int i;
+ 
+ 	dp->ab = ab;
++	dp->host_tx_allocated = !ath11k_nss_256m_enabled(ab);
++
++	if (!dp->host_tx_allocated)
++		ath11k_dbg(ab, ATH11K_DBG_DP_TX, "NSS 256 MiB: host TX allocation start, host=%d nss=%d\n",
++			   dp->host_tx_allocated, ab->nss.enabled);
+ 
+ 	INIT_LIST_HEAD(&dp->reo_cmd_list);
+ 	INIT_LIST_HEAD(&dp->reo_cmd_cache_flush_list);
+@@ -1161,8 +1178,14 @@ int ath11k_dp_alloc(struct ath11k_base *ab)
+ 	}
+ 
+ 	ret = ath11k_dp_srng_common_setup(ab);
+-	if (ret)
++	if (ret) {
++		if (!dp->host_tx_allocated)
++			ath11k_warn(ab, "NSS 256 MiB: host TX DMA ring setup failed: %d\n", ret);
+ 		goto fail_link_desc_cleanup;
++	}
++
++	if (!dp->host_tx_allocated)
++		ath11k_dbg(ab, ATH11K_DBG_DP_TX, "NSS 256 MiB: host TX DMA rings ready\n");
+ 
+ 	size = sizeof(struct hal_wbm_release_ring) * DP_TX_COMP_RING_SIZE;
+ 
+@@ -1173,21 +1196,35 @@ int ath11k_dp_alloc(struct ath11k_base *ab)
+ 
+ 		dp->tx_ring[i].tx_status_head = 0;
+ 		dp->tx_ring[i].tx_status_tail = DP_TX_COMP_RING_SIZE - 1;
++
++		if (!dp->host_tx_allocated)
++			continue;
++
+ 		dp->tx_ring[i].tx_status = kmalloc(size, GFP_KERNEL);
+ 		if (!dp->tx_ring[i].tx_status) {
+ 			ret = -ENOMEM;
+-			goto fail_cmn_srng_cleanup;
++			goto fail_tx_status_cleanup;
+ 		}
+ 	}
+ 
+ 	for (i = 0; i < HAL_DSCP_TID_MAP_TBL_NUM_ENTRIES_MAX; i++)
+ 		ath11k_hal_tx_set_dscp_tid_map(ab, i);
+ 
++	if (!dp->host_tx_allocated)
++		ath11k_dbg(ab, ATH11K_DBG_DP_TX, "NSS 256 MiB: host TX skipped %zu bytes of software allocations\n",
++			   DP_TCL_NUM_RING_MAX *
++			   (DP_TX_IDR_SIZE * sizeof(struct idr_entry) + size));
++
+ 	/* Init any SOC level resource for DP */
+ 
+ 	return 0;
+ 
+-fail_cmn_srng_cleanup:
++fail_tx_status_cleanup:
++	for (i = 0; i < DP_TCL_NUM_RING_MAX; i++) {
++		kfree(dp->tx_ring[i].tx_status);
++		dp->tx_ring[i].tx_status = NULL;
++	}
++
+ 	ath11k_dp_srng_common_cleanup(ab);
+ 
+ fail_link_desc_cleanup:
+--- a/drivers/net/wireless/ath/ath11k/dp.h
++++ b/drivers/net/wireless/ath/ath11k/dp.h
+@@ -329,6 +329,7 @@ struct ath11k_dp {
+ 	spinlock_t reo_cmd_update_queue_lock;
+ 	struct ath11k_hp_update_timer reo_cmd_timer;
+ 	struct ath11k_hp_update_timer tx_ring_timer[DP_TCL_NUM_RING_MAX];
++	bool host_tx_allocated;
+ };
+ 
+ /* HTT definitions */
+--- a/drivers/net/wireless/ath/ath11k/dp_tx.c
++++ b/drivers/net/wireless/ath/ath11k/dp_tx.c
+@@ -138,6 +138,9 @@ int ath11k_dp_tx(struct ath11k *ar, struct ath11k_vif *arvif,
+ 	u8 align_pad, htt_meta_size = 0, max_tx_ring, tcl_ring_id, ring_id;
+ 	u32 idr;
+ 
++	if (!dp->host_tx_allocated)
++		return -ESHUTDOWN;
++
+ 	if (unlikely(!(info->flags & IEEE80211_TX_CTL_HW_80211_ENCAP) &&
+ 		     !ieee80211_is_data(hdr->frame_control)))
+ 		return -EOPNOTSUPP;
+@@ -392,6 +395,9 @@ static void ath11k_dp_tx_free_txbuf(struct ath11k_base *ab, u8 mac_id,
+ 	struct sk_buff *msdu = NULL;
+ 	struct ath11k_skb_cb *skb_cb;
+ 
++	if (WARN_ON_ONCE(!tx_ring->idr_pool))
++		return;
++
+ 	spin_lock_bh(&tx_ring->tx_idr_lock);
+ 	if (msdu_id < DP_TX_IDR_SIZE &&
+ 	    tx_ring->idr_pool[msdu_id].id == msdu_id) {
+@@ -435,6 +441,9 @@ ath11k_dp_tx_htt_tx_complete_buf(struct ath11k_base *ab,
+ 	u32 msdu_id = ts->msdu_id;
+ 	u8 flags;
+ 
++	if (WARN_ON_ONCE(!tx_ring->idr_pool))
++		return;
++
+ 	spin_lock_bh(&tx_ring->tx_idr_lock);
+ 	if (msdu_id < DP_TX_IDR_SIZE &&
+ 	    tx_ring->idr_pool[msdu_id].id == msdu_id) {
+@@ -872,6 +881,9 @@ void ath11k_dp_tx_completion_handler(struct ath11k_base *ab, int ring_id)
+ 	u8 mac_id;
+ 	struct hal_wbm_release_ring *tx_status;
+ 
++	if (WARN_ON_ONCE(!dp->host_tx_allocated))
++		return;
++
+ 	spin_lock_bh(&status_ring->lock);
+ 
+ 	ath11k_hal_srng_access_begin(ab, status_ring);
+--- a/drivers/net/wireless/ath/ath11k/mac.c
++++ b/drivers/net/wireless/ath/ath11k/mac.c
+@@ -7834,6 +7834,9 @@ static void ath11k_mac_vif_unref(struct dp_tx_ring *tx_ring,
+ 	struct ath11k_skb_cb *skb_cb;
+ 	int i;
+ 
++	if (!tx_ring->idr_pool)
++		return;
++
+ 	for_each_set_bit(i, tx_ring->idrs, DP_TX_IDR_SIZE) {
+ 		skb_cb = ATH11K_SKB_CB(tx_ring->idr_pool[i].buf);
+ 		if (skb_cb->vif == vif)
+--- a/local-symbols
++++ b/local-symbols
+@@ -513,3 +513,4 @@ USB_WDM=
+ USB_TMC=
+ STAGING=
+ RTL8723BS=
++ATH11K_NSS_MEM_PROFILE_256M=

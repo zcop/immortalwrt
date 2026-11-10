@@ -1,0 +1,85 @@
+From: Georg Seema <georgseema@gmail.com>
+Subject: [PATCH] wifi: ath11k: limit NSS TX descriptor pools in the 256 MiB profile
+
+Use 4096 TX descriptors and matching extension pools and radio limits.
+Keep allocation sizes and the counts sent to NSS equal. Preserve normal
+sizes outside the optional profile and log requested allocation sizes.
+
+Signed-off-by: Georg Seema <georgseema@gmail.com>
+---
+--- a/drivers/net/wireless/ath/ath11k/nss.c
++++ b/drivers/net/wireless/ath/ath11k/nss.c
+@@ -4152,6 +4152,9 @@
+ 	nss_tx_status_t status;
+ 	int ret = 0;
+ 
++	if (ath11k_nss_256m_enabled(ar->ab))
++		buf_sz = min(buf_sz, ATH11K_NSS_256M_TX_DESC_LIMIT);
++
+ 	wlmsg = kzalloc(sizeof(struct nss_wifili_msg), GFP_ATOMIC);
+ 	if (!wlmsg)
+ 		return -ENOMEM;
+@@ -4324,6 +4327,12 @@
+ 		return -EINVAL;
+ 	}
+ 
++	if (ath11k_nss_256m_enabled(ab)) {
++		tx_desc_limit_0 = ATH11K_NSS_256M_TX_DESC_LIMIT;
++		if (dim->num_pool == 2)
++			tx_desc_limit_1 = ATH11K_NSS_256M_TX_DESC_LIMIT;
++	}
++
+ 	dim->num_tx_desc = tx_desc_limit_0;
+ 	dim->num_tx_desc_ext = tx_desc_limit_0;
+ 	dim->num_tx_desc_2 = tx_desc_limit_1;
+@@ -4339,6 +4348,11 @@
+ 			     dim->num_tx_desc_ext_3 +
+ 			     dim->num_pool) * WIFILI_NSS_TX_EXT_DESC_SIZE;
+ 
++	if (ath11k_nss_256m_enabled(ab))
++		ath11k_dbg(ab, ATH11K_DBG_DP_TX, "NSS 256 MiB: TX desc pools=%u desc=%u bytes=%u\n",
++			   dim->num_pool, ATH11K_NSS_256M_TX_DESC_LIMIT,
++			   required_size + required_size_ext);
++
+ 	if (ath11k_nss_tx_desc_mem_alloc(ab, required_size, &page_idx)) {
+ 		ath11k_warn(ab, "memory allocation for tx desc of size %d failed\n",
+ 			    required_size);
+@@ -4353,6 +4367,10 @@
+ 			    required_size_ext);
+ 		return -ENOMEM;
+ 	}
++
++	if (ath11k_nss_256m_enabled(ab))
++		ath11k_dbg(ab, ATH11K_DBG_DP_TX, "NSS 256 MiB: TX desc allocated bytes=%u pages=%d\n",
++			   required_size + required_size_ext, page_idx);
+ 
+ 	for (i = 0; i < page_idx; i++)	{
+ 		if (i < NSS_WIFILI_MAX_NUMBER_OF_PAGE_MSG) {
+@@ -4809,8 +4827,13 @@
+ 	 * similar to tx desc cfg at soc init per radio
+ 	 */
+ 
+-	for (i = 0; i < ATH11K_NSS_RADIO_TX_LIMIT_RANGE; i++)
+-		ath11k_nss_radio_buf_cfg(ar, i, ATH11K_NSS_RADIO_TX_LIMIT_RANGE3);
++	for (i = 0; i < ATH11K_NSS_RADIO_TX_LIMIT_RANGE; i++) {
++		ret = ath11k_nss_radio_buf_cfg(ar, i,
++					       ATH11K_NSS_RADIO_TX_LIMIT_RANGE3);
++		if (ret && ath11k_nss_256m_enabled(ab))
++			ath11k_warn(ab, "NSS 256 MiB: TX desc radio limit send failed, range=%d error=%d\n",
++				    i, ret);
++	}
+ 
+ 	return 0;
+ 
+--- a/drivers/net/wireless/ath/ath11k/nss.h
++++ b/drivers/net/wireless/ath/ath11k/nss.h
+@@ -61,6 +61,9 @@
+ #define WIFILI_NSS_MAX_MEM_PAGE_SIZE (WIFILI_NSS_TX_DESC_PAGE_LIMIT * 1024)
+ #define WIFILI_NSS_MAX_EXT_MEM_PAGE_SIZE  (WIFILI_NSS_TX_DESC_PAGE_LIMIT * 1024)
+ #define WIFILI_RX_DESC_POOL_WEIGHT 3
++
++/* Shared descriptor-pool and radio-buffer limit for the 256 MiB profile. */
++#define ATH11K_NSS_256M_TX_DESC_LIMIT 4096
+ 
+ /* Status of the NSS messages sent from driver */
+ #define ATH11K_NSS_MSG_ACK	0

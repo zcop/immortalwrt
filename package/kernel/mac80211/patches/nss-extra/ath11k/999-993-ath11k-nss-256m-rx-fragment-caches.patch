@@ -1,0 +1,160 @@
+From: Georg Seema <georgseema@gmail.com>
+Subject: [PATCH] wifi: ath11k: use private RX fragment caches in the NSS 256 MiB profile
+
+Allocate RX buffers from private per-ring page-fragment caches. Preserve
+shared-info storage and alignment. Drain recorded cache references after
+ring buffers during teardown, including when NSS stops during recovery.
+Keep the ordinary allocator outside the optional profile.
+
+Link: https://github.com/eisbaw/ath11k-page-frag-fix/blob/main/patches/949-wifi-ath11k-use-private-page-frag-caches-for-rxdma.patch
+Signed-off-by: Georg Seema <georgseema@gmail.com>
+---
+
+--- a/drivers/net/wireless/ath/ath11k/dp.h
++++ b/drivers/net/wireless/ath/ath11k/dp.h
+@@ -7,6 +7,7 @@
+ #ifndef ATH11K_DP_H
+ #define ATH11K_DP_H
+ 
++#include <linux/page_frag_cache.h>
+ #include "hal_rx.h"
+ #include "hw.h"
+ 
+@@ -81,6 +82,8 @@ struct dp_srng {
+ };
+ 
+ struct dp_rxdma_ring {
++	struct page_frag_cache frag_cache;
++	bool frag_cache_used;
+ 	struct dp_srng refill_buf_ring;
+ 	struct idr bufs_idr;
+ 	/* Protects bufs_idr */
+--- a/drivers/net/wireless/ath/ath11k/dp_rx.c
++++ b/drivers/net/wireless/ath/ath11k/dp_rx.c
+@@ -7,6 +7,7 @@
+ #include <linux/fips.h>
+ #include <linux/ieee80211.h>
+ #include <linux/kernel.h>
++#include <net/sock.h>
+ #include <linux/skbuff.h>
+ #include "core.h"
+ #include "debug.h"
+@@ -385,6 +386,51 @@ static inline u8 ath11k_dp_rx_h_msdu_start_ip_valid(struct ath11k_base *ab,
+ 	return ab->hw_params.hw_ops->rx_desc_get_ip_valid(desc);
+ }
+ 
++static struct sk_buff *
++ath11k_dp_rx_alloc_skb(struct ath11k_base *ab,
++		       struct dp_rxdma_ring *rx_ring, unsigned int len)
++{
++	bool private = ath11k_nss_256m_enabled(ab);
++	gfp_t gfp_mask = GFP_ATOMIC | __GFP_NOWARN;
++	struct sk_buff *skb;
++	unsigned int delta;
++	void *data;
++
++	if (private) {
++		len = SKB_HEAD_ALIGN(len + NET_SKB_PAD);
++		if (sk_memalloc_socks())
++			gfp_mask |= __GFP_MEMALLOC;
++
++		/* Both refill paths hold this ring's SRNG lock. */
++		data = page_frag_alloc(&rx_ring->frag_cache, len, gfp_mask);
++		if (!data)
++			return NULL;
++		skb = build_skb(data, len);
++		if (!skb) {
++			page_frag_free(data);
++			return NULL;
++		}
++		skb_reserve(skb, NET_SKB_PAD);
++		if (!rx_ring->frag_cache_used) {
++			rx_ring->frag_cache_used = true;
++			ath11k_dbg(ab, ATH11K_DBG_DP_RX, "NSS 256 MiB: RX frag private cache used, ring=%u\n",
++				   rx_ring->refill_buf_ring.ring_id);
++		}
++	} else {
++		skb = alloc_skb(len, GFP_ATOMIC);
++		if (!skb)
++			return NULL;
++	}
++
++	delta = PTR_ALIGN(skb->data, DP_RX_BUFFER_ALIGN_SIZE) - skb->data;
++	if (private)
++		skb_reserve(skb, delta);
++	else
++		skb_pull(skb, delta);
++
++	return skb;
++}
++
+ /* Returns number of Rx buffers replenished */
+ int ath11k_dp_rxbufs_replenish(struct ath11k_base *ab, int mac_id,
+ 			       struct dp_rxdma_ring *rx_ring,
+@@ -416,18 +462,11 @@ int ath11k_dp_rxbufs_replenish(struct ath11k_base *ab, int mac_id,
+ 	num_remain = req_entries;
+ 
+ 	while (num_remain > 0) {
+-		skb = alloc_skb(DP_RX_BUFFER_SIZE +
+-				DP_RX_BUFFER_ALIGN_SIZE, GFP_ATOMIC);
++		skb = ath11k_dp_rx_alloc_skb(ab, rx_ring, DP_RX_BUFFER_SIZE +
++					   DP_RX_BUFFER_ALIGN_SIZE);
+ 		if (!skb)
+ 			break;
+ 
+-		if (!IS_ALIGNED((unsigned long)skb->data,
+-				DP_RX_BUFFER_ALIGN_SIZE)) {
+-			skb_pull(skb,
+-				 PTR_ALIGN(skb->data, DP_RX_BUFFER_ALIGN_SIZE) -
+-				 skb->data);
+-		}
+-
+ 		paddr = dma_map_single(ab->dev, skb->data,
+ 				       skb->len + skb_tailroom(skb),
+ 				       DMA_FROM_DEVICE);
+@@ -498,6 +537,13 @@ static int ath11k_dp_rxdma_buf_ring_free(struct ath11k *ar,
+ 	idr_destroy(&rx_ring->bufs_idr);
+ 	spin_unlock_bh(&rx_ring->idr_lock);
+ 
++	/* Drain recorded cache state even if NSS stopped during recovery. */
++	page_frag_cache_drain(&rx_ring->frag_cache);
++	if (rx_ring->frag_cache_used)
++		ath11k_dbg(ar->ab, ATH11K_DBG_DP_RX, "NSS 256 MiB: RX frag cache drained, ring=%u\n",
++			   rx_ring->refill_buf_ring.ring_id);
++	rx_ring->frag_cache_used = false;
++
+ 	return 0;
+ }
+ 
+@@ -3619,18 +3665,12 @@ static struct sk_buff *ath11k_dp_rx_alloc_mon_status_buf(struct ath11k_base *ab,
+ 	struct sk_buff *skb;
+ 	dma_addr_t paddr;
+ 
+-	skb = dev_alloc_skb(DP_RX_BUFFER_SIZE +
+-			    DP_RX_BUFFER_ALIGN_SIZE);
++	skb = ath11k_dp_rx_alloc_skb(ab, rx_ring, DP_RX_BUFFER_SIZE +
++				   DP_RX_BUFFER_ALIGN_SIZE);
+ 
+ 	if (!skb)
+ 		goto fail_alloc_skb;
+ 
+-	if (!IS_ALIGNED((unsigned long)skb->data,
+-			DP_RX_BUFFER_ALIGN_SIZE)) {
+-		skb_pull(skb, PTR_ALIGN(skb->data, DP_RX_BUFFER_ALIGN_SIZE) -
+-			 skb->data);
+-	}
+-
+ 	paddr = dma_map_single(ab->dev, skb->data,
+ 			       skb->len + skb_tailroom(skb),
+ 			       DMA_FROM_DEVICE);
+@@ -5242,6 +5282,10 @@ int ath11k_dp_rx_pdev_alloc(struct ath11k_base *ab, int mac_id)
+ 	int i;
+ 	int ret;
+ 
++	if (ath11k_nss_256m_enabled(ab))
++		ath11k_dbg(ab, ATH11K_DBG_DP_RX, "NSS 256 MiB: RX frag enabled, mac=%d nss=%d\n",
++			   mac_id, ab->nss.enabled);
++
+ 	ret = ath11k_dp_rx_pdev_srng_alloc(ar);
+ 	if (ret) {
+ 		ath11k_warn(ab, "failed to setup rx srngs\n");

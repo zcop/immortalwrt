@@ -1,0 +1,46 @@
+From: Georg Seema <georgseema@gmail.com>
+Subject: [PATCH] wifi: ath11k: reduce NSS TX completion rings in the 256 MiB profile
+
+Keep three TX completion rings but reduce each to 4096 entries when the
+profile skips host software arrays. Use actual allocated sizes for the
+NSS ring description. Keep RX software descriptors at the original size.
+
+Signed-off-by: Georg Seema <georgseema@gmail.com>
+---
+--- a/drivers/net/wireless/ath/ath11k/dp.c
++++ b/drivers/net/wireless/ath/ath11k/dp.c
+@@ -393,8 +393,14 @@
+ {
+ 	struct ath11k_dp *dp = &ab->dp;
+ 	struct hal_srng *srng;
++	u32 tx_comp_entries = DP_TX_COMP_RING_SIZE;
+ 	int i, ret, j;
+ 	u8 tcl_num, wbm_num;
++
++	/* Keep the allocation decision stable through NSS recovery. */
++	if (!dp->host_tx_allocated)
++		tx_comp_entries = min_t(u32, tx_comp_entries,
++					ATH11K_NSS_256M_TX_DESC_LIMIT);
+ 
+ 	ret = ath11k_dp_srng_setup(ab, &dp->wbm_desc_rel_ring,
+ 				   HAL_SW2WBM_RELEASE, 0, 0,
+@@ -439,11 +445,18 @@
+ 
+ 		ret = ath11k_dp_srng_setup(ab, &dp->tx_ring[i].tcl_comp_ring,
+ 					   HAL_WBM2SW_RELEASE, wbm_num, 0,
+-					   DP_TX_COMP_RING_SIZE);
++					   tx_comp_entries);
+ 		if (ret) {
+ 			ath11k_warn(ab, "failed to set up tcl_comp ring (%d) :%d\n",
+ 				    i, ret);
+ 			goto err;
++		}
++
++		if (tx_comp_entries != DP_TX_COMP_RING_SIZE) {
++			srng = &ab->hal.srng_list[dp->tx_ring[i].tcl_comp_ring.ring_id];
++			ath11k_dbg(ab, ATH11K_DBG_DP_TX, "NSS 256 MiB: TX completion ring=%d entries=%u bytes=%u\n",
++				   i, srng->num_entries,
++				   dp->tx_ring[i].tcl_comp_ring.size);
+ 		}
+ 
+ 		srng = &ab->hal.srng_list[dp->tx_ring[i].tcl_data_ring.ring_id];

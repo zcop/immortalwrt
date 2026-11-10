@@ -16,6 +16,8 @@ PKG_CONFIG_DEPENDS += \
 	CONFIG_ATH11K_SMALLBUFFERS \
 	CONFIG_ATH11K_NSS_SUPPORT \
 	CONFIG_ATH11K_MEM_PROFILE_512M \
+	CONFIG_ATH11K_MEM_PROFILE_256M \
+	CONFIG_ATH11K_NSS_MEM_PROFILE_256M \
 	CONFIG_ATH12K_THERMAL \
 	CONFIG_ATH_USER_REGD
 
@@ -65,6 +67,9 @@ config-$(CONFIG_ATH10K_THERMAL) += ATH10K_THERMAL
 config-$(CONFIG_ATH11K_THERMAL) += ATH11K_THERMAL
 config-$(CONFIG_ATH11K_NSS_SUPPORT) += ATH11K_NSS_SUPPORT
 config-$(CONFIG_ATH11K_MEM_PROFILE_512M) += ATH11K_MEM_PROFILE_512M
+# The 256 MiB allocation profile retains the existing firmware mode1 ABI.
+config-$(CONFIG_ATH11K_MEM_PROFILE_256M) += ATH11K_MEM_PROFILE_512M ATH11K_MEM_PROFILE_256M
+config-$(CONFIG_ATH11K_NSS_MEM_PROFILE_256M) += ATH11K_NSS_MEM_PROFILE_256M
 config-$(CONFIG_ATH12K_THERMAL) += ATH12K_THERMAL
 
 config-$(call config_package,ath9k-htc) += ATH9K_HTC
@@ -373,12 +378,27 @@ define KernelPackage/ath11k/config
        choice
                prompt "ath11k NSS memory profile"
                depends on ATH11K_NSS_SUPPORT
+               default ATH11K_MEM_PROFILE_256M if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss
                default ATH11K_MEM_PROFILE_512M
 
        config ATH11K_MEM_PROFILE_512M
                bool "512 MiB devices"
 
+       config ATH11K_MEM_PROFILE_256M
+               bool "256 MiB devices"
+               help
+                 Retain firmware memory mode1 and enable the small-device
+                 allocation profile. Use ATH11K_SMALLBUFFERS for host rings.
+
        endchoice
+
+       config ATH11K_NSS_MEM_PROFILE_256M
+               bool "Smaller NSS allocations for 256 MiB devices"
+               depends on ATH11K_NSS_SUPPORT && ATH11K_MEM_PROFILE_256M
+               default y
+               help
+                 Skip unused host TX arrays, reduce NSS descriptor and CE
+                 pools, and isolate RX fragment caches on IPQ5018/QCN6122.
 
        config ATH11K_SMALLBUFFERS
                bool "Use smaller ath11k buffers on low-RAM devices"

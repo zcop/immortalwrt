@@ -1,0 +1,71 @@
+From: Georg Seema <georgseema@gmail.com>
+Subject: [PATCH] wifi: ath11k: reduce CE5 buffers in the NSS 256 MiB profile
+
+Reduce CE5 destination and status rings to 256 entries. Preserve the
+2048-byte buffer size, two-entry reserve, refill retry and handlers.
+Use recorded sizes for initialization and cleanup, including recovery.
+
+Signed-off-by: Georg Seema <georgseema@gmail.com>
+---
+--- a/drivers/net/wireless/ath/ath11k/ce.c
++++ b/drivers/net/wireless/ath/ath11k/ce.c
+@@ -646,6 +646,13 @@
+ 	return ce_ring;
+ }
+ 
++#define ATH11K_NSS_256M_CE5_ENTRIES 256
++
++static bool ath11k_ce5_256m_enabled(struct ath11k_base *ab, int ce_id)
++{
++	return ce_id == 5 && ath11k_nss_256m_enabled(ab);
++}
++
+ static int ath11k_ce_alloc_pipe(struct ath11k_base *ab, int ce_id)
+ {
+ 	struct ath11k_ce_pipe *pipe = &ab->ce.ce_pipe[ce_id];
+@@ -653,6 +660,7 @@
+ 	struct ath11k_ce_ring *ring;
+ 	int nentries;
+ 	int desc_sz;
++	bool ce5_256m = ath11k_ce5_256m_enabled(ab, ce_id);
+ 
+ 	pipe->attr_flags = attr->flags;
+ 
+@@ -669,6 +677,8 @@
+ 	if (attr->dest_nentries) {
+ 		pipe->recv_cb = attr->recv_cb;
+ 		nentries = roundup_pow_of_two(attr->dest_nentries);
++		if (ce5_256m)
++			nentries = min(nentries, ATH11K_NSS_256M_CE5_ENTRIES);
+ 		desc_sz = ath11k_hal_ce_get_desc_size(HAL_CE_DESC_DST);
+ 		ring = ath11k_ce_alloc_ring(ab, nentries, desc_sz);
+ 		if (IS_ERR(ring))
+@@ -680,6 +690,13 @@
+ 		if (IS_ERR(ring))
+ 			return PTR_ERR(ring);
+ 		pipe->status_ring = ring;
++		if (ce5_256m)
++			ath11k_info(ab, "NSS 256 MiB: active host_tx=0 tx_desc=%u tx_comp=%u CE5=%u/%u buf=%u RX=private\n",
++				    ATH11K_NSS_256M_TX_DESC_LIMIT,
++				    min_t(u32, DP_TX_COMP_RING_SIZE,
++					  ATH11K_NSS_256M_TX_DESC_LIMIT),
++				    pipe->dest_ring->nentries,
++				    pipe->status_ring->nentries, pipe->buf_sz);
+ 	}
+ 
+ 	return 0;
+@@ -965,6 +982,14 @@
+ 			pipe->status_ring->write_index = 0;
+ 			pipe->status_ring->sw_index = 0;
+ 		}
++
++		/* Report recorded sizes, including after NSS recovery. */
++		if (IS_ENABLED(CPTCFG_ATH11K_NSS_MEM_PROFILE_256M) && i == 5 &&
++		    pipe->dest_ring && pipe->status_ring &&
++		    pipe->dest_ring->nentries == ATH11K_NSS_256M_CE5_ENTRIES)
++			ath11k_dbg(ab, ATH11K_DBG_CE, "NSS 256 MiB: CE5 rings ready dst=%u status=%u post_target=%u\n",
++				   pipe->dest_ring->nentries,
++				   pipe->status_ring->nentries, pipe->rx_buf_needed);
+ 	}
+ 
+ 	return 0;

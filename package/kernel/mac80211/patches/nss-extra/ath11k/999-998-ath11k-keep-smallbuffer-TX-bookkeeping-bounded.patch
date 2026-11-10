@@ -1,0 +1,30 @@
+Subject: [PATCH] ath11k: keep smallbuffer TX bookkeeping bounded
+
+The NSS bitmap conversion reintroduced an 8192-entry ID pool through the
+512M firmware-mode macro. Retain hzyitc smallbuffer-sized bookkeeping for
+host mode; the NSS 256 MiB profile separately skips unused host TX arrays.
+Define the completion-ring size before the bitmap declaration uses it.
+
+--- a/drivers/net/wireless/ath/ath11k/dp.h
++++ b/drivers/net/wireless/ath/ath11k/dp.h
+@@ -95,7 +95,12 @@
+ 	void *buf;
+ };
+ 
++#define DP_TX_COMP_RING_SIZE		(IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 2048 : 4096)
++#ifdef CONFIG_ATH11K_SMALLBUFFERS
++#define DP_TX_IDR_SIZE	DP_TX_COMP_RING_SIZE
++#else
+ #define DP_TX_IDR_SIZE	ATH11K_DP_TX_COMP_RING_SIZE
++#endif
+ 
+ struct dp_tx_ring {
+ 	u8 tcl_data_ring_id;
+@@ -225,7 +230,6 @@
+ #define DP_WBM_RELEASE_RING_SIZE	64
+ #define DP_TCL_DATA_RING_SIZE		512
+ #define DP_TCL_DATA_RING_SIZE_WCN6750	2048
+-#define DP_TX_COMP_RING_SIZE		(IS_ENABLED(CONFIG_ATH11K_SMALLBUFFERS) ? 2048 : 4096)
+ #define DP_TX_COMP_MAX_ALLOWED		DP_TX_COMP_RING_SIZE
+ #define DP_TCL_CMD_RING_SIZE		32
+ #define DP_TCL_STATUS_RING_SIZE		32
