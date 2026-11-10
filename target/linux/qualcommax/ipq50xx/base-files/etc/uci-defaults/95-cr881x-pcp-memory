@@ -1,0 +1,24 @@
+#!/bin/sh
+
+. /lib/functions/system.sh
+
+[ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
+[ -w /proc/sys/vm/percpu_pagelist_high_fraction ] || exit 0
+
+# Respect an existing administrator setting, including an explicit zero.
+if grep -Eq '^[[:space:]]*vm[./]percpu_pagelist_high_fraction[[:space:]]*=' \
+	/etc/sysctl.conf /etc/sysctl.d/*.conf 2>/dev/null; then
+	exit 0
+fi
+
+# With the 16 MiB emergency watermark, the default permits about 10 MiB
+# of free pages on each CPU. Keep the watermark and allocation batch size,
+# but cap these caches at 1% of managed RAM shared between the CPUs.
+mkdir -p /etc/sysctl.d
+cat > /etc/sysctl.d/13-cr881x-pcp.conf <<'EOF'
+# Keep free pages available to the shared allocator on the 256 MiB CR881x.
+# Set this to 0 to restore the kernel's automatic per-CPU cache limits.
+vm.percpu_pagelist_high_fraction = 100
+EOF
+
+sysctl -q -w vm.percpu_pagelist_high_fraction=100
