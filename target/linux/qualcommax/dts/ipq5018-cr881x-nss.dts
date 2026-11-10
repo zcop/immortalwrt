@@ -85,4 +85,23 @@
 	qcom,id = <2>;
 	qcom,mactype = <2>;
 	qcom,upstream-phylink;
+
+	/* Match switch MAC8 so bursts can be backpressured on the CPU trunk. */
+	fixed-link {
+		pause;
+		asym-pause;
+	};
+};
+
+&mdio1 {
+	ethernet-switch@1d {
+		ports {
+			port@8 {
+				fixed-link {
+					pause;
+					asym-pause;
+				};
+			};
+		};
+	};
 };
