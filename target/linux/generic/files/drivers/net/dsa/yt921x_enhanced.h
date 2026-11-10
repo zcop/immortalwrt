@@ -1018,6 +1018,11 @@ enum yt921x_app_selector {
 #define   YT921X_PORT_LEARN_MODE_AUTO			YT921X_PORT_LEARN_MODE(0)
 #define   YT921X_PORT_LEARN_MODE_AUTO_AND_COPY		YT921X_PORT_LEARN_MODE(1)
 #define   YT921X_PORT_LEARN_MODE_CPU_CONTROL		YT921X_PORT_LEARN_MODE(2)
+
+/* Read-to-clear status; no interrupt line is wired on the CR881x. */
+#define YT921X_INTR_STATUS			0x080044
+#define  YT921X_INTR_FDB_MOVE			BIT(18)
+#define  YT921X_INTR_FDB_CREATE			BIT(19)
 #define YT921X_AGEING			0x180440
 #define  YT921X_AGEING_INTERVAL_M		GENMASK(15, 0)
 #define YT921X_FDB_IN0			0x180454
@@ -1423,6 +1428,17 @@ struct yt921x_priv {
 
 	struct yt921x_acl acl;
 	struct yt921x_port ports[YT921X_PORT_NUM];
+	struct delayed_work fdb_sync_work;
+	bool fdb_sync_active;
+	bool fdb_sync_pending;
+	bool fdb_sync_restart;
+	bool fdb_sync_first;
+	u16 fdb_sync_cursor;
+	u32 fdb_sync_last_status;
+	u64 fdb_sync_events;
+	u64 fdb_sync_rows;
+	u64 fdb_sync_moves;
+	u64 fdb_sync_errors;
 
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	struct mutex proc_lock;

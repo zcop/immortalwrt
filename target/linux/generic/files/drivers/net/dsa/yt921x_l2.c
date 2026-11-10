@@ -441,6 +441,39 @@ yt921x_fdb_read(struct yt921x_priv *priv, unsigned char *addr, u16 *vidp,
 	return 0;
 }
 
+/* Exact diagnostic lookup, including multicast entries omitted by FDB dump.
+ * Keep the command and all result words under the same register lock: raw
+ * debugfs register accesses can race bridge MDB updates between operations.
+ * The FID is the hardware key, not a customer VID to be translated here.
+ */
+int yt921x_fdb_lookup(struct yt921x_priv *priv, const unsigned char *addr,
+		     u16 fid, u16 *index, u32 words[3])
+{
+	int res, i;
+
+	if (fid >= VLAN_N_VID)
+		return -EINVAL;
+
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_fdb_has(priv, addr, fid, index);
+	if (res)
+		goto out;
+	if (*index >= YT921X_FDB_NUM) {
+		res = -ENOENT;
+		goto out;
+	}
+	for (i = 0; i < 3; i++) {
+		res = yt921x_reg_read(priv, YT921X_FDB_OUT0 + i * 4,
+				      &words[i]);
+		if (res)
+			goto out;
+	}
+out:
+	mutex_unlock(&priv->reg_lock);
+
+	return res;
+}
+
 static int
 yt921x_fdb_dump(struct yt921x_priv *priv, u16 ports_mask,
 		dsa_fdb_dump_cb_t *cb, void *data)
@@ -515,6 +548,193 @@ yt921x_fdb_dump(struct yt921x_priv *priv, u16 ports_mask,
 	} while (index < YT921X_FDB_NUM - 1);
 
 	return 0;
+}
+
+/* Called with RTNL held after releasing the register lock. Import only an unambiguous learned
+ * source into its current bridge domain; static and pending/auth entries
+ * remain under their existing owners. Normal bridge learning sends the ECM
+ * move notification and retains Linux's dynamic aging policy.
+ */
+static bool yt921x_fdb_sync_entry(struct yt921x_priv *priv, const u8 *addr,
+				u16 fid, u16 pmask, u8 status)
+{
+	struct dsa_switch *ds = &priv->ds;
+	struct net_device *br, *brport;
+	struct dsa_port *dp;
+	u16 vid = fid;
+	int port;
+
+	if (!is_valid_ether_addr(addr) || !is_power_of_2(pmask) ||
+	    (status != YT921X_FDB_ENTRY_STATUS_MIN_TIME &&
+	     status != YT921X_FDB_ENTRY_STATUS_MOVE_AGING_MAX_TIME &&
+	     status != YT921X_FDB_ENTRY_STATUS_MAX_TIME))
+		return false;
+	port = __ffs(pmask);
+	if (!dsa_is_user_port(ds, port))
+		return false;
+	dp = dsa_to_port(ds, port);
+	br = dsa_port_bridge_dev_get(dp);
+	brport = dsa_port_to_bridge_port(dp);
+	if (!br || !brport)
+		return false;
+
+	if (!br_vlan_enabled(br)) {
+		u16 bridge_vid = dsa_tag_8021q_bridge_vid(
+						dsa_port_bridge_num_get(dp));
+
+		if (fid != yt921x_vlan_fid_for_vid(priv, bridge_vid))
+			return false;
+		vid = 0;
+	} else if (priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL) {
+		/* A shared FID alone cannot identify a customer VLAN. */
+		return false;
+	}
+
+	return br_fdb_update_from_hw(brport, addr, vid);
+}
+
+/* Resume a bounded walk instead of holding RTNL across a full 4096-row
+ * table. A new event during a walk requests another pass, so index changes
+ * behind the cursor cannot permanently hide a move.
+ */
+struct yt921x_fdb_sync_row {
+	u8 addr[ETH_ALEN];
+	u16 fid;
+	u16 pmask;
+	u8 status;
+};
+
+static int yt921x_fdb_sync_step(struct yt921x_priv *priv,
+			      struct yt921x_fdb_sync_row rows[32],
+			      unsigned int *count)
+{
+	unsigned int budget = 32;
+
+	while (budget--) {
+		u16 index = 0, fid, pmask;
+		u8 addr[ETH_ALEN], status;
+		bool first = priv->fdb_sync_first;
+		u32 ctrl;
+		int res;
+
+		if (!first && priv->fdb_sync_cursor == YT921X_FDB_NUM - 1)
+			return 0; /* GET_NEXT(4095) hangs this ASIC. */
+		ctrl = YT921X_FDB_OP_MODE_INDEX | YT921X_FDB_OP_START;
+		if (first)
+			ctrl |= YT921X_FDB_OP_OP_GET_ONE;
+		else
+			ctrl |= YT921X_FDB_OP_INDEX(priv->fdb_sync_cursor) |
+				YT921X_FDB_OP_NEXT_TYPE_UCAST |
+				YT921X_FDB_OP_OP_GET_NEXT;
+		res = yt921x_reg_write(priv, YT921X_FDB_OP, ctrl);
+		if (res)
+			return res;
+		res = yt921x_fdb_read(priv, addr, &fid, &pmask, &index,
+				      &status);
+		if (res)
+			return res;
+		priv->fdb_sync_first = false;
+		if (!first) {
+			if (!pmask)
+				return 0;
+			if (index <= priv->fdb_sync_cursor)
+				return -EIO;
+			priv->fdb_sync_cursor = index;
+		}
+		if (pmask) {
+			struct yt921x_fdb_sync_row *row = &rows[(*count)++];
+
+			ether_addr_copy(row->addr, addr);
+			row->fid = fid;
+			row->pmask = pmask;
+			row->status = status;
+			priv->fdb_sync_rows++;
+		}
+	}
+	return 1;
+}
+
+static void yt921x_fdb_sync_workfn(struct work_struct *work)
+{
+	struct yt921x_priv *priv = container_of(to_delayed_work(work),
+					      struct yt921x_priv, fdb_sync_work);
+	struct yt921x_fdb_sync_row rows[32];
+	unsigned int count = 0, moves = 0, i;
+	u32 status;
+	int res;
+
+	if (!READ_ONCE(priv->fdb_sync_active))
+		return;
+	/* Do not consume the event if topology is being changed. This also
+	 * avoids cancel_work_sync vs RTNL deadlocks during teardown.
+	 */
+	if (!rtnl_trylock())
+		goto again;
+	mutex_lock(&priv->reg_lock);
+	res = yt921x_reg_read(priv, YT921X_INTR_STATUS, &status);
+	if (res) {
+		priv->fdb_sync_errors++;
+		priv->fdb_sync_pending = true;
+		priv->fdb_sync_restart = true;
+	} else {
+		priv->fdb_sync_last_status = status;
+		if (status & (YT921X_INTR_FDB_MOVE | YT921X_INTR_FDB_CREATE)) {
+			priv->fdb_sync_events++;
+			if (priv->fdb_sync_pending)
+				priv->fdb_sync_restart = true;
+			priv->fdb_sync_pending = true;
+		}
+	}
+	if (priv->fdb_sync_pending) {
+		res = yt921x_fdb_sync_step(priv, rows, &count);
+		if (res < 0) {
+			priv->fdb_sync_errors++;
+			priv->fdb_sync_cursor = 0;
+			priv->fdb_sync_first = true;
+		} else if (!res) {
+			priv->fdb_sync_pending = priv->fdb_sync_restart;
+			priv->fdb_sync_restart = false;
+			priv->fdb_sync_cursor = 0;
+			priv->fdb_sync_first = true;
+		}
+	}
+	mutex_unlock(&priv->reg_lock);
+	/* Bridge/switchdev/ECM notifications run outside the MDIO mutex. */
+	for (i = 0; i < count && READ_ONCE(priv->fdb_sync_active); i++)
+		moves += yt921x_fdb_sync_entry(priv, rows[i].addr, rows[i].fid,
+					    rows[i].pmask, rows[i].status);
+	mutex_lock(&priv->reg_lock);
+	priv->fdb_sync_moves += moves;
+	mutex_unlock(&priv->reg_lock);
+	rtnl_unlock();
+again:
+	if (READ_ONCE(priv->fdb_sync_active))
+		schedule_delayed_work(&priv->fdb_sync_work, msecs_to_jiffies(100));
+}
+
+void yt921x_fdb_sync_init(struct yt921x_priv *priv)
+{
+	INIT_DELAYED_WORK(&priv->fdb_sync_work, yt921x_fdb_sync_workfn);
+}
+
+void yt921x_fdb_sync_start(struct yt921x_priv *priv)
+{
+	if (!priv->qinq)
+		return;
+	if (READ_ONCE(priv->fdb_sync_active))
+		return;
+	priv->fdb_sync_cursor = 0;
+	priv->fdb_sync_first = true;
+	priv->fdb_sync_pending = true;
+	priv->fdb_sync_restart = false;
+	WRITE_ONCE(priv->fdb_sync_active, true);
+	schedule_delayed_work(&priv->fdb_sync_work, msecs_to_jiffies(100));
+}
+
+void yt921x_fdb_sync_stop(struct yt921x_priv *priv)
+{
+	WRITE_ONCE(priv->fdb_sync_active, false);
+	cancel_delayed_work_sync(&priv->fdb_sync_work);
 }
 
 static int

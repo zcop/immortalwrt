@@ -205,6 +205,7 @@ static int yt921x_dsa_setup(struct dsa_switch *ds)
 			 priv->qinq ? "QinQ port-ID" : "802.1Q");
 	}
 
+	yt921x_fdb_sync_start(priv);
 	return 0;
 }
 
@@ -212,6 +213,7 @@ static void yt921x_dsa_teardown(struct dsa_switch *ds)
 {
 	struct yt921x_priv *priv = yt921x_to_priv(ds);
 
+	yt921x_fdb_sync_stop(priv);
 	if (ds->tag_8021q_ctx) {
 		rtnl_lock();
 		dsa_tag_8021q_unregister(ds);
@@ -327,6 +329,7 @@ static void yt921x_mdio_shutdown(struct mdio_device *mdiodev)
 	if (!priv)
 		return;
 
+	yt921x_fdb_sync_stop(priv);
 	for (size_t i = ARRAY_SIZE(priv->ports); i-- > 0; ) {
 		struct yt921x_port *pp = &priv->ports[i];
 
@@ -347,6 +350,7 @@ static void yt921x_mdio_remove(struct mdio_device *mdiodev)
 	if (!priv)
 		return;
 
+	yt921x_fdb_sync_stop(priv);
 	for (size_t i = ARRAY_SIZE(priv->ports); i-- > 0; ) {
 		struct yt921x_port *pp = &priv->ports[i];
 
@@ -499,6 +503,7 @@ static int yt921x_mdio_probe(struct mdio_device *mdiodev)
 		pp->mcast_fast_leave = false;
 		INIT_DELAYED_WORK(&pp->mib_read, yt921x_poll_mib);
 	}
+	yt921x_fdb_sync_init(priv);
 
 #if IS_ENABLED(CONFIG_NET_DSA_YT921X_DEBUG)
 	INIT_DELAYED_WORK(&priv->storm_guard_work, yt921x_storm_guard_workfn);

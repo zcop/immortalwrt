@@ -135,6 +135,8 @@ static void yt921x_proc_reply_help(struct yt921x_priv *priv)
 				 "  help\n"
 				 "  reg read <addr>\n"
 				 "  reg write <addr> <val>\n"
+				 "  fdb lookup <mac> <fid>\n"
+				 "  fdb status\n"
 				 "  int read <port> <reg>\n"
 				 "  int write <port> <reg> <val>\n"
 				 "  ext read <port> <reg>\n"
@@ -2306,6 +2308,53 @@ out_unlock_rma:
 		}
 
 		res = -EINVAL;
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "fdb") && argc == 2 &&
+	    !strcmp(argv[1], "status")) {
+		mutex_lock(&priv->reg_lock);
+		yt921x_proc_reply_append(priv,
+			"fdb_sync active=%u pending=%u restart=%u cursor=%u last_status=0x%08x events=%llu rows=%llu moves=%llu errors=%llu\n",
+			READ_ONCE(priv->fdb_sync_active), priv->fdb_sync_pending,
+			priv->fdb_sync_restart, priv->fdb_sync_cursor,
+			priv->fdb_sync_last_status, priv->fdb_sync_events,
+			priv->fdb_sync_rows, priv->fdb_sync_moves,
+			priv->fdb_sync_errors);
+		mutex_unlock(&priv->reg_lock);
+		goto out;
+	}
+
+	if (!strcmp(argv[0], "fdb") && argc == 4 &&
+	    !strcmp(argv[1], "lookup")) {
+		u8 addr[ETH_ALEN];
+		u32 words[3], fid;
+		u16 index;
+
+		if (!mac_pton(argv[2], addr)) {
+			res = -EINVAL;
+			goto out;
+		}
+		res = yt921x_proc_parse_u32(argv[3], &fid);
+		if (res)
+			goto out;
+		if (fid >= VLAN_N_VID) {
+			res = -EINVAL;
+			goto out;
+		}
+		res = yt921x_fdb_lookup(priv, addr, fid, &index, words);
+		if (res == -ENOENT) {
+			yt921x_proc_reply_append(priv,
+				"fdb mac=%pM fid=%u found=0\n", addr, fid);
+			res = 0;
+		} else if (!res) {
+			yt921x_proc_reply_append(priv,
+				"fdb mac=%pM fid=%u found=1 index=%u status=%u ports=0x%03x raw={0x%08x,0x%08x,0x%08x}\n",
+				addr, fid, index,
+				(u32)FIELD_GET(YT921X_FDB_IO1_STATUS_M, words[1]),
+				(u32)FIELD_GET(YT921X_FDB_IO2_EGR_PORTS_M, words[2]),
+				words[0], words[1], words[2]);
+		}
 		goto out;
 	}
 
