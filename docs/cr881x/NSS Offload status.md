@@ -1,14 +1,58 @@
 # Current native NSS status
 
-Updated: 2026-11-09. Development uses `nss-experiment`; `master` is the
-release/build branch. The installed experimental image is native31,
-Linux6.18.60, in slot1, with tested native30 preserved in slot0. Qosmio's
+Updated: 2026-11-10. Development uses `nss-experiment`; `master` is the
+release/build branch. The installed experimental image is Build42,
+Linux6.18.60, in slot0, with Build41 preserved byte-for-byte in slot1. It retains
+Build34 bridge/FDB fixes, Build35–38 memory changes and Build41 experimental
+Wi-Fi NSS support with the corrected256MiB allocation profile. Build42 adds
+matched RX/TX PAUSE on the GMAC1/switch CPU8 fixed link. See [Wi-Fi NSS validation](nss-qosmio-wifi.md) and
+[the memory budget](nss-memory-budget.md). The ordinary warm-reboot gate also passes, with
+eight NSS interfaces created automatically and no worker/kernel errors. Qosmio's
 native dataplane/core/ECM and `qca-nss-qinq` start automatically. YT921x
 retains DSA port identity through the internal S-tag/C-tag transport.
 
-Latest restored IPv4 TCP is936.47/936.28Mbps LAN→WAN/WAN→LAN, with
-97.86%/98.07% sampled CPU idle, active ECM rules and770286/754899 additional
-firmware TX packets. These are bounded runs on1Gbps endpoint links.
+Build42 wired IPv4 TCP after Wi-Fi cleanup is936.69Mbps LAN→WAN with98.25%
+CPU idle. Its bounded on/off/on PAUSE test removes the measured switch packet
+deficit at200/300Mbps; Wi-Fi TCP download reaches545.78/666.14Mbps with1/3streams
+and about97%CPU idle in the current5GHz STA fixture. Residual end-to-end loss,
+multiport head-of-line effects and Build42 cold-boot acceptance remain open.
+Earlier Build40 wired IPv4 TCP after Wi-Fi cleanup is936.60Mbps LAN→WAN with98.66%
+CPU idle and759003 additional NSS TX packets. Earlier Build34 IPv4 TCP after
+an ordinary warm reboot was934.56/936.56Mbps
+LAN→WAN/WAN→LAN, with98.02%/98.93% sampled CPU idle, active ECM rules and
+514230/501812 additional firmware TX packets. These are bounded runs on1Gbps endpoint links.
+
+## Default forwarding policy
+
+The native NSS profile uses the following defaults:
+
+| Feature | Default |
+| --- | --- |
+| NSS core/dataplane, ECM and QinQ port mapping | Enabled automatically |
+| Matched CPU-link RX/TX PAUSE | Enabled on both GMAC1 and switch CPU8 |
+| Normal switch queue/scheduler initialization and host queue disciplines | Retained |
+| User bandwidth shaping, SQM and per-device rate limits | Opt-in; disabled by default |
+
+PAUSE supplies link backpressure for the validated2.5Gbps-to1Gbps burst case.
+User shaping is a separate policy for bandwidth limits or congestion latency;
+its interaction with NSS must be validated for the selected configuration.
+Including `tc` and scheduler modules for control and diagnostics does not enable
+a bandwidth shaper. Normal `fq_codel` host queues likewise do not imply that
+SQM is configured or that accelerated traffic traverses those queues.
+
+The successful Build42 throughput tests used these defaults. A live read-only
+check found no enabled QoS/SQM service, no HTB/CAKE shaper on the tested netdevs,
+and no LAN3 hardware port/queue shaper or ingress policer. The stock ROM's
+reported QoS speedup is not a reason to enable user shaping in this profile:
+its shipped paths also change forwarding/acceleration eligibility. Static stock
+evidence: `logs/cr8812dx-stock-qos-20261110/REPORT.md`; live queue check:
+`logs/cr8812dx-stock-qos-20261110/default-qos-check.txt`.
+
+## Accepted evidence and limits
+
+The [Qosmio feature comparison](nss-feature-matrix.md) covers every upstream
+matrix row and separates confirmed NSS acceleration, YT9215S switch offload,
+disabled features and adapter gaps on this IPQ5018 profile.
 
 | Area | Accepted evidence and limits |
 | --- | --- |
@@ -22,17 +66,35 @@ firmware TX packets. These are bounded runs on1Gbps endpoint links.
 | IPv6 neighbour recovery | NS/NA resolution and exact neighbour deletion during UDP6 pass with0 loss; announced MAC replacement recovers with83/208338 lost,0.03984%, in one interval; the earlier delayed-announcement failure remains recorded |
 
 Remaining work is explicit in the [current slice status](nss-qosmio-dsa-slices.md#current-acceptance-status)
-and [daily delivery matrix](nss-qinq-daily-traffic.md). Physical cable moves,
-silent hardware-only MAC moves, broader IPv6/discovery/empty-state coverage,
-malformed internal-tag tests and long-term reliability remain open. The MAC
-replacement result is bounded recovery, not lossless delivery.
+and [daily delivery matrix](nss-qinq-daily-traffic.md). Slice29 adds native DHCPv4,
+DHCPv6, RA/SLAAC, stable-owner DAD and specified malformed-tag gates, plus30min
+of completed traffic phases. Slice30 fixes the truncated MDB update words:
+specified discovery groups and both MDB membership orders now pass. Event-based
+learning reconciliation passes silent host-MAC movement without CPU data copies;
+an active NSS rule is invalidated and rebuilt for the new port. The bounded
+Build34 packet-ID/return-path test passes, including completion of the same
+iperf session. A separate stale peer-isolation mask
+found by the fixture is corrected in the installed Build34; its automatic
+peer-mask validation passes. One TCP session
+survives LAN3→LAN1→LAN3 with reacceleration and measured stalls; rapid
+address-reuse timing, broader customer-VLAN cases and long-term reliability
+retain their own gates. Announced MAC replacement is bounded
+recovery, not lossless delivery.
 
 Strict-priority/weighted ETS contention acceptance still fails; software storm
 containment, bridged802.1X and general hardware egress flower remain limited.
 PCP queue selection, TBF, ingress ACL/policer and egress mirror/shaper evidence
 remain separate. Full external2.5G saturation, end-to-end9K and two-member LACP
-need suitable peers. Wi-Fi NSS is disabled; PPP/tunnel and L2/multicast NSS
-acceleration are outside this adapter's accepted scope. Customer S+C QinQ
+need suitable peers. Wi-Fi NSS is experimental:5GHz STA routed traffic is
+accelerated and the measured switch burst-loss deficit is removed with PAUSE.
+Internal2.4GHz STA routed IPv4 also has actual ECM/wifili evidence, but its
+current test fixture fails performance acceptance at roughly0.5–0.9Mbps TCP.
+The same-image Wi-Fi-NSS-disabled control also performs poorly at0.13–0.49Mbps,
+with radio errors and roughly97%CPU idle. The severe TCP limitation persists
+without Wi-Fi NSS; interference and the precise loss cause remain unproven.
+Residual loss, broader performance/asymmetry,2.4GHz cold recovery and AP/Wi-Fi
+IPv6 coverage remain open.
+PPP/tunnel and L2/multicast NSS acceleration are outside this adapter's accepted scope. Customer S+C QinQ
 requires the [standard DSA profile](standard-dsa-qinq-fallback.md).
 
 See [implementation and source pins](nss-qosmio-port.md),
