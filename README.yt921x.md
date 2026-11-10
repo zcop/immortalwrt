@@ -103,7 +103,7 @@ Board-specific validation note:
 ### Quality of service (QoS)
 - Egress Traffic Management (Scheduling & Shaping via `tc mqprio` / `tc tbf`) - DONE (mapped to `0x342000` DWRR and `0x34c000` shaper tables; verified via live throughput deltas on CR881x)
 - Active Queue Management (WRED/RED) - UNSUPPORTED / hardware limitation (no validated silicon support for probabilistic drop math path on this target)
-- Buffer Management (tail-drop limit tuning) - TODO (hardware defaults to global BMU hard-limits; tunable threshold registers in undocumented `0x34xx` range are not mapped yet)
+- Buffer Management (tail-drop limit tuning) - TODO (stock-derived buffer/flow-control and queue/group admission defaults are programmed at `0x2801d0`, `0x281000`, `0x301000` and `0x303000`; complete threshold units, queue occupancy/drop accounting and a Linux tuning interface remain unvalidated)
 - trTCM class policing families - DONE (ingress policer dataplane path validated on CR881x; release path is enabled. Current DSA core in this tree limits active port policer scope to one port at a time.)
 - Multi-source traffic classification - DONE
 - 8 unicast queues + 4 multicast queues per port class - DONE
@@ -260,7 +260,7 @@ Design intent:
 
 - Some `tc flower` key combinations that exceed silicon block shape or unsupported match geometry are rejected by design.
 - Per-port unknown-unicast flood semantics do not map 1:1 to hardware in all cases; unsupported bridge flag semantics are rejected instead of partially emulated.
-- Active queue management (WRED/RED) is not available on this target; tail-drop threshold tuning remains pending undocumented `0x34xx` BMU mapping.
+- Active queue management (WRED/RED) is not available on this target. Buffer/admission defaults have documented addresses, but tail-drop threshold tuning and full field semantics remain unfinished; the mapped `0x34xxxx` scheduler/shaper blocks must not be treated as unidentified BMU controls.
 
 ## Useful References
 

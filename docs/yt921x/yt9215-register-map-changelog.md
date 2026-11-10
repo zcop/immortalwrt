@@ -1,5 +1,23 @@
 # YT9215 Register Map Changelog
 
+## 2026-11-10: buffer/admission defaults and MIB interpretation audit
+
+- Rechecked the canonical map, actionability notes, stock QoS reverse notes,
+  vendor YT9215/TIGER source, driver setup and live CR881x readback.
+- Confirmed LAN3 is MAC port 2 (`0x0c0300` MIB base), primary CPU/eth1 is
+  MAC port 8 (`0x0c0900`) and secondary CPU/eth0 is MAC port 4.
+- Corrected stale `stock-path only` labels for buffer/flow-control and queue/
+  group admission defaults: the current driver already programs these blocks.
+- Group admission uses group indices; the Siflower `i == 5` branch writes
+  index 8 (`0x303020`). It does not prove a group-to-MAC-port identity.
+- Vendor API synthesizes total TX packets and unicast counts. Raw `+0x9c`
+  matches the TX histogram sum in a low-rate 64-ping check; `+0xb0/+0xb4`
+  must not be interpreted as independent hardware unicast counters.
+- The `0x34xxxx` scheduler/shaper blocks are not an unidentified BMU range.
+  Threshold resource units and direct egress-drop accounting remain partial.
+- Evidence: `logs/cr8812dx-yt921x-map-audit-20261110/`. No forwarding,
+  threshold, link or pause registers were modified by this audit.
+
 ## 2026-04-19: ingress policer bank mapping + CIR conversion validation
 
 What changed:

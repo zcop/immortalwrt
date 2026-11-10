@@ -5,7 +5,7 @@ This records execution of [the feature-audit plan](nss-qosmio-dsa-feature-audit.
 The original Kuncy reference remains unchanged; its 30 saved source hashes match.
 Source commits, image identity and device validation are recorded per slice.
 Development now uses `nss-experiment`. The current experimental device image is
-build31 on Linux6.18.60, with validated native30 preserved in the other slot and earlier
+Build42 on Linux6.18.60, with Build41 preserved and hash-verified in the other slot and earlier
 native/standard images retained as verified private raw backups. Slice22 accepts
 installed-library capture on both images and a userspace capture package tested
 from RAM. Slice24 records multicast/queue fixes and remaining scheduler/policy
@@ -13,9 +13,11 @@ limits; Slice25 records actual IPv6 acceleration and boot acceptance below.
 
 ## Current acceptance status
 
-Updated: 2026-11-09. Development is on `nss-experiment`; `master` is the
-release/build branch. Installed native31 runs Linux6.18.60 in slot1 with
-native30 retained in slot0. NSS/QinQ startup is automatic. The numbered
+Updated: 2026-11-10. Development is on `nss-experiment`; `master` is the
+release/build branch. Installed Build42 runs Linux6.18.60 in slot0 with
+Build41 retained and hash-verified in slot1. It retains the Build34 fixes below;
+later Wi-Fi and memory results are linked in [NSS status](NSS%20Offload%20status.md).
+NSS/QinQ startup is automatic. The numbered
 sections below retain each test's image, failed attempts and state at the
 time; their old "remaining" counts are not the current backlog.
 
@@ -29,9 +31,11 @@ time; their old "remaining" counts are not the current backlog.
 | Slice24: L2 and policy | Multicast join/leave, PCP queues, TBF and raw802.1X gates accepted | General egress flower, software storm containment, bridged802.1X and two-member LACP remain limited/open |
 | Slice25: IPv6 and boot | Routed IPv6, one cold boot, one ordinary warm reboot and guarded sysupgrade accepted on native30 | No repeated power-cycle qualification or fresh native30→standard transition |
 | Slices26–27: advanced scheduling | Source/register and diagnostic results recorded on native31 | SP/weighted contention gates fail; further QoS work is deferred |
-| Slice28: daily delivery/recovery | Native/VLAN35 flooding, VID0, CPU broadcast copies and bounded FDB/IPv4/IPv6-neighbour cases tested | Physical/silent port moves, broader discovery/IPv6/empty-state, malformed-tag and soak gates remain open |
+| Slice28: daily delivery/recovery | Native/VLAN35 flooding, VID0, CPU broadcast copies and bounded FDB/IPv4/IPv6-neighbour cases tested | Broader recovery cases continue in Slice29 |
+| Slice29: daily protocol and movement checks | Native DHCPv4/v6, RA/SLAAC, stable-owner DAD, specified malformed tags and30min phase coverage tested | Initial failures superseded by Slice30 corrective work; two physical TCP moves survive with stalls; rapid reuse timing and long-term gates remain open |
+| Slice30: FDB/MDB corrective work | Discovery/MDB membership, silent host movement, no steady CPU copies, Build34 automatic peer isolation and one active IPv4 NSS move/return flow pass | Native routing and ordinary warm reboot also pass; broader VLAN/movement and long-term qualification remain separate |
 
-Latest restored native IPv4 TCP reaches936.47/936.28Mbps at97.86%/98.07%
+The restored Build34 IPv4 TCP test reaches934.56/936.56Mbps at98.02%/98.93%
 sampled CPU idle with firmware counters advancing. Hardware FDB expiry and
 Linux FDB deletion each pass with0 UDP loss. IPv4 endpoint MAC replacement
 recovers with156/208282 packets lost,0.0749%, in one interval; it is not a
@@ -2525,3 +2529,46 @@ Detailed gate boundaries and raw evidence are in the
 and ignored `logs/nss-slices-20261109/slice28-ipv6-recovery/`. RA/DAD policy,
 DHCPv6, broader discovery, physical/silent moves and long-term checks remain
 open. No source-driver change, flash, reboot or push occurs in this follow-up.
+
+## Slice30: FDB words, silent movement and bridge separation
+
+The follow-up corrects the existing-entry FDB control-word widths (`u16` to
+`u32`) and validates both MDB join/leave orders and IPv4/IPv6 mDNS/SSDP
+forwarding with exact numbered packets. It adds an atomic exact MAC/FID lookup
+and a bounded learning-event worker. The worker reconciles existing dynamic
+Linux entries through normal bridge learning, including ECM invalidation,
+without enabling continuous CPU copies of ordinary hardware-switched traffic.
+
+Build34 additionally removes a departing tag_8021q port from its former peers'
+isolation masks. This closes a real multi-bridge fixture storm; the installed
+image now programs the peer bits automatically, and the corrected client
+fixture stays reachable without manual register writes.
+
+A real reverse UDP flow proves old-rule invalidation before a new CPU-visible
+source, new-port acceleration and exact new-port delivery (46 packets, zero
+duplicates and zero old-port deliveries during the measured phase). It returns
+to LAN3 with acceleration and 23 observed packets; the same iperf session exits
+successfully. NSS topology/interface numbers remain unchanged during the move.
+The host-only move also passes in normal learning mode, with zero moved/steady
+source-frame copies on CPU ingress. This is bounded native IPv4 movement
+evidence, not all customer-VLAN/SVL/LAG movement or a loss benchmark.
+
+See the [corrective acceptance details](nss-qinq-daily-traffic.md#slice30-corrective-validation-build34-installed)
+for source policy, test controls, failed fixtures and retained limitations.
+Raw evidence and build/source manifests live under ignored
+`logs/nss-slices-20261109/slice30-learning-multicast-fix/`.
+
+Build34 normal routed TCP passes at936.51/936.71Mbps before one ordinary warm
+reboot and934.56/936.56Mbps afterward, with roughly98–99% sampled CPU idle.
+Eight interfaces return automatically. Source fingerprints match the frozen
+image; normal cabling and the baseline configuration are restored. These
+changes and their tests are committed separately on `nss-experiment`.
+
+
+## Subsequent Wi-Fi NSS work (2026-11-10)
+
+Build40 enables the experimental Qosmio Wi-Fi NSS path without replacing the
+native DSA/QinQ architecture.5GHz STA routed IPv4 traffic is accelerated after
+warm and confirmed cold boots; AP/2.4GHz/IPv6 coverage, loss and asymmetry remain
+open. Earlier references to Wi-Fi being disabled describe the wired-only slice
+baselines. See [Wi-Fi NSS evidence and limits](nss-qosmio-wifi.md).
