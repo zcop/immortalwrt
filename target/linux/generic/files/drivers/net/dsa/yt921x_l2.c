@@ -1715,6 +1715,12 @@ yt921x_dsa_port_bridge_leave(struct dsa_switch *ds, int port,
 		res = yt921x_8021q_standalone(priv, port);
 	else
 		res = yt921x_bridge_leave(priv, port);
+	/* Standalone closes this port's outgoing matrix. Also remove it as
+	 * a destination from its former peers before another bridge can use
+	 * it; QinQ unaware domains rely on this ingress isolation too.
+	 */
+	if (!res && priv->tag_8021q)
+		res = yt921x_isolate(priv, port);
 	if (!res)
 		res = yt921x_refresh_flood_masks_locked(priv);
 	if (!res) {
