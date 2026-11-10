@@ -1,0 +1,36 @@
+From: Yongzhao Chen <yongzhao.derek@gmail.com>
+Subject: wifi: ath11k: read the HTT completion status at the right offset
+
+ath11k_dp_tx_completion_valid() (244) finds the HTT status of a
+firmware-released tx completion with
+
+  ((struct htt_tx_wbm_completion *)desc) + HTT_TX_WBM_COMP_STATUS_OFFSET
+
+HTT_TX_WBM_COMP_STATUS_OFFSET is a byte offset (8), but the cast makes
+it count 16-byte structs, so the filter reads desc + 128: the buffer
+address of the release entry four slots further on. Whenever bits 12:9
+of that unrelated address happen to be 5, the completion is taken for
+HAL_WBM_REL_HTT_TX_COMP_STATUS_MEC_NOTIFY and skipped. Its skb then
+stays in the tx idr pool, DMA mapped, and num_tx_pending never comes
+down; nothing is logged.
+
+The firmware releases mostly multicast and broadcast frames, so those
+are the ones lost. On a Redmi AX5400 (IPQ5018 + QCN9074, NSS offload
+off) num_tx_pending reached 1384 on 5 GHz and 322 on 2.4 GHz within
+days and the router ran out of memory. With this change it stays at
+0-4 over 24 hours and no completion is skipped.
+
+Use byte arithmetic, as ath11k_dp_tx_process_htt_tx_complete() does.
+
+Signed-off-by: Yongzhao Chen <yongzhao.derek@gmail.com>
+--- a/drivers/net/wireless/ath/ath11k/dp_tx.c
++++ b/drivers/net/wireless/ath/ath11k/dp_tx.c
+@@ -804,7 +804,7 @@ static inline bool ath11k_dp_tx_completi
+ 
+ 	if (FIELD_GET(HAL_WBM_RELEASE_INFO0_REL_SRC_MODULE, desc->info0) ==
+ 	    HAL_WBM_REL_SRC_MODULE_FW) {
+-		status_desc = ((struct htt_tx_wbm_completion *)desc) + HTT_TX_WBM_COMP_STATUS_OFFSET;
++		status_desc = (void *)desc + HTT_TX_WBM_COMP_STATUS_OFFSET;
+ 
+ 		/* Dont consider HTT_TX_COMP_STATUS_MEC_NOTIFY */
+ 		if (FIELD_GET(HTT_TX_WBM_COMP_INFO0_STATUS, status_desc->info0) ==

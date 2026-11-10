@@ -1,0 +1,22 @@
+From: Stanislaw Pal <kuncy7@gmail.com>
+Subject: wifi: ath11k: walk only the set-up tx rings on mac stop
+
+ath11k_dp_tx_complete_pending() (911) walks DP_TCL_NUM_RING_MAX tx rings,
+but ath11k_dp_alloc() initialises the tx_idr_lock and the idr pool only
+for hal_params->num_tx_rings of them. Taking the lock of a ring that was
+never set up makes lockdep report a non-static key and switch itself
+off, here when hostapd stops an IPQ5018 radio with NSS disabled. Walk
+the rings that were set up.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+--- a/drivers/net/wireless/ath/ath11k/dp.c
++++ b/drivers/net/wireless/ath/ath11k/dp.c
+@@ -1070,7 +1070,7 @@ void ath11k_dp_tx_complete_pending(struc
+ 	struct sk_buff *msdu;
+ 	int i, j;
+ 
+-	for (i = 0; i < DP_TCL_NUM_RING_MAX; i++) {
++	for (i = 0; i < ab->hw_params.hal_params->num_tx_rings; i++) {
+ 		struct dp_tx_ring *tx_ring = &dp->tx_ring[i];
+ 
+ 		spin_lock_bh(&tx_ring->tx_idr_lock);

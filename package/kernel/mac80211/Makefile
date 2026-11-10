@@ -37,6 +37,9 @@ PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_MAC80211_DEBUGFS \
 	CONFIG_PACKAGE_MAC80211_MESH \
 	CONFIG_PACKAGE_MAC80211_TRACING \
+	CONFIG_PACKAGE_MAC80211_NSS_SUPPORT \
+	CONFIG_NSS_FIRMWARE_VERSION_12_2 \
+	CONFIG_NSS_FIRMWARE_VERSION_12_5 \
 	CONFIG_PACKAGE_IWLWIFI_DEBUG \
 	CONFIG_PACKAGE_IWLWIFI_DEBUGFS \
 	CONFIG_PACKAGE_RTLWIFI_DEBUG \
@@ -46,6 +49,9 @@ SCAN_DEPS = *.mk
 include $(INCLUDE_DIR)/package.mk
 
 WMENU:=Wireless Drivers
+
+NSS_PATCH:=subsys ath11k
+NSS_EXTRA_PATCH:=subsys ath11k
 
 define KernelPackage/mac80211/Default
   SUBMENU:=$(WMENU)
@@ -133,7 +139,8 @@ define KernelPackage/mac80211
   $(call KernelPackage/mac80211/Default)
   TITLE:=Linux 802.11 Wireless Networking Stack
   # +kmod-crypto-cmac is a runtime only dependency of net/mac80211/aes_cmac.c
-  DEPENDS+= +kmod-cfg80211 +kmod-crypto-cmac +kmod-crypto-ccm +kmod-crypto-gcm +hostapd-common
+  DEPENDS+= +kmod-cfg80211 +kmod-crypto-cmac +kmod-crypto-ccm +kmod-crypto-gcm +hostapd-common \
+	+ATH11K_NSS_SUPPORT:kmod-qca-nss-drv
   FILES:= $(PKG_BUILD_DIR)/net/mac80211/mac80211.ko
   ABI_VERSION:=$(PKG_VERSION)-$(PKG_RELEASE)
   MENU:=1
@@ -141,6 +148,11 @@ endef
 
 define KernelPackage/mac80211/config
   if PACKAGE_kmod-mac80211
+
+	config PACKAGE_MAC80211_NSS_SUPPORT
+		bool "Enable NSS offload support in mac80211"
+		depends on PACKAGE_kmod-qca-nss-drv
+		default n
 
 	config PACKAGE_MAC80211_DEBUGFS
 		bool "Export mac80211 internals in DebugFS"
@@ -276,6 +288,7 @@ config-$(call config_package,rsi91x-usb) += RSI_USB
 config-$(call config_package,rsi91x-sdio) += RSI_SDIO
 
 config-$(CONFIG_LEDS_TRIGGERS) += MAC80211_LEDS
+config-$(CONFIG_PACKAGE_MAC80211_NSS_SUPPORT) += MAC80211_NSS_SUPPORT
 
 C_DEFINES=
 
@@ -292,6 +305,12 @@ MAKE_OPTS:= \
 	KLIB=$(TARGET_MODULES_DIR) \
 	KERNEL_SUBLEVEL=$(lastword $(subst ., ,$(KERNEL_PATCHVER))) \
 	KBUILD_LDFLAGS_MODULE_PREREQ=
+
+ifdef CONFIG_ATH11K_NSS_SUPPORT
+  # Backports passes CFLAGS through NOSTDINC_FLAGS on Linux 6.18. Match the
+  # NSS driver's firmware-dependent public message layouts in every consumer.
+  MAKE_OPTS += CFLAGS="-I$(STAGING_DIR)/usr/include/qca-nss-drv$(if $(CONFIG_NSS_FIRMWARE_VERSION_12_2), -DNSS_FIRMWARE_VERSION_12_2)$(if $(CONFIG_NSS_FIRMWARE_VERSION_12_5), -DNSS_FIRMWARE_VERSION_12_5)"
+endif
 
 define ConfigVars
 $(subst $(space),,$(foreach opt,$(config-$(1)),CPTCFG_$(opt)=$(1)
@@ -356,6 +375,14 @@ define Build/Patch
 	$(call PatchDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/mwl,mwl/)
 	$(call PatchDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/brcm,brcm/)
 	$(call PatchDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/rtl,rtl/)
+ifdef CONFIG_ATH11K_NSS_SUPPORT
+	$(foreach driver,$(NSS_PATCH),
+		$(call PatchDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss/$(driver),nss/$(driver)/)
+	)
+	$(foreach driver,$(NSS_EXTRA_PATCH),
+		$(call PatchDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss-extra/$(driver),nss-extra/$(driver)/)
+	)
+endif
 	$(if $(QUILT),touch $(PKG_BUILD_DIR)/.quilt_used)
 endef
 
@@ -373,6 +400,14 @@ define Quilt/Refresh/Package
 	$(call Quilt/RefreshDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/mwl,mwl/)
 	$(call Quilt/RefreshDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/brcm,brcm/)
 	$(call Quilt/RefreshDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/rtl,rtl/)
+ifdef CONFIG_ATH11K_NSS_SUPPORT
+	$(foreach driver,$(NSS_PATCH),
+		$(call Quilt/RefreshDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss/$(driver),nss/$(driver)/)
+	)
+	$(foreach driver,$(NSS_EXTRA_PATCH),
+		$(call Quilt/RefreshDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss-extra/$(driver),nss-extra/$(driver)/)
+	)
+endif
 endef
 
 define Build/Compile

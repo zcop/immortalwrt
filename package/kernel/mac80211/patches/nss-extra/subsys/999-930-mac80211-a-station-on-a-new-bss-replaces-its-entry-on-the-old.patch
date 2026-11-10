@@ -1,0 +1,64 @@
+From: Stanislaw Pal <kuncy7@gmail.com>
+Subject: [PATCH] mac80211: a station on a new BSS replaces its entry on the old
+ one
+
+With IEEE80211_HW_NEEDS_UNIQUE_STA_ADDR a station that turns up on a
+second BSS of the radio is refused with -ENOTUNIQ for as long as the
+first BSS has it. hostapd does tell the first BSS to drop it, but takes
+the kernel entry out only when the status of the deauth frame is back,
+after it has tried to add the new one - so the first attempt of every
+such move fails. And it does not even do that while it still has an
+entry of its own for the station on the new BSS, which it keeps for up
+to half a minute after the station has left: a station that goes back
+within that time is refused until hostapd times the old one out.
+
+The old association is void the moment the station authenticates
+elsewhere on the radio. Between two AP interfaces of different BSSes,
+remove the old entry and let the new one in; everything else keeps the
+refusal. hostapd ignores the DEL_STATION event of a mac80211 AP and
+takes -ENOENT from its own removal later.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+
+--- a/net/mac80211/sta_info.c
++++ b/net/mac80211/sta_info.c
+@@ -849,10 +849,17 @@ struct sta_info *sta_info_alloc_with_lin
+ 	return __sta_info_alloc(sdata, mld_addr, link_id, link_addr, gfp);
+ }
+ 
++static bool sta_info_ap_iface(struct ieee80211_sub_if_data *sdata)
++{
++	return sdata->vif.type == NL80211_IFTYPE_AP ||
++	       sdata->vif.type == NL80211_IFTYPE_AP_VLAN;
++}
++
+ static int sta_info_insert_check(struct sta_info *sta)
+ {
+ 	struct ieee80211_sub_if_data *sdata = sta->sdata;
+ 	struct ieee80211_sta *same_addr_sta;
++	struct sta_info *old;
+ 
+ 	lockdep_assert_wiphy(sdata->local->hw.wiphy);
+ 
+@@ -880,7 +887,21 @@ static int sta_info_insert_check(struct
+ 						     sta->addr, NULL);
+ 	/* For NAN, a peer can re-use */
+ 	if (same_addr_sta && same_addr_sta != rcu_access_pointer(sta->sta.nmi)) {
++		old = container_of(same_addr_sta, struct sta_info, sta);
+ 		rcu_read_unlock();
++
++		/* A station that turns up on another BSS of the radio has
++		 * left the one it was on, whatever user space still holds
++		 * for it there: hostapd takes the old entry out only after
++		 * it has added the new one, and not at all while it has a
++		 * stale entry of its own for the new BSS. Take the old one
++		 * out here instead of refusing the new one. The wiphy mutex
++		 * keeps it alive past the RCU section.
++		 */
++		if (sta_info_ap_iface(sdata) && sta_info_ap_iface(old->sdata) &&
++		    old->sdata->bss != sdata->bss && !__sta_info_destroy(old))
++			return 0;
++
+ 		return -ENOTUNIQ;
+ 	}
+ 	rcu_read_unlock();

@@ -63,6 +63,8 @@
 		qcom,ipv4-enabled;
 		qcom,ipv6-enabled;
 		qcom,pppoe-enabled;
+		/* Initialize wifili handlers and the external-radio interface pool. */
+		qcom,wlan-dataplane-offload-enabled;
 		/* Required to initialize the firmware VLAN message API. */
 		qcom,vlan-enabled;
 	};

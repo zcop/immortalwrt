@@ -1,0 +1,16 @@
+Subject: [PATCH] mac80211: retain the transmit control flags parameter
+
+Backports 7.2 passes control flags through the 802.3 transmit path. The NSS
+simple-transmit patch also adds that parameter; retain it instead of shadowing
+it with the older local variable. Queue selection may update these flags.
+
+--- a/net/mac80211/tx.c
++++ b/net/mac80211/tx.c
+@@ -4998,7 +4998,6 @@
+ 	struct sk_buff *seg, *next;
+ 	unsigned int skbs = 0, len = 0;
+ 	u32 priority = skb->priority;
+-	u32 ctrl_flags = 0;
+ 	u16 queue;
+ 	unsigned char *ra = ehdr->h_dest;
+ 	bool multicast;

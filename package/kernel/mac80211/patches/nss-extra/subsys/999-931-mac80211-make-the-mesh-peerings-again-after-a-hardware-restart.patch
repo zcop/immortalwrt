@@ -1,0 +1,116 @@
+From: Stanislaw Pal <kuncy7@gmail.com>
+Subject: [PATCH] wifi: mac80211: make the mesh peerings again after a hardware restart
+
+A driver calls ieee80211_hw_restart_disconnect() when its firmware did
+not carry a station's connection over a restart: mac80211 then
+disconnects and userspace connects again. A mesh interface had no such
+path. mac80211 adds its peers back after the restart as if nothing had
+happened, but a firmware that numbers the protected frames from zero
+again leaves every peer dropping our frames as replays, and nothing
+acts on that: the link stays "established" and carries no traffic
+(seen with ath11k on IPQ5018/QCN6122, SAE mesh: the peer's replay
+counter grows, no ping comes back).
+
+Let a driver call ieee80211_hw_restart_disconnect() for a mesh
+interface too. mac80211 then removes the peers once the restart is
+done. With the kernel MPM that closes the links (mesh_sta_cleanup()
+sends the CLOSE) and the peers are found again from their beacons. A
+userspace MPM sees the stations go (NL80211_CMD_DEL_STATION), closes
+the links and makes them again. The keys of a mesh interface are not
+tainted: the beacon and the group-addressed frames go on with them
+while the peerings are made again.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+
+--- a/net/mac80211/util.c
++++ b/net/mac80211/util.c
+@@ -2383,6 +2383,8 @@
+ 				continue;
+ 			if (sdata->vif.type == NL80211_IFTYPE_STATION)
+ 				ieee80211_sta_restart(sdata);
++			else if (ieee80211_vif_is_mesh(&sdata->vif))
++				ieee80211_mesh_restart(sdata);
+ 		}
+ 	}
+ 
+@@ -2442,11 +2444,19 @@
+ 		    !local->in_reconfig))
+ 		return;
+ 
+-	if (WARN_ON(vif->type != NL80211_IFTYPE_STATION))
++	if (WARN_ON(vif->type != NL80211_IFTYPE_STATION &&
++		    vif->type != NL80211_IFTYPE_MESH_POINT))
+ 		return;
+ 
+ 	sdata->flags |= flag;
+ 
++	/* A mesh interface keeps its keys: its peerings are made again
++	 * with new ones, and the beacon and the group-addressed frames
++	 * go on meanwhile.
++	 */
++	if (vif->type == NL80211_IFTYPE_MESH_POINT)
++		return;
++
+ 	list_for_each_entry(key, &sdata->key_list, list)
+ 		key->flags |= KEY_FLAG_TAINTED;
+ }
+--- a/net/mac80211/mesh_plink.c
++++ b/net/mac80211/mesh_plink.c
+@@ -387,6 +387,33 @@
+ }
+ 
+ /**
++ * ieee80211_mesh_restart - make the peerings again after a hardware restart
++ *
++ * @sdata: mesh interface the driver called ieee80211_hw_restart_disconnect() for
++ *
++ * The driver could not carry the peerings over the restart: typically its
++ * firmware numbers the frames it protects from zero again, so every peer
++ * drops what we send as a replay. Remove the peers. With the kernel MPM
++ * that closes the links (mesh_sta_cleanup()) and the peers are found again
++ * from their beacons. A userspace MPM sees the stations go
++ * (NL80211_CMD_DEL_STATION), closes the links itself and makes them again.
++ */
++void ieee80211_mesh_restart(struct ieee80211_sub_if_data *sdata)
++{
++	lockdep_assert_wiphy(sdata->local->hw.wiphy);
++
++	if (!(sdata->flags & IEEE80211_SDATA_DISCONNECT_HW_RESTART))
++		return;
++	sdata->flags &= ~IEEE80211_SDATA_DISCONNECT_HW_RESTART;
++
++	if (!sdata->u.mesh.mesh_id_len)
++		return;
++
++	mpl_dbg(sdata, "driver requested new peerings after hardware restart\n");
++	sta_info_flush(sdata, -1);
++}
++
++/**
+  * mesh_plink_deactivate - deactivate mesh peer link
+  *
+  * @sta: mesh peer link to deactivate
+--- a/net/mac80211/mesh.h
++++ b/net/mac80211/mesh.h
+@@ -340,6 +340,7 @@
+ u64 mesh_accept_plinks_update(struct ieee80211_sub_if_data *sdata);
+ void mesh_plink_timer(struct timer_list *t);
+ void mesh_plink_broken(struct sta_info *sta);
++void ieee80211_mesh_restart(struct ieee80211_sub_if_data *sdata);
+ u64 mesh_plink_deactivate(struct sta_info *sta);
+ u64 mesh_plink_open(struct sta_info *sta);
+ u64 mesh_plink_block(struct sta_info *sta);
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -7172,7 +7172,10 @@
+  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
+  *
+  * Instructs mac80211 to disconnect from the AP after
+- * hardware restart.
++ * hardware restart. On a mesh interface it instructs mac80211 to drop
++ * the peerings, which are then made again; a driver calls it when its
++ * firmware did not carry the peers' state (packet numbers, ...) over
++ * the restart.
+  */
+ void ieee80211_hw_restart_disconnect(struct ieee80211_vif *vif);
+ 

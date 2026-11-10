@@ -1,0 +1,54 @@
+NSS wifili: reject registration before the handlers are initialized.
+
+The board's wlan-dataplane-offload enable flag controls handler/pool setup.
+Without it, zero-initialized external pool entries can hand Ethernet interface
+0 to ath11k and reach the core duplicate-registration BUG. Publish readiness
+after initialization and reject uninitialized or unrelated interface requests.
+
+--- a/nss_wifili.c
++++ b/nss_wifili.c
+@@ -71,6 +71,9 @@
+ 	struct nss_wifili_external_if_state_tbl state_tbl[NSS_WIFILI_EXTERNAL_INTERFACE_MAX];
+ } nss_wifi_eif_info;
+ 
++/* Published after handlers and the external-interface pool are initialized. */
++static bool nss_wifili_ready;
++
+ /*
+  * nss_wifili_pvt
+  *	Private data structure
+@@ -323,6 +326,9 @@
+ {
+ 	nss_if_num_t ifnum = -1;
+ 	uint32_t idx;
++
++	if (!smp_load_acquire(&nss_wifili_ready))
++		return -1;
+ 
+ 	/*
+ 	 * Check if the external interface is registered.
+@@ -568,9 +574,13 @@
+ 	/*
+ 	 * The interface number shall be wifili soc interface
+ 	 */
+-	nss_assert((if_num == NSS_WIFILI_INTERNAL_INTERFACE)
+-			|| (if_num == NSS_WIFILI_EXTERNAL_INTERFACE0)
+-			|| (if_num == NSS_WIFILI_EXTERNAL_INTERFACE1));
++	if (!smp_load_acquire(&nss_wifili_ready) ||
++	    (if_num != NSS_WIFILI_INTERNAL_INTERFACE &&
++	     if_num != NSS_WIFILI_EXTERNAL_INTERFACE0 &&
++	     if_num != NSS_WIFILI_EXTERNAL_INTERFACE1)) {
++		nss_warning("wifili registration unavailable or invalid interface %u", if_num);
++		return NULL;
++	}
+ 
+ 	nss_info("nss_register_wifili_if if_num %d wifictx %px", if_num, netdev);
+ 
+@@ -669,4 +679,6 @@
+ 		nss_wifi_eif_info.state_tbl[idx].ifnum = nss_wifili_external_tbl[idx];
+ 		nss_wifi_eif_info.state_tbl[idx].in_use = false;
+ 	}
+-}
++
++	smp_store_release(&nss_wifili_ready, true);
++}
