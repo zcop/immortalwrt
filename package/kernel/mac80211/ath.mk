@@ -13,6 +13,7 @@ PKG_CONFIG_DEPENDS += \
 	CONFIG_ATH10K_LEDS \
 	CONFIG_ATH10K_THERMAL \
 	CONFIG_ATH11K_THERMAL \
+	CONFIG_ATH11K_SMALLBUFFERS \
 	CONFIG_ATH12K_THERMAL \
 	CONFIG_ATH_USER_REGD
 
@@ -349,6 +350,14 @@ chipsets.
 endef
 
 define KernelPackage/ath11k/config
+
+       config ATH11K_SMALLBUFFERS
+               bool "Use smaller ath11k buffers on low-RAM devices"
+               depends on PACKAGE_kmod-ath11k
+               default n
+               help
+                 Reduce TX completion and monitor buffer rings. This saves
+                 host RAM at the cost of buffering headroom under load.
 
        config ATH11K_THERMAL
                bool "Enable thermal sensors and throttling support"
