@@ -1,0 +1,49 @@
+From: CR881x memory diagnostics
+Subject: [PATCH] dma-pool: expose read-only pool usage snapshots
+
+Expose capacity minus available bytes without modifying allocation, free or
+resize paths. Values are non-atomic snapshots, not boot or lifetime peaks.
+Clamp a concurrent expansion snapshot to zero to avoid unsigned underflow.
+
+--- a/kernel/dma/pool.c
++++ b/kernel/dma/pool.c
+@@ -33,6 +33,26 @@
+ }
+ early_param("coherent_pool", early_coherent_pool);
+ 
++/* Diagnostic snapshot only; no changes to allocation or resize paths. */
++static int dma_atomic_pool_used_get(void *data, u64 *value)
++{
++	struct gen_pool *pool = READ_ONCE(*(struct gen_pool **)data);
++	size_t total, available;
++
++	if (!pool) {
++		*value = 0;
++		return 0;
++	}
++
++	/* Expansion can race the two reads; clamp that snapshot to zero. */
++	total = gen_pool_size(pool);
++	available = gen_pool_avail(pool);
++	*value = total > available ? total - available : 0;
++	return 0;
++}
++DEFINE_DEBUGFS_ATTRIBUTE(dma_atomic_pool_used_fops,
++			dma_atomic_pool_used_get, NULL, "%llu\n");
++
+ static void __init dma_atomic_pool_debugfs_init(void)
+ {
+ 	struct dentry *root;
+@@ -41,6 +61,12 @@
+ 	debugfs_create_ulong("pool_size_dma", 0400, root, &pool_size_dma);
+ 	debugfs_create_ulong("pool_size_dma32", 0400, root, &pool_size_dma32);
+ 	debugfs_create_ulong("pool_size_kernel", 0400, root, &pool_size_kernel);
++	debugfs_create_file("pool_used_dma", 0400, root,
++			    &atomic_pool_dma, &dma_atomic_pool_used_fops);
++	debugfs_create_file("pool_used_dma32", 0400, root,
++			    &atomic_pool_dma32, &dma_atomic_pool_used_fops);
++	debugfs_create_file("pool_used_kernel", 0400, root,
++			    &atomic_pool_kernel, &dma_atomic_pool_used_fops);
+ }
+ 
+ static void dma_atomic_pool_size_add(gfp_t gfp, size_t size)
