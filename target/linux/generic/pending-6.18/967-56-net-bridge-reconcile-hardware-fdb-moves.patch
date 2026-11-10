@@ -1,0 +1,92 @@
+From: zcop <hongson.hn@gmail.com>
+Subject: [PATCH] bridge: reconcile existing dynamic FDB entries after hardware moves
+
+Keep hardware-only source moves on the normal bridge-learning path. Preserve
+learning, locked-port, VLAN/MST and administratively-owned FDB policy. Unlike
+extern_learn notifications this does not create entries that require a new
+hardware aging mirror. Existing NSS move hooks in br_fdb_update run normally.
+
+--- a/net/bridge/br_fdb.c
++++ b/net/bridge/br_fdb.c
+@@ -1657,6 +1657,57 @@
+ 	rcu_read_unlock();
+ }
+ 
++/* Reconcile a hardware-observed move without creating immortal externally
++ * learned entries or generating a synthetic data packet. Callers hold RTNL;
++ * ordinary bridge learning retains its policy checks and move notifications.
++ */
++bool br_fdb_update_from_hw(struct net_device *dev, const unsigned char *addr,
++			   u16 vid)
++{
++	struct net_bridge_fdb_entry *fdb;
++	struct net_bridge_port *p;
++	bool moved = false;
++	u8 state;
++
++	ASSERT_RTNL();
++	if (!is_valid_ether_addr(addr))
++		return false;
++	rcu_read_lock();
++	p = br_port_get_rcu(dev);
++	if (!p || !(p->flags & BR_LEARNING) || (p->flags & BR_PORT_LOCKED))
++		goto out;
++	state = READ_ONCE(p->state);
++#ifdef CONFIG_BRIDGE_VLAN_FILTERING
++	if (br_vlan_enabled(p->br->dev)) {
++		struct net_bridge_vlan *v;
++
++		v = br_vlan_find(nbp_vlan_group_rcu(p), vid);
++		if (!v || !br_vlan_should_use(v))
++			goto out;
++		if (br_mst_is_enabled(p) || state == BR_STATE_FORWARDING)
++			state = br_vlan_get_state(v);
++	} else
++#endif
++	if (vid) {
++		goto out;
++	}
++	if (state != BR_STATE_LEARNING && state != BR_STATE_FORWARDING)
++		goto out;
++	fdb = fdb_find_rcu(&p->br->fdb_hash_tbl, addr, vid);
++	if (!fdb || !READ_ONCE(fdb->dst) || READ_ONCE(fdb->dst) == p ||
++	    test_bit(BR_FDB_LOCAL, &fdb->flags) ||
++	    test_bit(BR_FDB_STATIC, &fdb->flags) ||
++	    test_bit(BR_FDB_STICKY, &fdb->flags) ||
++	    test_bit(BR_FDB_LOCKED, &fdb->flags))
++		goto out;
++	br_fdb_update(p->br, p, addr, vid, 0);
++	moved = true;
++out:
++	rcu_read_unlock();
++	return moved;
++}
++EXPORT_SYMBOL_GPL(br_fdb_update_from_hw);
++
+ int br_fdb_external_learn_add(struct net_bridge *br, struct net_bridge_port *p,
+ 			      const unsigned char *addr, u16 vid, bool locked,
+ 			      bool swdev_notify)
+--- a/include/linux/if_bridge.h
++++ b/include/linux/if_bridge.h
+@@ -212,6 +212,8 @@
+ struct net_device *br_fdb_find_port(const struct net_device *br_dev,
+ 				    const unsigned char *addr,
+ 				    __u16 vid);
++bool br_fdb_update_from_hw(struct net_device *dev, const unsigned char *addr,
++			   u16 vid);
+ void br_fdb_clear_offload(const struct net_device *dev, u16 vid);
+ bool br_port_flag_is_set(const struct net_device *dev, unsigned long flag);
+ u8 br_port_get_stp_state(const struct net_device *dev);
+@@ -223,6 +225,12 @@
+ 		 __u16 vid)
+ {
+ 	return NULL;
++}
++
++static inline bool br_fdb_update_from_hw(struct net_device *dev,
++				 const unsigned char *addr, u16 vid)
++{
++	return false;
+ }
+ 
+ static inline void br_fdb_clear_offload(const struct net_device *dev, u16 vid)
