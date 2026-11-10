@@ -1,0 +1,36 @@
+From: ImmortalWrt contributors
+Subject: [PATCH] soc: qcom: mdt_loader: use sleepable DMA allocations for MPD
+
+The split-segment loader runs in process context and calls request_firmware().
+Passing bare GFP_DMA to dma_alloc_coherent() omits the reclaim flags and sends
+these temporary firmware bounce buffers through the atomic coherent pools.
+On IPQ5018 this forces an oversized boot-time coherent_pool and can grow a
+pool that never shrinks, even after firmware loading has finished.
+
+Use GFP_KERNEL for both temporary allocations. The DMA API selects a suitable
+zone using the device's coherent DMA mask; callers should not pass GFP_DMA.
+Firmware addresses, segment sizes and secure-loader arguments stay unchanged.
+
+This follows the MPD allocation issue documented by Kuncy7:
+https://github.com/kuncy7/openwrt-nss-edma/blob/c3po-tag-8021q/README.ipq50xx.md#fixes-worth-knowing-about
+
+--- a/drivers/soc/qcom/mdt_loader.c
++++ b/drivers/soc/qcom/mdt_loader.c
+@@ -122,7 +122,7 @@ static int mdt_load_split_segment_dma(int
+ 	dma_addr_t dma_args, dma_addrs, dma_ptr;
+ 	int ret;
+ 
+-	args = dma_alloc_coherent(dev, sizeof(*args) + sizeof(*addrs), &dma_args, GFP_DMA);
++	args = dma_alloc_coherent(dev, sizeof(*args) + sizeof(*addrs), &dma_args, GFP_KERNEL);
+ 	if (!args) {
+ 		dev_err(dev, "Error in dma alloc regin: %ld\n", sizeof(*args));
+ 		return -ENOMEM;
+@@ -131,7 +131,7 @@ static int mdt_load_split_segment_dma(int
+ 	addrs = (void *) args + sizeof(*args);
+ 	dma_addrs = dma_args + sizeof(*args);
+ 
+-	ptr = dma_alloc_coherent(dev, phdr->p_filesz, &dma_ptr, GFP_DMA);
++	ptr = dma_alloc_coherent(dev, phdr->p_filesz, &dma_ptr, GFP_KERNEL);
+ 	if (!ptr) {
+ 		dev_err(dev, "Error in dma alloc ptr: %d\n", phdr->p_filesz);
+ 		return -ENOMEM;

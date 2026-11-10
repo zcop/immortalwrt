@@ -2,6 +2,11 @@
 /* Native qosmio NSS variant. The ordinary CR881x DTS stays on stmmac. */
 #include "ipq5018-cr881x.dts"
 
+&{/chosen} {
+	/* MPD temporary buffers use sleepable DMA allocations (patch 0828). */
+	bootargs-append = " root=/dev/ubiblock0_1 coherent_pool=512K";
+};
+
 / {
 	/* SSDK provides link symbols only; YT921x and UNIPHY own the hardware. */
 	qcom,ssdk-no-hardware;
