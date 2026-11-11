@@ -1,0 +1,42 @@
+Hold the PPPoE channel device until connect setup or unwind completes.
+
+The addressing helper returns a held device; release it on each exit after
+successful lookup instead of before the caller uses opt.dev.
+
+--- a/pppoe/nss_connmgr_pppoe.c
++++ b/pppoe/nss_connmgr_pppoe.c
+@@ -75,7 +75,7 @@
+ 		return -1;
+ 	}
+ 
+-	dev_put(addressing->dev);
++	/* The caller owns addressing->dev through session setup. */
+ 	ppp_release_channels(channel, 1);
+ 	return 0;
+ }
+@@ -244,7 +244,7 @@
+ 	if_number = nss_dynamic_interface_alloc_node(NSS_DYNAMIC_INTERFACE_TYPE_PPPOE);
+ 	if (if_number == -1) {
+ 		nss_connmgr_pppoe_warn("%px: Request interface number failed\n", dev);
+-		return NOTIFY_DONE;
++		goto connect_put_dev;
+ 	}
+ 
+ 	if (!nss_is_dynamic_interface(if_number)) {
+@@ -346,6 +346,7 @@
+ 	}
+ 	nss_connmgr_pppoe_info("%px: PPPoE session creation is successful\n", dev);
+ 
++	dev_put(opt.dev);
+ 	return NOTIFY_DONE;
+ 
+ connect_fail3:
+@@ -362,6 +363,8 @@
+ 		nss_connmgr_pppoe_warn("%px: Unable to dealloc the node[%d] in the NSS fw!\n", dev, if_number);
+ 	}
+ 
++connect_put_dev:
++	dev_put(opt.dev);
+ 	return NOTIFY_DONE;
+ }
+ 
