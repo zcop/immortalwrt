@@ -46,6 +46,10 @@ PKG_CONFIG_DEPENDS:= \
 
 SCAN_DEPS = *.mk
 
+# NSS changes which patches are applied, so configuration alone cannot
+# safely reuse a source tree prepared for the other dataplane profile.
+PKG_PREPARED_DEPENDS += CONFIG_ATH11K_NSS_SUPPORT
+
 include $(INCLUDE_DIR)/package.mk
 
 WMENU:=Wireless Drivers
