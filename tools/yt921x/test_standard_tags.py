@@ -9,14 +9,16 @@ import os
 import re
 import subprocess
 import tempfile
+from test_qinq_control_rx import extract
 
 ROOT = Path(__file__).resolve().parents[2]
 TAGGER = ROOT / 'target/linux/generic/files/net/dsa/tag_yt921x_enhanced.c'
 source = Path(os.environ.get('YT921X_TAG_SOURCE', TAGGER)).read_text()
-xmit = re.search(r'^static struct sk_buff \*\nyt921x_tag_xmit\(.*?^}', source, re.M | re.S)
-raw = re.search(r'^static bool yt921x_conduit_is_raw\(.*?^}', source, re.M | re.S)
+functions = '\n'.join(extract(source, name) for name in (
+    'yt921x_conduit_is_raw', 'yt921x_tag_xmit_tagged',
+    'yt921x_tag_xmit_control', 'yt921x_tag_xmit'))
 codes = re.search(r'^enum yt921x_tag_code \{.*?^\};', source, re.M | re.S)
-assert xmit and raw and codes
+assert codes
 defines = [line for line in source.splitlines()
            if re.match(r'#define\s+YT921X_TAG_\w+', line)]
 assert any('YT921X_TAG_LEN' in line for line in defines)
@@ -38,6 +40,8 @@ typedef uint16_t __be16;
 
 #define unlikely(x) (x)
 #define ETH_ALEN 6
+#define ETH_HLEN 14
+#define GFP_ATOMIC 0
 #define VLAN_HLEN 4
 #define ETH_P_YT921X 0x9988
 #define CHECKSUM_PARTIAL 3
@@ -61,6 +65,7 @@ struct sk_buff {
 	__be16 vlan_proto;
 	u16 vlan_tci;
 	bool freed;
+	struct net_device *dev;
 };
 
 struct dsa_switch;
@@ -68,6 +73,7 @@ struct dsa_port {
 	unsigned int index;
 	struct dsa_port *cpu_dp;
 	struct dsa_switch *ds;
+	struct net_device *conduit;
 };
 struct dsa_switch_ops {
 	enum dsa_tag_protocol (*get_tag_protocol)(struct dsa_switch *, int,
@@ -75,17 +81,26 @@ struct dsa_switch_ops {
 };
 struct dsa_switch {
 	const struct dsa_switch_ops *ops;
+	struct dsa_port *cpus[3];
 };
 struct net_device {
 	struct dsa_port *dsa;
 };
 #define dsa_user_to_port(netdev) ((netdev)->dsa)
+#define dsa_switch_for_each_cpu_port(dp, ds) \
+	for (unsigned int i = 0; i < 3 && ((dp) = (ds)->cpus[i]); i++)
+struct ethhdr { u8 h_dest[6], h_source[6]; __be16 h_proto; };
+#define eth_hdr(skb) ((struct ethhdr *)(skb)->data)
+static bool pskb_may_pull(struct sk_buff *skb, unsigned int len) { return skb->len >= len; }
+static bool is_link_local_ether_addr(const u8 *dest) {
+	return !memcmp(dest, "\x01\x80\xc2\x00\x00", 5) && dest[5] < 16;
+}
 
 static enum dsa_tag_protocol fake_proto;
 static enum dsa_tag_protocol fake_get_protocol(struct dsa_switch *ds, int port,
 					       enum dsa_tag_protocol m)
 {
-	return fake_proto;
+	return port == 4 ? fake_proto : DSA_TAG_PROTO_YT921X_ENHANCED;
 }
 static const struct dsa_switch_ops fake_ops = {
 	.get_tag_protocol = fake_get_protocol,
@@ -94,6 +109,31 @@ static const struct dsa_switch_ops fake_ops = {
 static char events[16];
 static size_t nevents;
 static bool checksum_fail;
+static bool clone_fail, cow_fail;
+static unsigned int queue_count, free_count;
+static struct sk_buff cloned;
+static struct sk_buff *queued;
+static struct sk_buff *skb_clone(struct sk_buff *skb, int flags)
+{
+	(void)flags;
+	if (clone_fail) return NULL;
+	cloned = *skb;
+	cloned.data = cloned.head + (skb->data - skb->head);
+	return &cloned;
+}
+static void kfree_skb(struct sk_buff *skb)
+{
+	assert(skb == &cloned && !skb->freed);
+	skb->freed = true;
+	free_count++;
+}
+static int dev_queue_xmit(struct sk_buff *skb)
+{
+	assert(skb == &cloned && !skb->freed);
+	queued = skb;
+	queue_count++;
+	return 0;
+}
 static void log_event(char c)
 {
 	assert(nevents + 1 < sizeof(events));
@@ -102,6 +142,7 @@ static void log_event(char c)
 }
 static int skb_cow_head(struct sk_buff *skb, unsigned int len)
 {
+	if (cow_fail) return -1;
 	if ((unsigned int)(skb->data - skb->head) < len)
 		return -1;
 	return 0;
@@ -158,9 +199,9 @@ static __be16 *dsa_etype_header_pos_tx(struct sk_buff *skb)
 static u8 base[4096];
 static unsigned int frame_len;
 static struct sk_buff skb;
-static struct dsa_port user, cpu;
+static struct dsa_port user, cpu, tagged_cpu, extra_cpu;
 static struct dsa_switch sw;
-static struct net_device ndev;
+static struct net_device ndev, tagged_conduit, extra_conduit;
 static const u8 DA[6] = { 0x02, 0, 0, 0, 0, 0x01 };
 static const u8 SA[6] = { 0x02, 0, 0, 0, 0, 0x02 };
 struct tag { u16 tpid; u16 tci; };
@@ -191,8 +232,11 @@ static void setup(unsigned int port, int raw_conduit)
 	user.index = port;
 	user.cpu_dp = &cpu;
 	user.ds = &sw;
-	cpu.index = 8;
+	cpu.index = raw_conduit ? 4 : 8;
 	cpu.ds = &sw;
+	tagged_cpu = (struct dsa_port){ .index = 8, .ds = &sw, .conduit = &tagged_conduit };
+	extra_cpu = (struct dsa_port){ .index = 9, .ds = &sw, .conduit = &extra_conduit };
+	sw.cpus[0] = &tagged_cpu;
 	sw.ops = &fake_ops;
 	fake_proto = raw_conduit ? DSA_TAG_PROTO_NONE : DSA_TAG_PROTO_YT921X_ENHANCED;
 	ndev.dsa = &user;
@@ -212,6 +256,9 @@ static void reset_skb(unsigned int headroom, bool present, u16 vlan_proto,
 	skb.vlan_proto = htons(vlan_proto);
 	skb.vlan_tci = tci;
 	checksum_fail = false;
+	clone_fail = cow_fail = false;
+	queue_count = free_count = 0;
+	queued = NULL;
 	nevents = 0;
 	events[0] = 0;
 }
@@ -319,7 +366,50 @@ int main(void)
 	assert(ret == NULL && !skb.freed && !skb.vlan_present);
 	dump("fail_private", ret);
 
-	puts("PASS: inline S+C, CTAG/STAG metadata, PCP/DEI, priority, port mask, checksum order/failure, raw cases, ownership");
+	/* Secondary WAN control must use a framed clone through the unique
+	 * tagged CPU, while preserving DSA's original skb and all customer tags.
+	 */
+	setup(3, 1);
+	frame_len = build_frame(inline_s, 1, 0x8809);
+	memcpy(base, "\x01\x80\xc2\x00\x00\x00", 6);
+	reset_skb(128, true, 0x8100, MC_TCI, 5, 0x88a8, CHECKSUM_PARTIAL);
+	struct sk_buff original_skb = skb;
+	ret = yt921x_tag_xmit(&skb, &ndev);
+	assert(!ret && queue_count == 1 && !free_count && queued == &cloned);
+	assert(!memcmp(&skb, &original_skb, sizeof(skb)));
+	assert(queued->dev == &tagged_conduit && !queued->vlan_present);
+	assert(queued->len == frame_len + 12 && !strcmp(events, "VC"));
+	assert(!memcmp(queued->data, base, 12));
+	const u8 command[8] = {0x99,0x88,0,0,5,0x80,0x80,8};
+	assert(!memcmp(queued->data + 12, command, 8));
+	assert(queued->data[20] == 0x81 && queued->data[21] == 0);
+	assert(queued->data[22] == (MC_TCI >> 8) && queued->data[23] == (MC_TCI & 255));
+	assert(!memcmp(queued->data + 24, base + 12, frame_len - 12));
+
+	/* Allocation/framing failures consume only a successfully cloned skb. */
+	reset_skb(128, false, 0, 0, 0, 0x88a8, CHECKSUM_NONE);
+	clone_fail = true;
+	assert(!yt921x_tag_xmit(&skb, &ndev) && !queue_count && !free_count && !skb.freed);
+	reset_skb(128, false, 0, 0, 0, 0x88a8, CHECKSUM_NONE);
+	cow_fail = true;
+	assert(!yt921x_tag_xmit(&skb, &ndev) && !queue_count && free_count == 1 && !skb.freed);
+	reset_skb(128, false, 0, 0, 0, 0x88a8, CHECKSUM_PARTIAL);
+	checksum_fail = true;
+	assert(!yt921x_tag_xmit(&skb, &ndev) && !queue_count && free_count == 1 && !skb.freed);
+	reset_skb(128, false, 0, 0, 0, 0x88a8, CHECKSUM_NONE);
+	sw.cpus[0] = NULL;
+	assert(!yt921x_tag_xmit(&skb, &ndev) && !queue_count && !free_count);
+	reset_skb(128, false, 0, 0, 0, 0x88a8, CHECKSUM_NONE);
+	sw.cpus[0] = &tagged_cpu; sw.cpus[1] = &extra_cpu;
+	assert(!yt921x_tag_xmit(&skb, &ndev) && !queue_count && !free_count);
+	reset_skb(128, false, 0, 0, 0, 0x88a8, CHECKSUM_NONE);
+	sw.cpus[1] = NULL; tagged_cpu.conduit = NULL;
+	assert(!yt921x_tag_xmit(&skb, &ndev) && !queue_count && !free_count);
+	reset_skb(128, false, 0, 0, 0, 0x88a8, CHECKSUM_NONE);
+	skb.len = 13;
+	assert(!yt921x_tag_xmit(&skb, &ndev) && !queue_count && !free_count);
+
+	puts("PASS: wire tags, raw data, secondary control redirect, clone ownership and failure paths");
 	return 0;
 }
 '''
@@ -379,7 +469,7 @@ with tempfile.TemporaryDirectory(prefix='yt921x-tag-') as temporary:
     directory = Path(temporary)
     cfile = directory / 'tags.c'
     cfile.write_text(preamble + '\n' + '\n'.join(defines) + '\n' + codes.group(0) +
-                     '\n' + raw.group(0) + '\n' + xmit.group(0) + '\n' + main_c)
+                     '\n' + functions + '\n' + main_c)
     executable = directory / 'tags-test'
     subprocess.run(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Wno-unused-parameter',
                     '-Werror=implicit-function-declaration',

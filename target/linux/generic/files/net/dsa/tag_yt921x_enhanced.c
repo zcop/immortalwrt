@@ -49,6 +49,7 @@ enum yt921x_tag_code {
 	YT921X_TAG_CODE_UNK_MCAST = 0x1a,
 	YT921X_TAG_CODE_PORT_COPY = 0x1b,
 	YT921X_TAG_CODE_FDB_COPY = 0x1c,
+	YT921X_TAG_CODE_RMA = 0x3f,
 };
 
 static bool yt921x_conduit_is_raw(const struct dsa_port *cpu_dp)
@@ -65,17 +66,11 @@ static bool yt921x_conduit_is_raw(const struct dsa_port *cpu_dp)
 }
 
 static struct sk_buff *
-yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
+yt921x_tag_xmit_tagged(struct sk_buff *skb, struct dsa_port *dp)
 {
-	struct dsa_port *dp = dsa_user_to_port(netdev);
 	unsigned int port = dp->index;
 	__be16 *tag;
 	u16 tx;
-
-	if (yt921x_conduit_is_raw(dp->cpu_dp)) {
-		/* Secondary conduit sends raw frames (no YT tag). */
-		return skb;
-	}
 
 	/* The private CPU tag has no VLAN metadata field. Materialize an
 	 * offloaded customer tag before adding the private header so the
@@ -113,6 +108,57 @@ yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
 	tag[3] = htons(tx);
 
 	return skb;
+}
+
+/* Raw CPU ingress is classified like an ordinary switch port. Link-local
+ * control frames can therefore be trapped back to the tagged CPU instead of
+ * reaching their intended user port. Send those frames through the unique
+ * tagged CPU with an explicit destination mask, as in the QinQ control path.
+ * DSA retains the original skb; dev_queue_xmit consumes only this clone.
+ */
+static struct sk_buff *
+yt921x_tag_xmit_control(struct sk_buff *skb, struct dsa_port *dp)
+{
+	struct dsa_port *cpu, *tagged_cpu = NULL;
+	struct sk_buff *control;
+
+	dsa_switch_for_each_cpu_port(cpu, dp->ds) {
+		if (!cpu->conduit || yt921x_conduit_is_raw(cpu))
+			continue;
+		if (tagged_cpu)
+			return NULL;
+		tagged_cpu = cpu;
+	}
+	if (!tagged_cpu)
+		return NULL;
+
+	control = skb_clone(skb, GFP_ATOMIC);
+	if (!control)
+		return NULL;
+	if (!yt921x_tag_xmit_tagged(control, dp)) {
+		kfree_skb(control);
+		return NULL;
+	}
+	control->dev = tagged_cpu->conduit;
+	dev_queue_xmit(control);
+	return NULL;
+}
+
+static struct sk_buff *
+yt921x_tag_xmit(struct sk_buff *skb, struct net_device *netdev)
+{
+	struct dsa_port *dp = dsa_user_to_port(netdev);
+
+	if (yt921x_conduit_is_raw(dp->cpu_dp)) {
+		if (!pskb_may_pull(skb, ETH_HLEN))
+			return NULL;
+		if (is_link_local_ether_addr(eth_hdr(skb)->h_dest))
+			return yt921x_tag_xmit_control(skb, dp);
+		/* Ordinary secondary-conduit data keeps its raw format. */
+		return skb;
+	}
+
+	return yt921x_tag_xmit_tagged(skb, dp);
 }
 
 static struct sk_buff *
@@ -202,6 +248,7 @@ yt921x_tag_rcv(struct sk_buff *skb, struct net_device *netdev)
 		dsa_default_offload_fwd_mark(skb);
 		break;
 	case YT921X_TAG_CODE_L2_CTRL:
+	case YT921X_TAG_CODE_RMA:
 	case YT921X_TAG_CODE_UNK_UCAST:
 	case YT921X_TAG_CODE_UNK_MCAST:
 		/* CPU-directed trap/copy classes. Do not set offload_fwd_mark. */
