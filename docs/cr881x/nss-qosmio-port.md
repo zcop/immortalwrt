@@ -171,10 +171,13 @@ The later [PPPoE slice](nss-pppoe.md) admits one innermost PPPoE interface
 whose live NSS registration matches ECM's cached interface identity. Existing
 frontend PPPoE fields are preserved alongside the exact QinQ underlay. Build46
 passes routed IPv4 NAT/TCP on plain WAN and WAN VLAN35, MTU1492 and session-ID
-reuse after teardown. PPPoE IPv6 has not been hardware validated. Nested PPP,
-tunnel hierarchies, L2/multicast/non-ported acceleration and ambiguous customer
-VLANs remain outside this mapping. YT921x hardware switching and its established
-DONE baseline remain separate from these NSS limitations.
+reuse after teardown. Subsequent tests on the same image also pass routed IPv6
+TCP/bidirectional UDP, IPv6 Packet Too Big and dual-stack session-ID reuse on
+both underlays. IPv6 prefixes were controlled test settings; DHCPv6-PD is not
+validated. Nested PPP, tunnel hierarchies, L2/multicast/non-ported acceleration
+and ambiguous customer VLANs remain outside this mapping. YT921x hardware
+switching and its established DONE baseline remain separate from these NSS
+limitations.
 
 Wire format remains:
 

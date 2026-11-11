@@ -36,7 +36,7 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | Qosmio feature | Upstream table | CR881x device result |
 | --- | --- | --- |
 | TUNIPIP6 | Supported | Disabled; no tunnel data-path validation; QinQ tunnel hierarchy mapping is not implemented |
-| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP with one PPPoE session:847.1/931.3Mbps on plain WAN,846.7/931.3Mbps over WAN VLAN35. MTU1492 and same-session-ID reconnect pass with ECM/firmware proof. IPv6 over PPPoE, authentication and multiple sessions remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
+| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP and routed IPv6 TCP/bidirectional UDP with one session on plain WAN and WAN VLAN35. IPv4 reaches about847–849/931Mbps, IPv6 about831–833/918Mbps. MTU1492, IPv6 Packet Too Big and dual-stack session-ID reuse pass with ECM/firmware proof. DHCPv6-PD, authentication and multiple sessions remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
 | L2TPV2 | Supported | Disabled; no device acceptance; tunnel mapping gap applies |
 | BRIDGE | Supported | NSS L2 bridging is not implemented by the QinQ resolver, which requires routed connections. Ordinary DSA/Linux bridging and YT9215S hardware switching pass their own tests |
 | VLAN | Supported | Confirmed NSS for routed traffic using supported single-customer802.1Q paths: aware/unaware bridge VLAN uppers and direct port uppers, including runtime VID35/4094 checks.64-node NSS capacity; full customer S+C tags use separate standard-DSA host forwarding |
@@ -63,10 +63,10 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 The important boundary is the current QinQ ECM resolver: its allowed interface
 hierarchies are Ethernet, bridge and VLAN, optionally ending in one registered
 PPPoE interface. It rejects non-routed flows. The custom mapping is wired into
-the ported IPv4/IPv6 frontends, but PPPoE hardware acceptance currently covers
-IPv4 NAT/TCP only. Tunnels, L2 bridging and NSS multicast forwarding must not
-be inferred from those results. YT9215S MDB/snooping/discovery tests remain
-valid switch results.
+the ported IPv4/IPv6 frontends. PPPoE hardware acceptance covers IPv4 NAT/TCP
+and routed IPv6 TCP/bidirectional UDP using controlled IPv6 prefixes. DHCPv6-PD,
+tunnels, L2 bridging and NSS multicast forwarding must not be inferred from
+those results. YT9215S MDB/snooping/discovery tests remain valid switch results.
 
 Both radio firmware instances initialize NSS. Separate traffic/counter tests
 now demonstrate both5GHz and internal2.4GHz STA data paths, but only the former
@@ -111,6 +111,8 @@ two-member LACP/load-sharing also lacks a suitable peer.
 - Same-image2.4GHz Wi-Fi NSS disabled control and restoration: `logs/cr8812dx-wifi24-control-20261110/`.
 - Build46 PPPoE, VLAN35 wire tags, MTU and session replacement:
   [PPPoE validation](nss-pppoe.md), `logs/cr881x-pppoe-nss-20261111/`.
+- Same-image IPv6 PPPoE and dual-stack recovery:
+  `logs/cr881x-pppoe-ipv6-20261111/`, especially `qualified-evidence.json`.
 
 The original comparison used read-only checks; the later2.4GHz test above had
 guarded temporary settings restored. Missing confirmation in other rows is
