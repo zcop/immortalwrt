@@ -173,11 +173,14 @@ frontend PPPoE fields are preserved alongside the exact QinQ underlay. Build46
 passes routed IPv4 NAT/TCP on plain WAN and WAN VLAN35, MTU1492 and session-ID
 reuse after teardown. Subsequent tests on the same image also pass routed IPv6
 TCP/bidirectional UDP, IPv6 Packet Too Big and dual-stack session-ID reuse on
-both underlays. IPv6 prefixes were controlled test settings; DHCPv6-PD is not
-validated. Nested PPP, tunnel hierarchies, L2/multicast/non-ported acceleration
-and ambiguous customer VLANs remain outside this mapping. YT921x hardware
-switching and its established DONE baseline remain separate from these NSS
-limitations.
+both underlays. A further same-image DHCPv6-PD gate passes automatic `/56`
+delegation to test VLAN46's `/64`, renewal during traffic, prefix replacement
+without restarting PPP and reacquisition over WAN VLAN35. The delegated test
+client has matching ECM/NSS and WAN-wire evidence; the management LAN retains
+its existing ULA and RA policy. Nested PPP, tunnel hierarchies,
+L2/multicast/non-ported acceleration and ambiguous customer VLANs remain outside
+this mapping. YT921x hardware switching and its established DONE baseline remain
+separate from these NSS limitations.
 
 Wire format remains:
 

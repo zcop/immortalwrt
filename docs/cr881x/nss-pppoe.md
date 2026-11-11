@@ -4,8 +4,9 @@ Build46 hardware checks on2026-11-11 confirm routed IPv4 NAT/TCP and routed
 IPv6 TCP/bidirectional UDP through one PPPoE session on plain WAN and `wan.35`.
 The device is CR8812DX/IPQ5018 +
 YT9215S, Linux6.18.60, NSS firmware12.2 and the256MiB allocation profile.
-This is bounded PPPoE acceptance; it does not certify DHCPv6-PD, authentication,
-multiple concurrent sessions, sustained soak or firmware-destroy error recovery.
+Automatic DHCPv6-PD and downstream SLAAC also pass the bounded gate below.
+Acceptance does not cover authentication, multiple concurrent sessions,
+sustained soak or firmware-destroy error recovery.
 
 ## Mapping and lifetime
 
@@ -87,7 +88,8 @@ starting a DHCPv6 client. The AC and router negotiated `fe80::1`/`fe80::2`;
 controlled global-scope ULA addresses and return routes were then assigned
 to the PPP endpoints. The LAN namespace used the router's existing LAN prefix,
 so no new LAN prefix or workstation address/default route was configured.
-This verifies the routed dataplane, not DHCPv6 prefix delegation or ISP setup.
+That initial run verifies the routed dataplane with controlled addresses.
+The subsequent DHCPv6-PD gate below tests automatic prefix provisioning.
 
 | Gate | Plain WAN, SID301 | WAN VLAN35, SID401 | VLAN35 after SID401 reuse |
 | --- | --- | --- | --- |
@@ -124,6 +126,78 @@ Evidence is under `logs/cr881x-pppoe-ipv6-20261111/`: `RESULT.json`,
 session negotiation logs and reconnect-before/down/after captures. The source
 review is static evidence; acceptance rests on the recorded traffic, firmware
 counters, exact ECM hierarchy and WAN captures.
+
+## Automatic DHCPv6 prefix delegation
+
+The unchanged Build46 image also passes PPPoE with `ipv6=auto` and
+`reqprefix=56`: netifd creates the normal `wan_6` DHCPv6 child, odhcp6c obtains
+the AC's `/56`, and netifd assigns a `/64` to the test LAN. Odhcpd advertises
+that prefix and the namespace client obtains its preferred address through
+SLAAC. The client routes from that address through its tagged interface to
+the AC's PPP endpoint. The flow and wire records below verify this path.
+
+The test LAN is `br-lan.46` with `ip6assign=64` and the `ip6class` list
+containing `wan_6`. The management LAN's class list is restricted to `local`
+for this fixture, preserving its original ULA assignment. Normal netifd
+prefix-class lists select which LANs receive each prefix. Direct
+RA probes in every phase confirm only the original ULA on the management
+LAN, with router lifetime zero. Test VLAN46 receives the delegated `/64`
+and router lifetime 180 seconds. The main workstation's interfaces, Wi-Fi and
+default routes remain unchanged.
+
+| Phase | Delegated prefix | IPv6 TCP LAN-to-AC / reverse |
+| --- | --- | --- |
+| Native PPPoE, SID501 | `2001:db8:47:100::/56` | 831.6/918.1 Mbps |
+| Prefix replacement, same PPP session | `2001:db8:47:200::/56` | 831.6/918.3 Mbps |
+| Reconnect over WAN VLAN35, SID601 | `2001:db8:47:300::/56` | 809.5/918.3 Mbps |
+
+The controlled AC uses documentation prefixes, preferred/valid lifetimes
+of 120/180 seconds and renewal/rebind timers of 30/60 seconds. Its server log
+records a DHCPv6 RENEW 3.359 seconds into the first eight-second TCP run; that
+connection completes and the preferred client address remains unchanged.
+Changing the AC pool and requesting renewal then replaces the delegated
+prefix without changing the PPP netdev or SID. The RA withdraws the old
+prefix with preferred/valid lifetimes zero, the old client address becomes
+deprecated, and the new address is preferred. The old address can retain
+some valid lifetime on the client; immediate deletion is not an acceptance
+requirement. New TCP flows from the new prefix accelerate normally.
+
+The prefix change occurred between bulk TCP runs, so this does not certify
+survival of an established connection across address renumbering. WAN35
+reconnect changes the PPP netdev index from 23 to 26 and NSS registration from 33 to 45,
+reacquires the third prefix and resumes accelerated traffic. This is a
+single-client `/56`-to-`/64` gate, not a comprehensive ISP or multi-LAN test.
+
+For each phase, both directions have matching IPv6 ECM mode2 flows, the
+current PPP registration/SID, customer VLAN46 and firmware packet growth.
+VLAN/interface/missing-session error and rule-drop counters remain zero in
+the captured midflow snapshots. Each 500-frame WAN capture contains the
+expected delegated client and AC addresses, unchanged by NAT, with no VLAN
+on native WAN or exactly VLAN35 on tagged WAN. No private S-tag leaks onto
+the WAN wire. No driver changes, firmware rebuild or manual register overrides
+were needed.
+
+The first hardware attempt ended because its fixture deadline included
+copper negotiation and LAN bridge startup, leaving only a few seconds for
+PPP negotiation. The accepted attempt waits for both links and bridge
+forwarding before starting PPP. Separately, Kea's interface discovery on
+the controlled AC selected the PPP peer address as a local socket address;
+normalizing only the AC's link-local address representation fixed its bind.
+That fixture correction does not modify the router's PPP stack.
+
+Raw evidence is in `logs/cr881x-pppoe-pd-20261111/`: `RESULT.json`,
+`qualified-evidence.json`, `*-provision.json`, `kea-final.log`, per-phase
+ECM/counter/frame records and `renumbered-client-addresses.json`.
+After disconnect, both address families have zero accelerated flows and no
+PPP registration. Following confirmed spare-cable removal and Windows WAN
+reconnection, the original network/wireless/firewall/DHCP hashes and management
+LAN addresses/prefix assignment all match the baseline, with no pending UCI
+changes. Test interfaces, namespaces and the temporary boot guard are removed.
+Fresh DHCP WAN/NSS traffic passes at 936.2/931.5 Mbps with matching ECM and firmware
+counters, eight normal QinQ nodes and no kernel warnings. The router's boot ID
+is unchanged; the UART process is no longer running. Final restoration evidence
+is retained in `final-dhcp/`, `cleanup-final.txt` and `final-identity.txt` within
+this slice's log directory.
 
 ## Source checks and image identity
 

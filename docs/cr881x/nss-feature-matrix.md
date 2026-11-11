@@ -22,7 +22,7 @@ scope; earlier accepted features have not all been re-run on Build46.
 
 | Function | Device evidence | Scope |
 | --- | --- | --- |
-| IPv4 NAT/routed TCP | Confirmed NSS: Build46 DHCP WAN936.5/933.5Mbps with ECM and firmware counters | One1Gbps endpoint fixture; earlier Build42 measured98.25%CPU idle; no new CPU-idle measurement |
+| IPv4 NAT/routed TCP | Confirmed NSS: latest Build46 DHCP WAN936.2/931.5Mbps after the DHCPv6-PD fixture was restored, with ECM and firmware counters | One1Gbps endpoint fixture; earlier Build42 measured98.25%CPU idle; no new CPU-idle measurement |
 | IPv4 routed UDP | Confirmed NSS with per-flow ECM mode2 and firmware counters | Default classifier policy1 waits for bidirectional qualification; controlled one-way tests temporarily used policy0 and restored it |
 | IPv6 routed TCP/UDP | Confirmed NSS in earlier native30/31 tests | TCP923.71/923.67Mbps; UDP6 neighbour recovery at50Mbps with accelerated rules and TX growth. No NAT66 test; no fresh Build42 IPv6 load test |
 | Automatic startup | Confirmed: native core/dataplane/ECM/QinQ load and nodes provision automatically | Build46 startup checked with eight QinQ nodes and both256MiB Wi-Fi profiles; no manual arm service |
@@ -36,7 +36,7 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | Qosmio feature | Upstream table | CR881x device result |
 | --- | --- | --- |
 | TUNIPIP6 | Supported | Disabled; no tunnel data-path validation; QinQ tunnel hierarchy mapping is not implemented |
-| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP and routed IPv6 TCP/bidirectional UDP with one session on plain WAN and WAN VLAN35. IPv4 reaches about847–849/931Mbps, IPv6 about831–833/918Mbps. MTU1492, IPv6 Packet Too Big and dual-stack session-ID reuse pass with ECM/firmware proof. DHCPv6-PD, authentication and multiple sessions remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
+| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP and routed IPv6 TCP/bidirectional UDP with one session on plain WAN and WAN VLAN35. IPv4 reaches about847–849/931Mbps, IPv6 about831–833/918Mbps. MTU1492, IPv6 Packet Too Big and dual-stack session-ID reuse pass. Automatic DHCPv6-PD `/56` to test-LAN `/64`, renewal during TCP, prefix replacement and WAN35 reacquisition also pass with ECM/firmware proof. Authentication and multiple sessions remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
 | L2TPV2 | Supported | Disabled; no device acceptance; tunnel mapping gap applies |
 | BRIDGE | Supported | NSS L2 bridging is not implemented by the QinQ resolver, which requires routed connections. Ordinary DSA/Linux bridging and YT9215S hardware switching pass their own tests |
 | VLAN | Supported | Confirmed NSS for routed traffic using supported single-customer802.1Q paths: aware/unaware bridge VLAN uppers and direct port uppers, including runtime VID35/4094 checks.64-node NSS capacity; full customer S+C tags use separate standard-DSA host forwarding |
@@ -64,9 +64,11 @@ The important boundary is the current QinQ ECM resolver: its allowed interface
 hierarchies are Ethernet, bridge and VLAN, optionally ending in one registered
 PPPoE interface. It rejects non-routed flows. The custom mapping is wired into
 the ported IPv4/IPv6 frontends. PPPoE hardware acceptance covers IPv4 NAT/TCP
-and routed IPv6 TCP/bidirectional UDP using controlled IPv6 prefixes. DHCPv6-PD,
-tunnels, L2 bridging and NSS multicast forwarding must not be inferred from
-those results. YT9215S MDB/snooping/discovery tests remain valid switch results.
+and routed IPv6 TCP/bidirectional UDP. The later DHCPv6-PD gate obtains a real
+lease from the controlled AC and advertises its assigned `/64` only on test
+VLAN46; the management LAN retains its original ULA and RA policy. Tunnels,
+L2 bridging and NSS multicast forwarding must not be inferred from those results.
+YT9215S MDB/snooping/discovery tests remain valid switch results.
 
 Both radio firmware instances initialize NSS. Separate traffic/counter tests
 now demonstrate both5GHz and internal2.4GHz STA data paths, but only the former
@@ -113,6 +115,10 @@ two-member LACP/load-sharing also lacks a suitable peer.
   [PPPoE validation](nss-pppoe.md), `logs/cr881x-pppoe-nss-20261111/`.
 - Same-image IPv6 PPPoE and dual-stack recovery:
   `logs/cr881x-pppoe-ipv6-20261111/`, especially `qualified-evidence.json`.
+- Automatic PPPoE DHCPv6-PD, renewal and renumbering:
+  `logs/cr881x-pppoe-pd-20261111/`, especially `qualified-evidence.json` and
+  the per-phase prefix/RA/client status records. Its `final-dhcp/` and
+  `cleanup-final.txt` confirm original configuration and normal NSS restoration.
 
 The original comparison used read-only checks; the later2.4GHz test above had
 guarded temporary settings restored. Missing confirmation in other rows is
