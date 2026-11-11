@@ -1,0 +1,59 @@
+Admit one registered PPPoE endpoint above the exact QinQ underlay.
+
+Retain the existing frontend PPPoE rule fields and reject stale session
+registrations, nested PPP and unsupported hierarchy types.
+
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -22,6 +22,7 @@
+ #include <linux/inet.h>
+ #include <linux/etherdevice.h>
+ #include <linux/if_bridge.h>
++#include <linux/if_arp.h>
+ #include <linux/if_vlan.h>
+ #if IS_ENABLED(CONFIG_NET_DSA)
+ #include <linux/dsa/8021q.h>
+@@ -112,10 +113,42 @@
+ 		goto out;
+ 	}
+ 
+-	/* Only plain routed Ethernet/bridge/one-customer-VLAN hierarchies. */
++	/* Routed Ethernet/bridge/one-customer-VLAN, optionally terminating
++	 * in one live PPPoE session. PPPoE rule fields remain owned by the
++	 * ordinary frontend; this resolver supplies only its QinQ underlay.
++	 */
+ 	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+ 		ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
+ 
++#ifdef ECM_INTERFACE_PPPOE_ENABLE
++		if (type == ECM_DB_IFACE_TYPE_PPPOE) {
++			int if_num;
++
++			/* PPP must be the one innermost interface, not a nested
++			 * tunnel or a VLAN device mislabeled as PPP. Require the
++			 * current registration to match the cached session iface.
++			 */
++			if (i != ECM_DB_IFACE_HEIRARCHY_MAX - 1) {
++				ret = -EOPNOTSUPP;
++				goto out;
++			}
++			dev = dev_get_by_index(&init_net,
++				ecm_db_iface_interface_identifier_get(ifaces[i]));
++			if (!dev) {
++				ret = -ENODEV;
++				goto out;
++			}
++			if_num = nss_cmn_get_interface_number_by_dev(dev);
++			ret = (dev->type == ARPHRD_PPP &&
++			       (dev->flags & IFF_POINTOPOINT) && if_num >= 0 &&
++			       if_num == ecm_db_iface_ae_interface_identifier_get(ifaces[i]))
++			      ? 0 : -EOPNOTSUPP;
++			dev_put(dev);
++			if (ret)
++				goto out;
++			continue;
++		}
++#endif
+ 		if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
+ 		    type != ECM_DB_IFACE_TYPE_BRIDGE && type != ECM_DB_IFACE_TYPE_VLAN) {
+ 			ret = -EOPNOTSUPP;

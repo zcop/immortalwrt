@@ -52,7 +52,7 @@ typedef uint16_t u16;
 #define rtnl_lock() ((void)0)
 #define rtnl_unlock() ((void)0)
 struct net_device {
-    int phys, index, refs, features;
+    int phys, index, refs, features, type, flags;
     bool is_vlan, is_dsa, vlan_enabled, is_bridge;
     u16 vid, proto;
     struct net_device *real, *master;
@@ -238,6 +238,9 @@ typedef uint32_t u32;
 #define DSA_TAG_8021Q_MAX_NUM_BRIDGES 7
 #define ECM_DB_IFACE_HEIRARCHY_MAX 8
 #define NSS_MAX_PHYSICAL_INTERFACES 8
+#define ECM_INTERFACE_PPPOE_ENABLE
+#define ARPHRD_PPP 512
+#define IFF_POINTOPOINT 0x10
 #define VLAN_VID_MASK 4095
 #define ETH_P_8021AD 0x88a8U
 #define ETH_P_8021Q 0x8100U
@@ -266,7 +269,7 @@ struct ecm_db_connection_instance { bool routed; };
 typedef int ecm_db_iface_type_t;
 enum { ECM_DB_IFACE_TYPE_ETHERNET, ECM_DB_IFACE_TYPE_BRIDGE,
        ECM_DB_IFACE_TYPE_VLAN, ECM_DB_IFACE_TYPE_PPPOE };
-struct ecm_db_iface_instance { int index, type; };
+struct ecm_db_iface_instance { int index, type, ae; };
 struct ecm_nss_qinq_side { int physical, leaf; u32 outer, inner; };
 static struct net_device *devices[32];
 static struct net_device *dev_get_by_index(int *net, int index) {
@@ -319,6 +322,7 @@ static bool dsa_yt921x_qinq_direct_vid_valid(struct dsa_port *dp, u16 vid) {
     return !dp->bridge && dp->user && dp->user->features && dp->user->vlans[vid];
 }
 static int ecm_db_iface_interface_identifier_get(struct ecm_db_iface_instance *ii) { return ii->index; }
+static int ecm_db_iface_ae_interface_identifier_get(struct ecm_db_iface_instance *ii) { return ii->ae; }
 static int ecm_db_iface_type_get(struct ecm_db_iface_instance *ii) { return ii->type; }
 static bool ecm_db_connection_is_routed_get(struct ecm_db_connection_instance *ci) { return ci->routed; }
 '''.replace('#define init_net 0', 'static int init_net;')
@@ -506,9 +510,71 @@ int main(void) {
     assert(port.refs == 0 && bridge.refs == 0 && upper.refs == 0);
     test_unaware_bridge_upper();
     puts("PASS: actual ECM resolver handles standalone/bridge/L3 VLAN and rejects stale, ambiguous or unsupported paths");
+    test_pppoe_hierarchy();
     return 0;
 }
 '''
+
+pppoe_checks = r'''
+static void test_pppoe_hierarchy(void) {
+    struct net_device conduit = {.phys = 1};
+    struct net_device port = {.index = 1, .is_dsa = true, .features = 1};
+    struct net_device upper = {.index = 2, .is_vlan = true, .real = &port,
+                               .vid = 35, .proto = 0x8100};
+    struct net_device ppp = {.index = 3, .type = ARPHRD_PPP,
+                             .flags = IFF_POINTOPOINT, .phys = 150};
+    struct tag_ops ops = {.proto = DSA_TAG_PROTO_YT921X_QINQ};
+    struct dsa_tree tree = {.tag_ops = &ops};
+    struct dsa_switch ds = {.dst = &tree, .tag_8021q_ctx = &tree};
+    struct dsa_cpu cpu = {.conduit = &conduit};
+    struct dsa_port dp = {.ds = &ds, .cpu_dp = &cpu, .user = &port};
+    struct ecm_db_iface_instance port_ii = {.index = 1, .type = ECM_DB_IFACE_TYPE_ETHERNET};
+    struct ecm_db_iface_instance upper_ii = {.index = 2, .type = ECM_DB_IFACE_TYPE_VLAN};
+    struct ecm_db_iface_instance ppp_ii = {.index = 3, .type = ECM_DB_IFACE_TYPE_PPPOE, .ae = 150};
+    struct ecm_db_iface_instance *ifaces[8] = {0};
+    struct ecm_db_connection_instance ci = {.routed = true};
+    struct ecm_nss_qinq_side side;
+
+    memset(devices, 0, sizeof(devices));
+    port.dp = &dp; port.vlans[35] = true;
+    devices[1] = &port; devices[2] = &upper; devices[3] = &ppp;
+    clear_nodes();
+    node(0, 1, 3072, 0, 100, -1);
+    node(1, 1, 3072, 3072, 101, 100);
+    node(2, 1, 3072, 35, 102, 100);
+    ifaces[6] = &port_ii; ifaces[7] = &ppp_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == 1);
+    assert(side.physical == 1 && side.leaf == 101 &&
+           side.outer == 0x88a80c00U && side.inner == 0x81000c00U);
+    ifaces[5] = &port_ii; ifaces[6] = &upper_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) == 1);
+    assert(side.leaf == 102 && side.inner == 0x81000023U);
+
+    dsa_nss_reconfiguring = true;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) == -EAGAIN);
+    dsa_nss_reconfiguring = false;
+    port.vlans[35] = false;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0);
+    port.vlans[35] = true;
+    ppp_ii.ae = 149; /* old registration must not name a new session */
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0);
+    ppp_ii.ae = 150; ppp.phys = -1;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0);
+    ppp.phys = 150; ppp.flags = 0;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0);
+    ppp.flags = IFF_POINTOPOINT; ppp.type = 1;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0);
+    ppp.type = ARPHRD_PPP; ci.routed = false;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0);
+    ci.routed = true; ifaces[6] = &ppp_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* nested PPP */
+    ifaces[6] = &upper_ii; ppp_ii.type = 99;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* tunnel */
+    assert(port.refs == 0 && upper.refs == 0 && ppp.refs == 0);
+    puts("PASS: one live PPPoE session over native/customer VLAN; stale, unregistered, malformed, nested and tunnel hierarchies rejected");
+}
+'''
+ecm_checks = ecm_checks.replace('int main(void) {', pppoe_checks + '\nint main(void) {')
 
 header_functions = '\n\n'.join(function(name, header) for name in (
     'dsa_yt921x_qinq_customer_vid_valid', 'dsa_yt921x_qinq_bridge_upper_valid'))

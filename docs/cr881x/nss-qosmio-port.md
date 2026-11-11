@@ -167,11 +167,14 @@ original limit. Build17 installed the correction and passed real tagged WAN35,
 LAN1.35 and LAN1.4094 endpoint traffic in both directions, as recorded in the
 slice report. Bridged, stacked and S-tagged direct
 interfaces are not admitted to that transport.
-QinQ PPP/tunnel hierarchies, L2/multicast/non-ported acceleration and ambiguous
-customer VLANs remain outside this mapping. PPPoE packages compile, but PPPoE
-acceleration through this QinQ adapter is not implemented. YT921x hardware
-switching and its established DONE baseline remain separate from these NSS
-limitations.
+The later [PPPoE slice](nss-pppoe.md) admits one innermost PPPoE interface
+whose live NSS registration matches ECM's cached interface identity. Existing
+frontend PPPoE fields are preserved alongside the exact QinQ underlay. Build46
+passes routed IPv4 NAT/TCP on plain WAN and WAN VLAN35, MTU1492 and session-ID
+reuse after teardown. PPPoE IPv6 has not been hardware validated. Nested PPP,
+tunnel hierarchies, L2/multicast/non-ported acceleration and ambiguous customer
+VLANs remain outside this mapping. YT921x hardware switching and its established
+DONE baseline remain separate from these NSS limitations.
 
 Wire format remains:
 

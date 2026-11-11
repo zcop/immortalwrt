@@ -1,9 +1,10 @@
 # Qosmio NSS features confirmed on CR881x
 
-Checked: 2026-11-10. Device: CR8812DX/IPQ5018 + QCN6122 + YT9215S, native
-Qosmio/QinQ profile. Installed image: Build42, Linux6.18.60, NSS firmware12.2,
-LOW memory and the corrected256MiB Wi-Fi allocation profile. Build41 is the
-preserved slot1 fallback. Source remains under development.
+Device checks updated: 2026-11-11. Device: CR8812DX/IPQ5018 + QCN6122 +
+YT9215S, native Qosmio/QinQ profile. Installed test image: Build46 in slot1,
+Linux6.18.60, NSS firmware12.2, LOW memory and the corrected256MiB Wi-Fi
+allocation profile. Build42 is the preserved slot0 fallback. Source remains
+under development. The upstream table comparison below dates from2026-11-10.
 
 The [Qosmio support matrix](https://github.com/qosmio/openwrt-ipq/blob/main-nss/README.md#nss-support-matrix)
 was checked against the live upstream page. Its columns cover IPQ807x/IPQ60xx,
@@ -15,16 +16,16 @@ this device. The selected feed remains pinned to
 A confirmed NSS data path needs matching traffic, ECM rules and firmware packet
 counters. A compiled flag, loaded module, successful ping or YT9215S hardware
 switching does not establish that claim. Results below retain their test-image
-scope; earlier accepted features have not all been re-run on Build42.
+scope; earlier accepted features have not all been re-run on Build46.
 
 ## Core forwarding, beyond the upstream feature labels
 
 | Function | Device evidence | Scope |
 | --- | --- | --- |
-| IPv4 NAT/routed TCP | Confirmed NSS: latest Build42 LAN-to-WAN936.69Mbps,98.25%CPU idle,517311 additional firmware TX packets | One1Gbps endpoint fixture; earlier native images pass both directions |
+| IPv4 NAT/routed TCP | Confirmed NSS: Build46 DHCP WAN936.5/933.5Mbps with ECM and firmware counters | One1Gbps endpoint fixture; earlier Build42 measured98.25%CPU idle; no new CPU-idle measurement |
 | IPv4 routed UDP | Confirmed NSS with per-flow ECM mode2 and firmware counters | Default classifier policy1 waits for bidirectional qualification; controlled one-way tests temporarily used policy0 and restored it |
 | IPv6 routed TCP/UDP | Confirmed NSS in earlier native30/31 tests | TCP923.71/923.67Mbps; UDP6 neighbour recovery at50Mbps with accelerated rules and TX growth. No NAT66 test; no fresh Build42 IPv6 load test |
-| Automatic startup | Confirmed: native core/dataplane/ECM/QinQ load and nodes provision automatically | Current Build42 boot checked read-only; no manual arm service |
+| Automatic startup | Confirmed: native core/dataplane/ECM/QinQ load and nodes provision automatically | Build46 startup checked with eight QinQ nodes and both256MiB Wi-Fi profiles; no manual arm service |
 | CPU-link backpressure | Confirmed Build42 PAUSE on/off/on removes switch deficit at200/300Mbps | Same buffers and firmware; multiport head-of-line effects remain untested |
 
 ## Every row of Qosmio's feature table
@@ -35,7 +36,7 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | Qosmio feature | Upstream table | CR881x device result |
 | --- | --- | --- |
 | TUNIPIP6 | Supported | Disabled; no tunnel data-path validation; QinQ tunnel hierarchy mapping is not implemented |
-| PPPOE | Supported | Module built/loaded, but PPPoE hierarchy mapping through the current QinQ adapter is not implemented. WAN fixture is DHCP and has no PPPoE session. No NSS PPPoE acceptance |
+| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP with one PPPoE session:847.1/931.3Mbps on plain WAN,846.7/931.3Mbps over WAN VLAN35. MTU1492 and same-session-ID reconnect pass with ECM/firmware proof. IPv6 over PPPoE, authentication and multiple sessions remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
 | L2TPV2 | Supported | Disabled; no device acceptance; tunnel mapping gap applies |
 | BRIDGE | Supported | NSS L2 bridging is not implemented by the QinQ resolver, which requires routed connections. Ordinary DSA/Linux bridging and YT9215S hardware switching pass their own tests |
 | VLAN | Supported | Confirmed NSS for routed traffic using supported single-customer802.1Q paths: aware/unaware bridge VLAN uppers and direct port uppers, including runtime VID35/4094 checks.64-node NSS capacity; full customer S+C tags use separate standard-DSA host forwarding |
@@ -60,10 +61,12 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | DTLS | Marked unavailable in FW11.4–12.5 | No device NSS acceptance |
 
 The important boundary is the current QinQ ECM resolver: its allowed interface
-hierarchies are Ethernet, bridge and VLAN, and it rejects non-routed flows.
-The custom mapping is wired into the ported IPv4/IPv6 frontends. PPP, tunnels,
-L2 bridging and NSS multicast forwarding must not be inferred from the routed
-TCP/UDP results. YT9215S MDB/snooping/discovery tests remain valid switch results.
+hierarchies are Ethernet, bridge and VLAN, optionally ending in one registered
+PPPoE interface. It rejects non-routed flows. The custom mapping is wired into
+the ported IPv4/IPv6 frontends, but PPPoE hardware acceptance currently covers
+IPv4 NAT/TCP only. Tunnels, L2 bridging and NSS multicast forwarding must not
+be inferred from those results. YT9215S MDB/snooping/discovery tests remain
+valid switch results.
 
 Both radio firmware instances initialize NSS. Separate traffic/counter tests
 now demonstrate both5GHz and internal2.4GHz STA data paths, but only the former
@@ -106,6 +109,8 @@ two-member LACP/load-sharing also lacks a suitable peer.
 - Latest IPv4/Wi-Fi/PAUSE: `logs/cr8812dx-nss-pause-20261110/REPORT.md`.
 - Later internal2.4GHz STA test and restoration: `logs/cr8812dx-wifi24-nss-20261110/`.
 - Same-image2.4GHz Wi-Fi NSS disabled control and restoration: `logs/cr8812dx-wifi24-control-20261110/`.
+- Build46 PPPoE, VLAN35 wire tags, MTU and session replacement:
+  [PPPoE validation](nss-pppoe.md), `logs/cr881x-pppoe-nss-20261111/`.
 
 The original comparison used read-only checks; the later2.4GHz test above had
 guarded temporary settings restored. Missing confirmation in other rows is
