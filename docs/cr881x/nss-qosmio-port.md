@@ -177,7 +177,11 @@ both underlays. A further same-image DHCPv6-PD gate passes automatic `/56`
 delegation to test VLAN46's `/64`, renewal during traffic, prefix replacement
 without restarting PPP and reacquisition over WAN VLAN35. The delegated test
 client has matching ECM/NSS and WAN-wire evidence; the management LAN retains
-its existing ULA and RA policy. Nested PPP, tunnel hierarchies,
+its existing ULA and RA policy. Local PAP/plain-WAN and CHAP-MD5/WAN35 tests
+also pass credential rejection, correct login and same-SID reconnect, followed
+by accelerated IPv4/IPv6 traffic. Authentication uses normal netifd credentials
+and Linux pppd; no extra NSS startup or authentication module is needed.
+Nested PPP, tunnel hierarchies,
 L2/multicast/non-ported acceleration and ambiguous customer VLANs remain outside
 this mapping. YT921x hardware switching and its established DONE baseline remain
 separate from these NSS limitations.

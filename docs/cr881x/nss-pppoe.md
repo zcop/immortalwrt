@@ -5,8 +5,9 @@ IPv6 TCP/bidirectional UDP through one PPPoE session on plain WAN and `wan.35`.
 The device is CR8812DX/IPQ5018 +
 YT9215S, Linux6.18.60, NSS firmware12.2 and the256MiB allocation profile.
 Automatic DHCPv6-PD and downstream SLAAC also pass the bounded gate below.
-Acceptance does not cover authentication, multiple concurrent sessions,
-sustained soak or firmware-destroy error recovery.
+PAP and CHAP-MD5 authentication pass local positive, negative and reconnect tests.
+Acceptance does not cover multiple concurrent sessions, MS-CHAP/EAP, ISP
+interoperability, sustained soak or firmware-destroy error recovery.
 
 ## Mapping and lifetime
 
@@ -198,6 +199,75 @@ counters, eight normal QinQ nodes and no kernel warnings. The router's boot ID
 is unchanged; the UART process is no longer running. Final restoration evidence
 is retained in `final-dhcp/`, `cleanup-final.txt` and `final-identity.txt` within
 this slice's log directory.
+
+## PAP and CHAP-MD5 authentication
+
+The existing Build46 image passes authentication against a controlled local
+PPPoE AC using dummy credentials. Linux pppd handles authentication through
+normal netifd `username`/`password` settings. NSS accelerates the established
+IPv4/IPv6 data flows. No driver change, firmware rebuild or special startup
+procedure was needed, and no real ISP credentials were used.
+
+| Method / underlay | Wrong password | Correct login | Reconnect |
+| --- | --- | --- | --- |
+| PAP, plain WAN | AuthNak; WAN remains down | AuthAck, IPCP and IPv6CP open | SID701 reused with a new PPP netdev and NSS registration |
+| CHAP-MD5, WAN VLAN35 | Failure; WAN remains down | Success, IPCP and IPv6CP open | SID801 reused with a new PPP netdev and NSS registration |
+
+Each negative case has the required method acknowledged during LCP, an actual
+credential rejection response, no captured IP payload and no surviving NSS
+PPP registration after teardown. Successful captures identify PAP protocol
+`0xc023`, or CHAP protocol `0xc223` with MD5 algorithm 5. The CHAP response is
+independently checked against the captured challenge and dummy password.
+There is no fallback to the other authentication method in either test.
+
+| Successful session | IPv4 NAT/TCP forward / reverse | IPv6 TCP forward / reverse |
+| --- | --- | --- |
+| PAP login | 820.3/931.1 Mbps | 833.0/918.2 Mbps |
+| PAP reconnect | 825.3/931.1 Mbps | 832.4/918.3 Mbps |
+| CHAP-MD5 login | 848.2/931.3 Mbps | 831.2/918.4 Mbps |
+| CHAP-MD5 reconnect | 848.2/931.3 Mbps | 831.7/918.4 Mbps |
+
+These are eight-second TCP runs. Each direction has the exact test tuple in
+ECM mode2, the current PPP NSS registration and expected session ID, plus
+firmware packet growth. Captures on the AC's Ethernet side verify native WAN
+or exactly customer VLAN35, no private S-tag leak, the expected IPv4 NAT and
+unchanged IPv6 addresses, and maximum observed IP packet size 1492. VLAN,
+interface, missing-session and rule-drop counters do not increase during the
+captured runs. Reconnect changes PAP's netdev index from 28 to 31 and NSS
+interface from 29 to 28; CHAP changes netdev index from 35 to 37 and NSS
+interface from 33 to 29.
+
+The local AC explicitly requires one method using `require-pap` or
+`require-chap`; only that method has a matching test secret. Its test daemon
+requires secret files under a private directory: mode0600 on a file under
+world-writable `/tmp` was insufficient. This fixture correction affects only
+the AC container. A host namespace route to the exact IPv6 client address
+forces return traffic through PPP despite the AC's Ethernet SLAAC address.
+Neither computer's Wi-Fi or default route changes for the test.
+
+One early PAP reconnect throughput attempt timed out after physical WAN/LAN1
+link drops; authentication had already succeeded. The complete rerun passes
+all four traffic checks. The link-drop cause was not established in this
+slice. Short successful runs do not establish long-term link stability.
+The fixture also needed direction-specific iperf inactivity options and
+readiness polling tolerant of transient sysfs reads during netifd setup;
+those setup errors are preserved separately from accepted results.
+
+This gate covers PAP on plain WAN and CHAP-MD5 on VLAN35 with one local test
+account. The opposite method/underlay combinations, mutual authentication,
+other CHAP variants, RADIUS integration and individual ISP requirements are
+not certified by it. Raw evidence is in
+`logs/cr881x-pppoe-auth-20261111/`: `RESULT.json`, `qualified-evidence.json`,
+per-phase `auth.pcap`, client/server logs and IPv4/IPv6 traffic records.
+
+After confirmed spare-cable removal, the original network, wireless, firewall
+and DHCP hashes match, the existing PAP/CHAP secret-file hashes are unchanged,
+and no UCI changes remain. The test namespaces, interfaces and boot guard are
+removed. Fresh native DHCP/NSS traffic passes at 936.4/934.3 Mbps with eight
+normal QinQ nodes and no kernel warnings. Build46's boot ID is unchanged;
+UART closed without reset. Restoration evidence is retained in this slice's
+`final-dhcp/`, `cleanup-final.txt`, `final-ppp-secret-hashes.txt` and
+`final-identity.txt`.
 
 ## Source checks and image identity
 

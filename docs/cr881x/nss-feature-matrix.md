@@ -22,7 +22,7 @@ scope; earlier accepted features have not all been re-run on Build46.
 
 | Function | Device evidence | Scope |
 | --- | --- | --- |
-| IPv4 NAT/routed TCP | Confirmed NSS: latest Build46 DHCP WAN936.2/931.5Mbps after the DHCPv6-PD fixture was restored, with ECM and firmware counters | One1Gbps endpoint fixture; earlier Build42 measured98.25%CPU idle; no new CPU-idle measurement |
+| IPv4 NAT/routed TCP | Confirmed NSS: latest Build46 DHCP WAN936.4/934.3Mbps after the authentication fixture was restored, with ECM and firmware counters | One1Gbps endpoint fixture; earlier Build42 measured98.25%CPU idle; no new CPU-idle measurement |
 | IPv4 routed UDP | Confirmed NSS with per-flow ECM mode2 and firmware counters | Default classifier policy1 waits for bidirectional qualification; controlled one-way tests temporarily used policy0 and restored it |
 | IPv6 routed TCP/UDP | Confirmed NSS in earlier native30/31 tests | TCP923.71/923.67Mbps; UDP6 neighbour recovery at50Mbps with accelerated rules and TX growth. No NAT66 test; no fresh Build42 IPv6 load test |
 | Automatic startup | Confirmed: native core/dataplane/ECM/QinQ load and nodes provision automatically | Build46 startup checked with eight QinQ nodes and both256MiB Wi-Fi profiles; no manual arm service |
@@ -36,7 +36,7 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | Qosmio feature | Upstream table | CR881x device result |
 | --- | --- | --- |
 | TUNIPIP6 | Supported | Disabled; no tunnel data-path validation; QinQ tunnel hierarchy mapping is not implemented |
-| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP and routed IPv6 TCP/bidirectional UDP with one session on plain WAN and WAN VLAN35. IPv4 reaches about847–849/931Mbps, IPv6 about831–833/918Mbps. MTU1492, IPv6 Packet Too Big and dual-stack session-ID reuse pass. Automatic DHCPv6-PD `/56` to test-LAN `/64`, renewal during TCP, prefix replacement and WAN35 reacquisition also pass with ECM/firmware proof. Authentication and multiple sessions remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
+| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP and routed IPv6 TCP/bidirectional UDP with one session on plain WAN and WAN VLAN35. IPv4 reaches about820–849/931Mbps, IPv6 about831–833/918Mbps. MTU1492, IPv6 Packet Too Big, dual-stack session-ID reuse and automatic DHCPv6-PD `/56` to test-LAN `/64` pass. PAP on plain WAN and CHAP-MD5 on WAN35 pass wrong-password rejection, correct login and reconnect with ECM/firmware/wire proof. Multiple sessions and ISP interoperability remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
 | L2TPV2 | Supported | Disabled; no device acceptance; tunnel mapping gap applies |
 | BRIDGE | Supported | NSS L2 bridging is not implemented by the QinQ resolver, which requires routed connections. Ordinary DSA/Linux bridging and YT9215S hardware switching pass their own tests |
 | VLAN | Supported | Confirmed NSS for routed traffic using supported single-customer802.1Q paths: aware/unaware bridge VLAN uppers and direct port uppers, including runtime VID35/4094 checks.64-node NSS capacity; full customer S+C tags use separate standard-DSA host forwarding |
@@ -119,6 +119,9 @@ two-member LACP/load-sharing also lacks a suitable peer.
   `logs/cr881x-pppoe-pd-20261111/`, especially `qualified-evidence.json` and
   the per-phase prefix/RA/client status records. Its `final-dhcp/` and
   `cleanup-final.txt` confirm original configuration and normal NSS restoration.
+- PAP/plain-WAN and CHAP-MD5/WAN35 authentication, credential rejection and
+  reconnect: `logs/cr881x-pppoe-auth-20261111/`, especially
+  `qualified-evidence.json` and per-phase authentication captures/traffic records.
 
 The original comparison used read-only checks; the later2.4GHz test above had
 guarded temporary settings restored. Missing confirmation in other rows is
