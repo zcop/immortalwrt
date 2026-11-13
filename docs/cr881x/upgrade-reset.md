@@ -36,3 +36,24 @@ backups; save the configuration and shared volume before destructive tests.
 For a manual reset, use `factoryreset -y -r`. The built-in sync/reboot stays in
 the already loaded process after deleting overlay files. Launching another
 dynamically linked program after deletion can fail with stale inode handles.
+
+## CR8812DX acceptance, 2026-11-13
+
+NSS beta r2 (`00e457b50d6`, kernel 6.18.60) passed a slot1-to-slot0
+`sysupgrade -n` transition with the corrected old-image hook bootstrapped
+temporarily. UART logged shared userdata preparation followed by next-boot
+overlay initialization. A planted `/etc` marker and changed hostname were
+removed, and the NSS firewall defaults applied without a manual fix.
+
+The same image then passed `factoryreset -y -r`: a second marker and hostname
+change disappeared and the router rebooted without a power cycle. The old
+processes emitted stale inode messages during the manual reset's shutdown;
+the built-in reboot completed and the new boot had no stale inode errors.
+The sysupgrade helper itself leaves overlay files intact until the next boot.
+
+After each reset, the six Zcop/LuCI pages loaded and routed NSS reached about
+936 Mbps in each direction with no additional payload allocation failures.
+The fallback firmware slot, calibration and bdata hashes stayed unchanged.
+The full [beta acceptance record](nss-beta-20261113.md) identifies the image
+and local evidence. Keep-settings upgrades, the opposite slot transition and
+Redmi AX3000 remain offline-tested rather than hardware-validated here.
