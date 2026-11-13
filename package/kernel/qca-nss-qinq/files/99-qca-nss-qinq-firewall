@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# NSS/ECM owns routed acceleration. A parallel nft flowtable bypasses ECM and
+# breaks forwarded TCP on the native IPQ50xx QinQ path after a factory reset.
+# This default belongs to the opt-in NSS package, not the standard DSA image.
+set -e
+
+uci -q get 'firewall.@defaults[0]' >/dev/null || exit 0
+uci -q set 'firewall.@defaults[0].flow_offloading=0'
+uci -q set 'firewall.@defaults[0].flow_offloading_hw=0'
+uci -q commit firewall
+exit 0
