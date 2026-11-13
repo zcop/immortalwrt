@@ -4,6 +4,7 @@ src-git routing https://github.com/openwrt/routing.git
 src-git telephony https://github.com/openwrt/telephony.git
 src-git video https://github.com/openwrt/video.git
 src-git zcopapp https://github.com/zcop/luci-app-cr881x-yt921x-qos.git
+src-git zcoptheme https://github.com/zcop/luci-theme-zcop.git;main
 src-git cr881xwanmode https://github.com/zcop/luci-app-cr881x-wan-mode.git
 src-git wanconduit https://github.com/zcop/openwrt-wan-conduit-manager.git;master
 src-git amneziawg https://github.com/zcop/amneziawg-openwrt.git;master
