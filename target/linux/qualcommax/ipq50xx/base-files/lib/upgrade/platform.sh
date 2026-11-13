@@ -4,7 +4,7 @@
 PART_NAME=firmware
 REQUIRE_IMAGE_METADATA=1
 
-RAMFS_COPY_BIN='dumpimage fw_printenv fw_setenv head seq'
+RAMFS_COPY_BIN='dumpimage fw_printenv fw_setenv head seq ln readlink'
 RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
 
 fritzbox_remove_oem_ubi_volumes() {
