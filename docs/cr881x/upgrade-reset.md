@@ -23,9 +23,14 @@ because the two slots share userdata.
 
 The script and its `ln`/`readlink` helpers are copied into RAMFS. When upgrading
 from an image that predates this fix, the currently running image still supplies
-the upgrade hook. It must be bootstrapped with the exact validated hook, or the
-first transition still uses the old behavior. A new image alone cannot replace
-code already running in the old system's upgrade process.
+the upgrade hook. Obtaining the corrected cleanup on that first transition
+requires updating that running hook; a new image alone cannot replace code
+already running in the old upgrade process. Without that update, old userdata
+can remain even with Keep settings off. This does not inherently require a
+reset to use NSS: the beta's one-shot default disables conflicting Linux flow
+offload while preserving compatible settings. See the
+[r3 old-release migration test](nss-beta-20261113-r3.md). Reset is optional for
+users who want clean defaults or need to resolve incompatible retained settings.
 
 The offline production-script harness covers both slots, keep/reset, known
 board/layout guards, archive placement, files left intact until reboot and
