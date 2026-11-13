@@ -6,7 +6,9 @@
 set -e
 
 uci -q get 'firewall.@defaults[0]' >/dev/null || exit 0
-uci -q set 'firewall.@defaults[0].flow_offloading=0'
-uci -q set 'firewall.@defaults[0].flow_offloading_hw=0'
-uci -q commit firewall
+# boot sources defaults inside a conditional subshell, where set -e alone
+# does not stop failed commands. Leave this script for retry on any failure.
+uci -q set 'firewall.@defaults[0].flow_offloading=0' || exit 1
+uci -q set 'firewall.@defaults[0].flow_offloading_hw=0' || exit 1
+uci -q commit firewall || exit 1
 exit 0
