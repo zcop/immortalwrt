@@ -1,0 +1,131 @@
+Subject: [PATCH] net: dsa: qca8k: propagate MDIO write failures
+
+Return low/high half-write errors through register writes and RMW operations.
+The QinQ ACL setup must not publish a configuration after a partial MDIO write.
+Keep page selection and register access under the existing MDIO bus lock.
+Invalidate the page cache on page-write failure. Internal PHY commands must
+skip MASTER_EN cleanup if page selection failed, and retain cleanup errors.
+
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -129,13 +129,16 @@
+ 	return ret;
+ }
+ 
+-static void
++static int
+ qca8k_mii_write32(struct mii_bus *bus, int phy_id, u32 regnum, u32 val)
+ {
+-	if (qca8k_mii_write_lo(bus, phy_id, regnum, val) < 0)
+-		return;
+-
+-	qca8k_mii_write_hi(bus, phy_id, regnum + 1, val);
++	int ret;
++
++	ret = qca8k_mii_write_lo(bus, phy_id, regnum, val);
++	if (ret < 0)
++		return ret;
++
++	return qca8k_mii_write_hi(bus, phy_id, regnum + 1, val);
+ }
+ 
+ static int
+@@ -152,6 +155,7 @@
+ 	if (ret < 0) {
+ 		dev_err_ratelimited(&bus->dev,
+ 				    "failed to set qca8k page\n");
++		*cached_page = 0xffff;
+ 		return ret;
+ 	}
+ 
+@@ -471,7 +475,7 @@
+ 	if (ret < 0)
+ 		goto exit;
+ 
+-	qca8k_mii_write32(bus, 0x10 | r2, r1, val);
++	ret = qca8k_mii_write32(bus, 0x10 | r2, r1, val);
+ 
+ exit:
+ 	mutex_unlock(&bus->mdio_lock);
+@@ -501,7 +505,7 @@
+ 
+ 	val &= ~mask;
+ 	val |= write_val;
+-	qca8k_mii_write32(bus, 0x10 | r2, r1, val);
++	ret = qca8k_mii_write32(bus, 0x10 | r2, r1, val);
+ 
+ exit:
+ 	mutex_unlock(&bus->mdio_lock);
+@@ -830,7 +834,7 @@
+ 	struct mii_bus *bus = priv->bus;
+ 	u16 r1, r2, page;
+ 	u32 val;
+-	int ret;
++	int ret, err;
+ 
+ 	if (regnum >= QCA8K_MDIO_MASTER_MAX_REG)
+ 		return -EINVAL;
+@@ -846,17 +850,22 @@
+ 
+ 	ret = qca8k_set_page(priv, page);
+ 	if (ret)
++		goto unlock;
++
++	ret = qca8k_mii_write32(bus, 0x10 | r2, r1, val);
++	if (ret)
+ 		goto exit;
+-
+-	qca8k_mii_write32(bus, 0x10 | r2, r1, val);
+ 
+ 	ret = qca8k_mdio_busy_wait(bus, QCA8K_MDIO_MASTER_CTRL,
+ 				   QCA8K_MDIO_MASTER_BUSY);
+ 
+ exit:
+ 	/* even if the busy_wait timeouts try to clear the MASTER_EN */
+-	qca8k_mii_write_hi(bus, 0x10 | r2, r1 + 1, 0);
+-
++	err = qca8k_mii_write_hi(bus, 0x10 | r2, r1 + 1, 0);
++	if (ret >= 0 && err < 0)
++		ret = err;
++
++unlock:
+ 	mutex_unlock(&bus->mdio_lock);
+ 
+ 	return ret;
+@@ -868,7 +877,7 @@
+ 	struct mii_bus *bus = priv->bus;
+ 	u16 r1, r2, page;
+ 	u32 val;
+-	int ret;
++	int ret, err;
+ 
+ 	if (regnum >= QCA8K_MDIO_MASTER_MAX_REG)
+ 		return -EINVAL;
+@@ -883,9 +892,11 @@
+ 
+ 	ret = qca8k_set_page(priv, page);
+ 	if (ret)
++		goto unlock;
++
++	ret = qca8k_mii_write_hi(bus, 0x10 | r2, r1 + 1, val);
++	if (ret)
+ 		goto exit;
+-
+-	qca8k_mii_write_hi(bus, 0x10 | r2, r1 + 1, val);
+ 
+ 	ret = qca8k_mdio_busy_wait(bus, QCA8K_MDIO_MASTER_CTRL,
+ 				   QCA8K_MDIO_MASTER_BUSY);
+@@ -896,8 +907,11 @@
+ 
+ exit:
+ 	/* even if the busy_wait timeouts try to clear the MASTER_EN */
+-	qca8k_mii_write_hi(bus, 0x10 | r2, r1 + 1, 0);
+-
++	err = qca8k_mii_write_hi(bus, 0x10 | r2, r1 + 1, 0);
++	if (ret >= 0 && err < 0)
++		ret = err;
++
++unlock:
+ 	mutex_unlock(&bus->mdio_lock);
+ 
+ 	if (ret >= 0)
