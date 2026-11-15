@@ -1,0 +1,44 @@
+Subject: [PATCH] net: dsa: qca8k: include PHY-linked CPU ports in MTU updates
+
+The PHY-to-PHY CPU link can use port5 on QCA8337. Iterate the actual CPU
+ports when stopping and restarting MACs around the global frame-size update,
+instead of hard-coding ports0 and6. Preserve the existing enabled map.
+
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -805,6 +805,7 @@
+ int qca8k_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
++	struct dsa_port *cpu;
+ 	int ret;
+ 
+ 	/* We have only have a general MTU setting.
+@@ -821,21 +822,17 @@
+ 	 * Turn off both cpu ports before applying the new value to prevent
+ 	 * this.
+ 	 */
+-	if (priv->port_enabled_map & BIT(0))
+-		qca8k_port_set_status(priv, 0, 0);
+-
+-	if (priv->port_enabled_map & BIT(6))
+-		qca8k_port_set_status(priv, 6, 0);
++	dsa_switch_for_each_cpu_port(cpu, ds)
++		if (priv->port_enabled_map & BIT(cpu->index))
++			qca8k_port_set_status(priv, cpu->index, 0);
+ 
+ 	/* Include L2 header / FCS length */
+ 	ret = qca8k_write(priv, QCA8K_MAX_FRAME_SIZE, new_mtu +
+ 			  ETH_HLEN + ETH_FCS_LEN);
+ 
+-	if (priv->port_enabled_map & BIT(0))
+-		qca8k_port_set_status(priv, 0, 1);
+-
+-	if (priv->port_enabled_map & BIT(6))
+-		qca8k_port_set_status(priv, 6, 1);
++	dsa_switch_for_each_cpu_port(cpu, ds)
++		if (priv->port_enabled_map & BIT(cpu->index))
++			qca8k_port_set_status(priv, cpu->index, 1);
+ 
+ 	return ret;
+ }
