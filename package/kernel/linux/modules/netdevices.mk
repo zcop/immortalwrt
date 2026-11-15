@@ -906,6 +906,8 @@ endef
 
 $(eval $(call KernelPackage,dsa-mxl862xx))
 
+PKG_CONFIG_DEPENDS += CONFIG_DSA_QCA8K_EXPERIMENTAL_QINQ
+
 define KernelPackage/dsa-qca8k
   SUBMENU:=$(NETWORK_DEVICES_MENU)
   TITLE:=Qualcomm Atheros QCA8xxx switch family DSA support
@@ -913,11 +915,25 @@ define KernelPackage/dsa-qca8k
   KCONFIG:= \
 	CONFIG_NET_DSA_QCA8K \
 	CONFIG_NET_DSA_QCA8K_LEDS_SUPPORT=y \
-	CONFIG_NET_DSA_TAG_QCA
+	CONFIG_NET_DSA_TAG_QCA \
+	CONFIG_NET_DSA_TAG_QCA_QINQ
   FILES:= \
 	$(LINUX_DIR)/drivers/net/dsa/qca/qca8k.ko \
-	$(LINUX_DIR)/net/dsa/tag_qca.ko
+	$(LINUX_DIR)/net/dsa/tag_qca.ko \
+	$(LINUX_DIR)/net/dsa/tag_qca_qinq.ko
   AUTOLOAD:=$(call AutoLoad,42,qca8k,1)
+  MODPARAMS.qca8k:=$(if $(filter y,$(CONFIG_DSA_QCA8K_EXPERIMENTAL_QINQ)),experimental_qinq=1)
+endef
+
+define KernelPackage/dsa-qca8k/config
+	config DSA_QCA8K_EXPERIMENTAL_QINQ
+		bool "Enable AX3000 native QinQ driver bring-up"
+		depends on PACKAGE_kmod-dsa-qca8k
+		default n
+		help
+		  Select the boot-only QCA8337 transport for AX3000. It preserves
+		  exact port identity for native and customer VLAN traffic. The
+		  ordinary QCA tagger remains the default when this is disabled.
 endef
 
 define KernelPackage/dsa-qca8k/description

@@ -1,0 +1,653 @@
+Subject: [PATCH] net: dsa: qca8k: add opt-in native QinQ bring-up
+
+Implement the measured QCA8337 edge/core programming through qca8k, with
+MDIO-only management and exact source-conduit/SVID steering. Initial scope
+is AX3000 native standalone and VLAN-unaware bridge traffic. VLAN-aware
+bridges, customer uppers and LAG are deliberately not admitted yet.
+The tagger remains separate from the established YT921x implementation.
+
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -28,6 +28,9 @@
+ static bool mdio_only;
+ module_param(mdio_only, bool, 0444);
+ MODULE_PARM_DESC(mdio_only, "Use MDIO only for switch, PHY and MIB access");
++static bool experimental_qinq;
++module_param(experimental_qinq, bool, 0444);
++MODULE_PARM_DESC(experimental_qinq, "AX3000 native/unaware QinQ bring-up (boot only)");
+ 
+ static void
+ qca8k_split_addr(u32 regaddr, u16 *r1, u16 *r2, u16 *page)
+@@ -1769,7 +1772,9 @@
+ qca8k_get_tag_protocol(struct dsa_switch *ds, int port,
+ 		       enum dsa_tag_protocol mp)
+ {
+-	return DSA_TAG_PROTO_QCA;
++	struct qca8k_priv *priv = ds->priv;
++
++	return priv->qinq ? DSA_TAG_PROTO_QCA_QINQ : DSA_TAG_PROTO_QCA;
+ }
+ 
+ static int qca8k_change_tag_protocol(struct dsa_switch *ds,
+@@ -1778,6 +1783,9 @@
+ 	struct qca8k_priv *priv = ds->priv;
+ 	u32 val;
+ 	int ret;
++
++	if (priv->qinq)
++		return proto == DSA_TAG_PROTO_QCA_QINQ ? 0 : -EOPNOTSUPP;
+ 
+ 	switch (proto) {
+ 	case DSA_TAG_PROTO_QCA:
+@@ -1824,6 +1832,10 @@
+ 	u32 val;
+ 	int ret;
+ 
++	if (priv->qinq && (netif_is_lag_master(master) || !master->dsa_ptr ||
++			   master->dsa_ptr->ds != ds))
++		return -EOPNOTSUPP;
++
+ 	/* With LAG of CPU port, compose the mask for port LOOKUP MEMBER */
+ 	if (netif_is_lag_master(master)) {
+ 		struct dsa_lag *lag;
+@@ -1870,6 +1882,8 @@
+ 			return ret;
+ 	}
+ 
++	if (priv->qinq)
++		return qca8k_qinq_conduit(priv, port, master->dsa_ptr->index);
+ 	return 0;
+ }
+ 
+@@ -1905,6 +1919,8 @@
+ {
+ 	int ret;
+ 
++	if (((struct qca8k_priv *)ds->priv)->qinq)
++		return -EOPNOTSUPP;
+ 	ret = qca8k_port_lag_join(ds, port, lag, info, extack);
+ 	if (ret)
+ 		return ret;
+@@ -1949,7 +1965,10 @@
+ 				      enum dsa_tag_protocol proto)
+ {
+ 	struct qca_tagger_data *tagger_data;
+-
++	struct qca8k_priv *priv = ds->priv;
++
++	if (priv->qinq)
++		return proto == DSA_TAG_PROTO_QCA_QINQ ? 0 : -EOPNOTSUPP;
+ 	switch (proto) {
+ 	case DSA_TAG_PROTO_QCA:
+ 	case DSA_TAG_PROTO_QCA_ETYPE:
+@@ -2077,8 +2096,9 @@
+ 	/* Enable QCA header mode on all cpu ports */
+ 	dsa_switch_for_each_cpu_port(dp, ds) {
+ 		ret = qca8k_write(priv, QCA8K_REG_PORT_HDR_CTRL(dp->index),
+-				  FIELD_PREP(QCA8K_PORT_HDR_CTRL_TX_MASK, QCA8K_PORT_HDR_CTRL_ALL) |
+-				  FIELD_PREP(QCA8K_PORT_HDR_CTRL_RX_MASK, QCA8K_PORT_HDR_CTRL_ALL));
++			priv->qinq ? 0 :
++			FIELD_PREP(QCA8K_PORT_HDR_CTRL_TX_MASK, QCA8K_PORT_HDR_CTRL_ALL) |
++			FIELD_PREP(QCA8K_PORT_HDR_CTRL_RX_MASK, QCA8K_PORT_HDR_CTRL_ALL));
+ 		if (ret) {
+ 			dev_err(priv->dev, "failed enabling QCA header mode on port %d", dp->index);
+ 			return ret;
+@@ -2172,7 +2192,7 @@
+ 	/* HW learn on CPU port is limited and require manual setting */
+ 	ds->assisted_learning_on_cpu_port = true;
+ 
+-	return 0;
++	return priv->qinq ? qca8k_qinq_setup(ds) : 0;
+ }
+ 
+ static const struct phylink_mac_ops qca8k_phylink_mac_ops = {
+@@ -2186,6 +2206,9 @@
+ 	.get_tag_protocol	= qca8k_get_tag_protocol,
+ 	.change_tag_protocol	= qca8k_change_tag_protocol,
+ 	.setup			= qca8k_setup,
++	.teardown		= qca8k_qinq_teardown,
++	.tag_8021q_vlan_add	= qca8k_qinq_vlan_add,
++	.tag_8021q_vlan_del	= qca8k_qinq_vlan_del,
+ 	.get_strings		= qca8k_get_strings,
+ 	.get_ethtool_stats	= qca8k_get_ethtool_stats,
+ 	.get_sset_count		= qca8k_get_sset_count,
+@@ -2240,7 +2263,8 @@
+ 	priv->bus = mdiodev->bus;
+ 	priv->dev = &mdiodev->dev;
+ 	priv->info = of_device_get_match_data(priv->dev);
+-	priv->mdio_only = mdio_only;
++	priv->qinq = experimental_qinq;
++	priv->mdio_only = mdio_only || priv->qinq;
+ 
+ 	priv->reset_gpio = devm_gpiod_get_optional(priv->dev, "reset",
+ 						   GPIOD_OUT_HIGH);
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -11,6 +11,7 @@
+ #include <linux/if_bridge.h>
+ 
+ #include "qca8k.h"
++#include <linux/dsa/8021q.h>
+ 
+ #define MIB_DESC(_s, _o, _n)	\
+ 	{			\
+@@ -734,8 +735,24 @@
+ 			   struct netlink_ext_ack *extack)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
+-
+-	return qca8k_update_port_member(priv, port, bridge.dev, true);
++	int ret;
++
++	if (priv->qinq) {
++		if (br_vlan_enabled(bridge.dev)) {
++			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: VLAN-aware bring-up is pending");
++			return -EOPNOTSUPP;
++		}
++		ret = dsa_tag_8021q_bridge_join(ds, port, bridge, tx_fwd_offload, extack);
++		*tx_fwd_offload = false;
++		if (ret)
++			return ret;
++	}
++	ret = qca8k_update_port_member(priv, port, bridge.dev, true);
++	if (ret && priv->qinq) {
++		dsa_tag_8021q_bridge_leave(ds, port, bridge);
++		qca8k_qinq_fault(priv, port);
++	}
++	return ret;
+ }
+ 
+ void qca8k_port_bridge_leave(struct dsa_switch *ds, int port,
+@@ -744,6 +761,8 @@
+ 	struct qca8k_priv *priv = ds->priv;
+ 	int err;
+ 
++	if (priv->qinq)
++		dsa_tag_8021q_bridge_leave(ds, port, bridge);
+ 	err = qca8k_update_port_member(priv, port, bridge.dev, false);
+ 	if (err)
+ 		dev_err(priv->dev,
+@@ -784,6 +803,9 @@
+ 		      struct phy_device *phy)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
++
++	if (priv->qinq && (priv->qinq_fault_map & BIT(port)))
++		return -EIO;
+ 
+ 	qca8k_port_set_status(priv, port, 1);
+ 	priv->port_enabled_map |= BIT(port);
+@@ -853,12 +875,26 @@
+ 			     QCA8K_ATU_STATUS_STATIC);
+ }
+ 
++static u16 qca8k_qinq_db_vid(struct qca8k_priv *priv, int port,
++			    u16 vid, struct dsa_db db)
++{
++	if (vid || !priv->qinq)
++		return vid;
++	if (db.type == DSA_DB_BRIDGE)
++		return dsa_tag_8021q_bridge_vid(db.bridge.num);
++	if (db.type == DSA_DB_PORT && db.dp)
++		return dsa_tag_8021q_standalone_vid(db.dp);
++	return priv->qinq_native_vid[port];
++}
++
+ int qca8k_port_fdb_add(struct dsa_switch *ds, int port,
+ 		       const unsigned char *addr, u16 vid,
+ 		       struct dsa_db db)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
+ 	u16 port_mask = BIT(port);
++
++	vid = qca8k_qinq_db_vid(priv, port, vid, db);
+ 
+ 	/* The ATU forwards a unicast hit to every port set in the
+ 	 * destination mask, so a host entry spanning multiple CPU ports
+@@ -893,6 +929,8 @@
+ 	struct qca8k_priv *priv = ds->priv;
+ 	u16 port_mask = BIT(port);
+ 
++	vid = qca8k_qinq_db_vid(priv, port, vid, db);
++
+ 	if (dsa_is_cpu_port(ds, port) || dsa_is_dsa_port(ds, port))
+ 		return 0;
+ 
+@@ -916,7 +954,9 @@
+ 		if (!_fdb.aging)
+ 			break;
+ 		is_static = (_fdb.aging == QCA8K_ATU_STATUS_STATIC);
+-		ret = cb(_fdb.mac, _fdb.vid, is_static, data);
++		ret = cb(_fdb.mac,
++			 priv->qinq && _fdb.vid == priv->qinq_native_vid[port] ?
++			 0 : _fdb.vid, is_static, data);
+ 		if (ret)
+ 			break;
+ 	}
+@@ -933,6 +973,8 @@
+ 	const u8 *addr = mdb->addr;
+ 	u16 vid = mdb->vid;
+ 
++	vid = qca8k_qinq_db_vid(priv, port, vid, db);
++
+ 	if (!vid)
+ 		vid = QCA8K_PORT_VID_DEF;
+ 
+@@ -947,6 +989,8 @@
+ 	struct qca8k_priv *priv = ds->priv;
+ 	const u8 *addr = mdb->addr;
+ 	u16 vid = mdb->vid;
++
++	vid = qca8k_qinq_db_vid(priv, port, vid, db);
+ 
+ 	if (!vid)
+ 		vid = QCA8K_PORT_VID_DEF;
+@@ -1052,6 +1096,13 @@
+ 	struct qca8k_priv *priv = ds->priv;
+ 	int ret;
+ 
++	if (priv->qinq) {
++		if (vlan_filtering) {
++			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: customer VLAN policy is pending");
++			return -EOPNOTSUPP;
++		}
++		return 0; /* Keep fallback lookup for the QinQ parser. */
++	}
+ 	if (vlan_filtering) {
+ 		ret = qca8k_rmw(priv, QCA8K_PORT_LOOKUP_CTRL(port),
+ 				QCA8K_PORT_LOOKUP_VLAN_MODE_MASK,
+@@ -1074,6 +1125,10 @@
+ 	struct qca8k_priv *priv = ds->priv;
+ 	int ret;
+ 
++	if (priv->qinq) {
++		NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: customer VLAN policy is pending");
++		return -EOPNOTSUPP;
++	}
+ 	ret = qca8k_vlan_add(priv, port, vlan->vid, untagged);
+ 	if (ret) {
+ 		dev_err(priv->dev, "Failed to add VLAN to port %d (%d)", port, ret);
+@@ -1357,3 +1412,44 @@
+ 
+ 	return 0;
+ }
++
++int qca8k_qinq_vlan_add(struct dsa_switch *ds, int port, u16 vid, u16 flags)
++{
++	struct qca8k_priv *priv = ds->priv;
++	bool pvid = flags & BRIDGE_VLAN_INFO_PVID;
++	int ret;
++
++	if (!priv->qinq)
++		return -EOPNOTSUPP;
++	ret = qca8k_vlan_add(priv, port, vid, flags & BRIDGE_VLAN_INFO_UNTAGGED);
++	if (ret)
++		goto fail;
++	if (pvid && dsa_is_user_port(ds, port)) {
++		ret = qca8k_rmw(priv, QCA8K_REG_PORT_VLAN_CTRL0(port),
++				QCA8K_PORT_VLAN_CVID_MASK, QCA8K_PORT_VLAN_CVID(vid));
++		if (ret)
++			goto fail;
++		priv->qinq_native_vid[port] = vid;
++	}
++	return 0;
++fail:
++	qca8k_qinq_fault(priv, port);
++	return ret;
++}
++
++int qca8k_qinq_vlan_del(struct dsa_switch *ds, int port, u16 vid)
++{
++	struct qca8k_priv *priv = ds->priv;
++	int ret;
++
++	if (!priv->qinq)
++		return -EOPNOTSUPP;
++	ret = qca8k_vlan_del(priv, port, vid);
++	if (ret) {
++		qca8k_qinq_fault(priv, port);
++		return ret;
++	}
++	if (priv->qinq_native_vid[port] == vid)
++		priv->qinq_native_vid[port] = 0;
++	return 0;
++}
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -457,6 +457,10 @@
+ 	u8 port_enabled_map;
+ 	u8 port_isolated_map;
+ 	bool mdio_only; /* No proprietary in-band management transport */
++	bool qinq;
++	bool qinq_acl_owned;
++	u8 qinq_fault_map;
++	u16 qinq_native_vid[QCA8K_NUM_PORTS];
+ 	struct qca8k_ports_config ports_config;
+ 	struct regmap *regmap;
+ 	struct mii_bus *bus;
+@@ -502,6 +506,14 @@
+ 	return port - 1;
+ }
+ 
++
++int qca8k_qinq_setup(struct dsa_switch *ds);
++void qca8k_qinq_teardown(struct dsa_switch *ds);
++int qca8k_qinq_conduit(struct qca8k_priv *priv, int port, int cpu);
++void qca8k_qinq_fault(struct qca8k_priv *priv, int port);
++int qca8k_qinq_vlan_add(struct dsa_switch *ds, int port, u16 vid, u16 flags);
++int qca8k_qinq_vlan_del(struct dsa_switch *ds, int port, u16 vid);
++
+ /* Common setup function */
+ extern const struct qca8k_mib_desc ar8327_mib[];
+ extern const struct regmap_access_table qca8k_readable_table;
+--- a/drivers/net/dsa/qca/Makefile
++++ b/drivers/net/dsa/qca/Makefile
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ obj-$(CONFIG_NET_DSA_AR9331)	+= ar9331.o
+ obj-$(CONFIG_NET_DSA_QCA8K)	+= qca8k.o
+-qca8k-y 			+= qca8k-common.o qca8k-8xxx.o
++qca8k-y 			+= qca8k-common.o qca8k-8xxx.o qca8k-qinq.o
+ ifdef CONFIG_NET_DSA_QCA8K_LEDS_SUPPORT
+ qca8k-y				+= qca8k-leds.o
+ endif
+--- /dev/null
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -0,0 +1,297 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Boot-only QCA8337 native/unaware QinQ bring-up. No translation SRAM. */
++#include <linux/bitfield.h>
++#include <linux/delay.h>
++#include <linux/dsa/8021q.h>
++#include <linux/if_bridge.h>
++#include <linux/if_vlan.h>
++#include <linux/rtnetlink.h>
++#include "qca8k.h"
++
++#define QINQ_ACL_FIRST 89
++#define QINQ_ACL_LAST 95
++#define QINQ_ACL_V(n, w) (0x58000 + (n) * 32 + (w) * 4)
++#define QINQ_ACL_M(n, w) (0x59000 + (n) * 32 + (w) * 4)
++#define QINQ_ACL_A(n, w) (0x5a000 + (n) * 16 + (w) * 4)
++#define QINQ_RULE_COMPLETE GENMASK(7, 6)
++#define QINQ_RULE_MAC 1
++#define QINQ_RULE_EHMAC 7
++#define QINQ_DENY (7 << 6)
++#define QINQ_MODULE 0x30
++#define QINQ_MODULE_ACL BIT(1)
++#define QINQ_SERVICE_TAG 0x48
++#define QINQ_SECOND_FILTER 0x418
++#define QINQ_SECOND_FILTER_BYPASS BIT(1)
++#define QINQ_FORCE_PORT_VLAN BIT(10)
++
++/* The MDIO direct SRAM path corrupted mask words when writing actions on
++ * the measured QCA8337. Use the documented complete-entry function window.
++ * All window transactions, including readback, hold reg_mutex.
++ */
++#define QINQ_ACL_FUNC 0x400
++#define QINQ_ACL_DATA(w) (0x404 + (w) * 4)
++#define QINQ_ACL_BUSY BIT(31)
++#define QINQ_ACL_READ BIT(10)
++#define QINQ_ACL_VALUES 0
++#define QINQ_ACL_MASKS 1
++#define QINQ_ACL_ACTIONS 2
++
++static int qca8k_qinq_acl_wait(struct qca8k_priv *priv)
++{
++	u32 value;
++	int i, ret;
++
++	for (i = 0; i < 100; i++) {
++		ret = qca8k_read(priv, QINQ_ACL_FUNC, &value);
++		if (ret)
++			return ret;
++		if (!(value & QINQ_ACL_BUSY))
++			return 0;
++		usleep_range(100, 200);
++	}
++	return -ETIMEDOUT;
++}
++
++static int qca8k_qinq_acl_read(struct qca8k_priv *priv, int slot, int type,
++			      u32 *data, int words)
++{
++	int i, ret;
++
++	lockdep_assert_held(&priv->reg_mutex);
++	ret = qca8k_qinq_acl_wait(priv);
++	if (ret)
++		return ret;
++	ret = qca8k_write(priv, QINQ_ACL_FUNC,
++			 QINQ_ACL_BUSY | QINQ_ACL_READ | (type << 8) | slot);
++	if (ret)
++		return ret;
++	ret = qca8k_qinq_acl_wait(priv);
++	if (ret)
++		return ret;
++	for (i = 0; i < words; i++) {
++		ret = qca8k_read(priv, QINQ_ACL_DATA(i), &data[i]);
++		if (ret)
++			return ret;
++	}
++	return 0;
++}
++
++static int qca8k_qinq_acl_write(struct qca8k_priv *priv, int slot, int type,
++			       const u32 *data, int words)
++{
++	int i, ret;
++
++	lockdep_assert_held(&priv->reg_mutex);
++	ret = qca8k_qinq_acl_wait(priv);
++	if (ret)
++		return ret;
++	for (i = 0; i < words; i++) {
++		ret = qca8k_write(priv, QINQ_ACL_DATA(i), data[i]);
++		if (ret)
++			return ret;
++	}
++	ret = qca8k_write(priv, QINQ_ACL_FUNC,
++			 QINQ_ACL_BUSY | (type << 8) | slot);
++	if (ret)
++		return ret;
++	return qca8k_qinq_acl_wait(priv);
++}
++
++static int qca8k_qinq_rule(struct qca8k_priv *priv, int slot,
++			   const u32 value[5], const u32 mask[5],
++			   const u32 action[3])
++{
++	u32 disabled[5] = {}, check[5];
++	int ret;
++
++	mutex_lock(&priv->reg_mutex);
++	/* Publish validity last, then verify the complete committed entry. */
++	ret = qca8k_qinq_acl_write(priv, slot, QINQ_ACL_MASKS, disabled, 5);
++	if (ret)
++		goto out;
++	ret = qca8k_qinq_acl_write(priv, slot, QINQ_ACL_VALUES, value, 5);
++	if (ret)
++		goto out;
++	ret = qca8k_qinq_acl_write(priv, slot, QINQ_ACL_ACTIONS, action, 3);
++	if (ret)
++		goto out;
++	ret = qca8k_qinq_acl_write(priv, slot, QINQ_ACL_MASKS, mask, 5);
++	if (ret)
++		goto out;
++	ret = qca8k_qinq_acl_read(priv, slot, QINQ_ACL_VALUES, check, 5);
++	if (!ret && memcmp(value, check, sizeof(check)))
++		ret = -EIO;
++	if (ret)
++		goto out;
++	ret = qca8k_qinq_acl_read(priv, slot, QINQ_ACL_ACTIONS, check, 3);
++	if (!ret && memcmp(action, check, 3 * sizeof(u32)))
++		ret = -EIO;
++	if (ret)
++		goto out;
++	ret = qca8k_qinq_acl_read(priv, slot, QINQ_ACL_MASKS, check, 5);
++	if (!ret && memcmp(mask, check, sizeof(check)))
++		ret = -EIO;
++out:
++	if (ret)
++		qca8k_qinq_acl_write(priv, slot, QINQ_ACL_MASKS, disabled, 5);
++	mutex_unlock(&priv->reg_mutex);
++	return ret;
++}
++
++void qca8k_qinq_fault(struct qca8k_priv *priv, int port)
++{
++	priv->qinq_fault_map |= BIT(port);
++	qca8k_port_set_status(priv, port, 0);
++	dev_err(priv->dev, "QinQ configuration failed; port %d held down\n", port);
++}
++
++int qca8k_qinq_conduit(struct qca8k_priv *priv, int port, int cpu)
++{
++	struct dsa_port *dp = dsa_to_port(priv->ds, port);
++	u16 svid = dsa_tag_8021q_standalone_vid(dp);
++	u32 value[5] = { 0, 0, svid << 8, 0xc1000000, BIT(cpu) };
++	u32 mask[5] = { 0, 0, 0xfff00, 0, 0xcf };
++	u32 action[3] = { 0, (BIT(port) & 7) << 29, BIT(4) | (BIT(port) >> 3) };
++	int ret;
++
++	if (port < 1 || port > 4 || (cpu != 0 && cpu != 5))
++		return -EOPNOTSUPP;
++	ret = qca8k_qinq_rule(priv, 89 + port, value, mask, action);
++	if (ret)
++		qca8k_qinq_fault(priv, port);
++	return ret;
++}
++
++void qca8k_qinq_teardown(struct dsa_switch *ds)
++{
++	struct qca8k_priv *priv = ds->priv;
++	struct dsa_port *dp;
++	u32 disabled[5] = {};
++	int slot;
++
++	if (!priv->qinq || !priv->qinq_acl_owned)
++		return;
++	dsa_switch_for_each_user_port(dp, ds)
++		qca8k_port_set_status(priv, dp->index, 0);
++	if (ds->tag_8021q_ctx) {
++		rtnl_lock();
++		dsa_tag_8021q_unregister(ds);
++		rtnl_unlock();
++	}
++	mutex_lock(&priv->reg_mutex);
++	for (slot = QINQ_ACL_FIRST; slot <= QINQ_ACL_LAST; slot++)
++		qca8k_qinq_acl_write(priv, slot, QINQ_ACL_MASKS, disabled, 5);
++	mutex_unlock(&priv->reg_mutex);
++	priv->qinq_acl_owned = false;
++}
++
++int qca8k_qinq_setup(struct dsa_switch *ds)
++{
++	struct qca8k_priv *priv = ds->priv;
++	struct dsa_port *dp;
++	u32 value[5] = {}, mask[5] = {}, action[3] = {};
++	u32 users = 0, entry[5], flood;
++	int ret, slot;
++
++	/* Initial hardware scope is the measured AX3000 wiring only. */
++	dsa_switch_for_each_user_port(dp, ds)
++		users |= BIT(dp->index);
++	if (priv->switch_id != QCA8K_ID_QCA8337 ||
++	    dsa_cpu_ports(ds) != (BIT(0) | BIT(5)) || users != GENMASK(4, 1))
++		return -EOPNOTSUPP;
++
++	for (slot = QINQ_ACL_FIRST; slot <= QINQ_ACL_LAST; slot++) {
++		mutex_lock(&priv->reg_mutex);
++		ret = qca8k_qinq_acl_read(priv, slot, QINQ_ACL_MASKS, entry, 5);
++		mutex_unlock(&priv->reg_mutex);
++		if (ret)
++			return ret;
++		if (entry[4] & 7)
++			return -EBUSY;
++	}
++	priv->qinq_acl_owned = true;
++	/* A headerless CPU packet has no QCA destination bitmap. VLAN and
++	 * port membership still constrain these flood destinations.
++	 */
++	flood = users | dsa_cpu_ports(ds);
++	ret = qca8k_write(priv, QCA8K_REG_GLOBAL_FW_CTRL1,
++			 flood | (flood << 8) | (flood << 16) | (flood << 24));
++	if (ret)
++		goto fail;
++	ret = qca8k_rmw(priv, QINQ_SERVICE_TAG, BIT(17) | GENMASK(15, 0), ETH_P_8021AD);
++	if (ret)
++		goto fail;
++	ret = qca8k_rmw(priv, QINQ_SECOND_FILTER, QINQ_SECOND_FILTER_BYPASS,
++			QINQ_SECOND_FILTER_BYPASS);
++	if (ret)
++		goto fail;
++
++	dsa_switch_for_each_cpu_port(dp, ds) {
++		ret = qca8k_write(priv, QCA8K_REG_PORT_VLAN_CTRL1(dp->index), 0x2200);
++		if (ret)
++			goto fail;
++		ret = qca8k_rmw(priv, QCA8K_PORT_LOOKUP_CTRL(dp->index),
++				QCA8K_PORT_LOOKUP_VLAN_MODE_MASK | QINQ_FORCE_PORT_VLAN,
++				QCA8K_PORT_LOOKUP_VLAN_MODE_FALLBACK | QINQ_FORCE_PORT_VLAN);
++		if (ret)
++			goto fail;
++	}
++	dsa_switch_for_each_user_port(dp, ds) {
++		u16 svid = dsa_tag_8021q_standalone_vid(dp);
++
++		ret = qca8k_write(priv, QCA8K_REG_PORT_VLAN_CTRL0(dp->index),
++				  QCA8K_PORT_VLAN_SVID(svid) | QCA8K_PORT_VLAN_CVID(svid));
++		if (ret)
++			goto fail;
++		ret = qca8k_write(priv, QCA8K_REG_PORT_VLAN_CTRL1(dp->index), 0x3080);
++		if (ret)
++			goto fail;
++		ret = qca8k_rmw(priv, QCA8K_PORT_LOOKUP_CTRL(dp->index),
++				QCA8K_PORT_LOOKUP_VLAN_MODE_MASK | QINQ_FORCE_PORT_VLAN,
++				QCA8K_PORT_LOOKUP_VLAN_MODE_FALLBACK | QINQ_FORCE_PORT_VLAN);
++		if (ret)
++			goto fail;
++		ret = qca8k_qinq_conduit(priv, dp->index, dp->cpu_dp->index);
++		if (ret)
++			goto fail;
++	}
++
++	/* Reject external S-tags before a user can impersonate another SVID.
++	 * Format bits refer to received tags, not the default inserted SVID.
++	 * This negative admission rule still needs live spoofing acceptance.
++	 */
++	value[3] = BIT(31) | BIT(30) | BIT(24);
++	value[4] = users;
++	mask[4] = QINQ_RULE_COMPLETE | BIT(3) | QINQ_RULE_EHMAC;
++	action[2] = QINQ_DENY;
++	ret = qca8k_qinq_rule(priv, 89, value, mask, action);
++	if (ret)
++		goto fail;
++
++	/* Empty destination is the CPU default. Exact steering has the first
++	 * enabled destination override. Do not use DP_ACT=DROP here: the ASIC
++	 * ORs that field across matches and would also drop valid steering.
++	 * Unknown-SVID packet rejection still needs live acceptance.
++	 */
++	memset(value, 0, sizeof(value));
++	value[4] = dsa_cpu_ports(ds);
++	action[2] = BIT(4); /* Destination override enabled, no egress ports. */
++	mask[4] = QINQ_RULE_COMPLETE | BIT(3) | QINQ_RULE_MAC;
++	ret = qca8k_qinq_rule(priv, 95, value, mask, action);
++	if (ret)
++		goto fail;
++	ret = qca8k_rmw(priv, QINQ_MODULE, QINQ_MODULE_ACL, QINQ_MODULE_ACL);
++	if (ret)
++		goto fail;
++	ds->max_num_bridges = DSA_TAG_8021Q_MAX_NUM_BRIDGES;
++	rtnl_lock();
++	ret = dsa_tag_8021q_register(ds, htons(ETH_P_8021AD));
++	rtnl_unlock();
++	if (ret)
++		goto fail;
++	dev_warn(priv->dev, "experimental QinQ: native/unaware data only; MDIO management\n");
++	return 0;
++fail:
++	qca8k_qinq_teardown(ds);
++	return ret;
++}

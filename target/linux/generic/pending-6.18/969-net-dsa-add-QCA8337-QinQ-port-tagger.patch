@@ -1,0 +1,270 @@
+Subject: [PATCH] net: dsa: add QCA8337 exact-port QinQ tagger
+
+Add a separate opt-in transport; leave the established YT921x tagger intact.
+The initial QCA bring-up admits native standalone/unaware domains only.
+Customer VLANs and link-local control paths require later hardware gates.
+
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -41,6 +41,7 @@
+ #define DSA_TAG_PROTO_YT921X_8021Q_VALUE	36
+ #define DSA_TAG_PROTO_YT921X_QINQ_VALUE	37
+ #define DSA_TAG_PROTO_YT921X_ENHANCED_VALUE	38
++#define DSA_TAG_PROTO_QCA_QINQ_VALUE		39
+ #define DSA_TAG_PROTO_SJA1105_VALUE		13
+ #define DSA_TAG_PROTO_KSZ8795_VALUE		14
+ #define DSA_TAG_PROTO_OCELOT_VALUE		15
+@@ -84,6 +85,7 @@
+ 	DSA_TAG_PROTO_YT921X_8021Q	= DSA_TAG_PROTO_YT921X_8021Q_VALUE,
+ 	DSA_TAG_PROTO_YT921X_QINQ	= DSA_TAG_PROTO_YT921X_QINQ_VALUE,
+ 	DSA_TAG_PROTO_YT921X_ENHANCED	= DSA_TAG_PROTO_YT921X_ENHANCED_VALUE,
++	DSA_TAG_PROTO_QCA_QINQ		= DSA_TAG_PROTO_QCA_QINQ_VALUE,
+ 	DSA_TAG_PROTO_SJA1105		= DSA_TAG_PROTO_SJA1105_VALUE,
+ 	DSA_TAG_PROTO_KSZ8795		= DSA_TAG_PROTO_KSZ8795_VALUE,
+ 	DSA_TAG_PROTO_OCELOT		= DSA_TAG_PROTO_OCELOT_VALUE,
+--- a/net/dsa/Kconfig
++++ b/net/dsa/Kconfig
+@@ -235,4 +235,11 @@
+ 	  Experimental outer S-tag port identity and inner C-tag VLAN transport.
+ 	  This tagger requires matching switch programming before use.
+ 
++config NET_DSA_TAG_QCA_QINQ
++	tristate "QCA8337 exact-port QinQ transport"
++	select NET_DSA_TAG_8021Q
++	help
++	  Experimental port SVID plus inner C-VID transport. Requires matching
++	  opt-in QCA8337 switch programming; not a customer QinQ tunnel.
++
+ endif
+--- a/net/dsa/Makefile
++++ b/net/dsa/Makefile
+@@ -50,3 +50,5 @@
+ obj-$(CONFIG_NET_DSA_TAG_YT921X_ENHANCED) += tag_yt921x_enhanced.o
+ obj-$(CONFIG_NET_DSA_TAG_YT921X_8021Q) += tag_yt921x_8021q.o
+ obj-$(CONFIG_NET_DSA_TAG_YT921X_QINQ) += tag_yt921x_qinq.o
++
++obj-$(CONFIG_NET_DSA_TAG_QCA_QINQ) += tag_qca_qinq.o
+--- a/drivers/net/dsa/qca/Kconfig
++++ b/drivers/net/dsa/qca/Kconfig
+@@ -11,6 +11,7 @@
+ config NET_DSA_QCA8K
+ 	tristate "Qualcomm Atheros QCA8K Ethernet switch family support"
+ 	select NET_DSA_TAG_QCA
++	select NET_DSA_TAG_QCA_QINQ
+ 	select REGMAP
+ 	help
+ 	  This enables support for the Qualcomm Atheros QCA8K Ethernet
+--- /dev/null
++++ b/net/dsa/tag_qca_qinq.c
+@@ -0,0 +1,211 @@
++// SPDX-License-Identifier: GPL-2.0
++/* QCA8337 exact-port QinQ transport, opt-in native/unaware bring-up.
++ * Data: DA | SA | 88a8 port SVID | 8100 inner domain | EtherType | payload.
++ * No proprietary QCA header and no imprecise bridge-port selection.
++ * Customer VLAN/control-protocol acceptance needs separate hardware testing.
++ */
++#include <linux/dsa/8021q.h>
++#include <linux/etherdevice.h>
++#include <linux/if_bridge.h>
++#include <linux/if_vlan.h>
++#include <net/dsa.h>
++
++#include "tag.h"
++
++static bool qca_qinq_is_vlan_tpid(__be16 proto)
++{
++	return eth_type_vlan(proto) ||
++	       proto == htons(ETH_P_QINQ1) ||
++	       proto == htons(ETH_P_QINQ2) ||
++	       proto == htons(ETH_P_QINQ3);
++}
++
++static int qca_qinq_pop_outer(struct sk_buff *skb, u16 *tci)
++{
++	if (skb_vlan_tag_present(skb)) {
++		if (skb->vlan_proto != htons(ETH_P_8021AD))
++			return -EINVAL;
++
++		*tci = skb_vlan_tag_get(skb);
++		__vlan_hwaccel_clear_tag(skb);
++		return 0;
++	}
++
++	if (vlan_eth_hdr(skb)->h_vlan_proto != htons(ETH_P_8021AD))
++		return -EINVAL;
++
++	skb_push_rcsum(skb, ETH_HLEN);
++	if (__skb_vlan_pop(skb, tci)) {
++		skb_pull_rcsum(skb, ETH_HLEN);
++		return -EINVAL;
++	}
++	skb_pull_rcsum(skb, ETH_HLEN);
++
++	return 0;
++}
++
++static struct dsa_port *qca_qinq_find_dp(struct net_device *conduit,
++					    u16 outer_vid)
++{
++	struct net_device *user;
++	struct dsa_port *dp;
++	int switch_id;
++	int port;
++
++	if (!vid_is_dsa_8021q(outer_vid))
++		return NULL;
++
++	switch_id = dsa_8021q_rx_switch_id(outer_vid);
++	port = dsa_8021q_rx_source_port(outer_vid);
++
++	user = dsa_conduit_find_user(conduit, switch_id, port);
++	if (!user)
++		return NULL;
++
++	dp = dsa_user_to_port(user);
++
++	if (dp->cpu_dp != conduit->dsa_ptr)
++		return NULL;
++
++	/* Exact match rejects VBID and reserved-bit aliases. */
++	if (outer_vid != dsa_tag_8021q_standalone_vid(dp))
++		return NULL;
++
++	return dp;
++}
++
++static bool qca_qinq_internal_vid(struct dsa_port *dp,
++				     struct net_device *br, u16 vid)
++{
++	if (br) {
++		unsigned int bridge_num = dsa_port_bridge_num_get(dp);
++
++		if (!bridge_num || bridge_num > DSA_TAG_8021Q_MAX_NUM_BRIDGES)
++			return false;
++
++		return vid == dsa_tag_8021q_bridge_vid(bridge_num);
++	}
++
++	return vid == dsa_tag_8021q_standalone_vid(dp);
++}
++
++static int qca_qinq_rx_vlan(struct dsa_port *dp, struct net_device *br,
++			    u16 vid)
++{
++	if (br && br_vlan_enabled(br))
++		return -EINVAL;
++	return qca_qinq_internal_vid(dp, br, vid) ? 1 : -EINVAL;
++}
++
++static int qca_qinq_pop_inner(struct sk_buff *skb)
++{
++	u16 tci;
++
++	skb_push_rcsum(skb, ETH_HLEN);
++	if (__skb_vlan_pop(skb, &tci)) {
++		skb_pull_rcsum(skb, ETH_HLEN);
++		return -EINVAL;
++	}
++	skb_pull_rcsum(skb, ETH_HLEN);
++
++	return 0;
++}
++
++static struct sk_buff *qca_qinq_rcv(struct sk_buff *skb,
++				       struct net_device *netdev)
++{
++	struct vlan_ethhdr *veh;
++	struct net_device *br;
++	struct dsa_port *dp;
++	u16 outer_tci;
++	u16 inner_tci;
++	u16 inner_vid;
++	int strip;
++
++	/* The conduit is promiscuous, so MAC control frames reach us too. */
++	if (unlikely(eth_hdr(skb)->h_proto == htons(ETH_P_PAUSE)))
++		return NULL;
++
++	if (!pskb_may_pull(skb, VLAN_HLEN) ||
++	    qca_qinq_pop_outer(skb, &outer_tci))
++		return NULL;
++
++	if (!pskb_may_pull(skb, VLAN_HLEN))
++		return NULL;
++
++	veh = vlan_eth_hdr(skb);
++	if (veh->h_vlan_proto != htons(ETH_P_8021Q))
++		return NULL;
++
++	if (qca_qinq_is_vlan_tpid(veh->h_vlan_encapsulated_proto))
++		return NULL;
++
++	inner_tci = ntohs(veh->h_vlan_TCI);
++	inner_vid = inner_tci & VLAN_VID_MASK;
++
++	dp = qca_qinq_find_dp(netdev, outer_tci & VLAN_VID_MASK);
++	if (!dp)
++		return NULL;
++
++	br = dsa_port_bridge_dev_get(dp);
++	strip = qca_qinq_rx_vlan(dp, br, inner_vid);
++	if (strip < 0 || (strip && qca_qinq_pop_inner(skb)))
++		return NULL;
++
++	skb->dev = dp->user;
++	skb->priority = (outer_tci & VLAN_PRIO_MASK) >> VLAN_PRIO_SHIFT;
++	dsa_default_offload_fwd_mark(skb);
++
++	return skb;
++}
++
++static struct sk_buff *qca_qinq_xmit(struct sk_buff *skb,
++				      struct net_device *netdev)
++{
++	struct dsa_port *dp = dsa_user_to_port(netdev);
++	struct net_device *br = dsa_port_bridge_dev_get(dp);
++	u16 inner_vid;
++	u8 pcp;
++
++	/* Linux replicates bridge TX per user port; never use a VBID as SVID. */
++	if (unlikely(skb->offload_fwd_mark) || skb_vlan_tag_present(skb) ||
++	    (br && br_vlan_enabled(br)) || !pskb_may_pull(skb, ETH_HLEN))
++		return NULL;
++	if (qca_qinq_is_vlan_tpid(eth_hdr(skb)->h_proto))
++		return NULL;
++
++	if (br) {
++		unsigned int num = dsa_port_bridge_num_get(dp);
++
++		if (!num || num > DSA_TAG_8021Q_MAX_NUM_BRIDGES)
++			return NULL;
++		inner_vid = dsa_tag_8021q_bridge_vid(num);
++	} else {
++		inner_vid = dsa_tag_8021q_standalone_vid(dp);
++	}
++
++	if (__vlan_insert_tag(skb, htons(ETH_P_8021Q), inner_vid))
++		return NULL;
++	skb->protocol = htons(ETH_P_8021Q);
++	pcp = netdev_txq_to_tc(netdev, skb_get_queue_mapping(skb));
++	if (__vlan_insert_tag(skb, htons(ETH_P_8021AD),
++			      ((pcp & 7) << VLAN_PRIO_SHIFT) |
++			      dsa_tag_8021q_standalone_vid(dp)))
++		return NULL;
++	skb->protocol = htons(ETH_P_8021AD);
++	return skb;
++}
++
++static const struct dsa_device_ops qca_qinq_netdev_ops = {
++	.name = "qca-qinq",
++	.proto = DSA_TAG_PROTO_QCA_QINQ,
++	.xmit = qca_qinq_xmit,
++	.rcv = qca_qinq_rcv,
++	.needed_headroom = 2 * VLAN_HLEN,
++	.promisc_on_conduit = true,
++};
++
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("QCA8337 exact-port QinQ DSA tagger");
++MODULE_ALIAS_DSA_TAG_DRIVER(DSA_TAG_PROTO_QCA_QINQ, "qca-qinq");
++module_dsa_tag_driver(qca_qinq_netdev_ops);

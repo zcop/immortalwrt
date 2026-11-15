@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
+/* Separate bring-up image; standard AX3000 boot policy stays unchanged. */
+#include "ipq5000-ax3000.dts"
+
+/ {
+	chosen {
+		bootargs-append = " root=/dev/ubiblock0_1 coherent_pool=2M qca8k.experimental_qinq=1";
+	};
+};

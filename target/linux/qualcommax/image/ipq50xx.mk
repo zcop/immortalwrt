@@ -339,6 +339,15 @@ define Device/redmi_ax3000
 endef
 TARGET_DEVICES += redmi_ax3000
 
+define Device/redmi_ax3000_qinq
+	$(call Device/redmi_ax3000)
+	DEVICE_VARIANT := QinQ driver bring-up
+	DEVICE_DTS := ipq5000-ax3000-qinq
+	BOARD_NAME := redmi_ax3000
+	SUPPORTED_DEVICES := redmi,ax3000
+endef
+TARGET_DEVICES += redmi_ax3000_qinq
+
 define Device/xiaomi_cr881x
 	$(call Device/FitImage)
 	$(call Device/UbiFit)
