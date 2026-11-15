@@ -1,0 +1,93 @@
+From: Zcop <zcop@users.noreply.github.com>
+Subject: [PATCH] net: dsa: qca QinQ: apply bridge customer VLAN policy
+
+Keep exact port SVIDs while using bridge customer VLAN membership and PVIDs.
+Cache bridge VLAN objects when filtering is off; withdraw native admission
+before installing customer domains. Retain customer tags for the Linux bridge.
+
+--- a/include/linux/dsa/qca_qinq.h
++++ b/include/linux/dsa/qca_qinq.h
+@@ -2,6 +2,7 @@
+ #ifndef _LINUX_DSA_QCA_QINQ_H
+ #define _LINUX_DSA_QCA_QINQ_H
+ 
++#include <linux/if_bridge.h>
+ #include <linux/if_ether.h>
+ #include <linux/if_vlan.h>
+ #include <linux/netdevice.h>
+@@ -55,4 +56,27 @@
+ 	return true;
+ }
+ 
++/* Called under RCU: membership is the bridge's public configuration. */
++static inline bool dsa_qca_qinq_bridge_vid_valid(const struct dsa_port *dp, u16 vid)
++{
++	struct bridge_vlan_info info;
++	struct net_device *br;
++
++	if (!dp || !dp->ds || !dp->ds->dst || !dp->ds->dst->tag_ops ||
++	    dp->ds->dst->tag_ops->proto != DSA_TAG_PROTO_QCA_QINQ ||
++	    !dsa_qca_qinq_customer_vid_valid(dp->ds, vid))
++		return false;
++	br = dsa_port_bridge_dev_get(dp);
++	if (!br || !br_vlan_enabled(br) ||
++	    netdev_master_upper_dev_get_rcu(dp->user) != br)
++		return false;
++	return !br_vlan_get_info_rcu(dp->user, vid, &info);
++}
++
++static inline bool dsa_qca_qinq_bridge_pvid(const struct dsa_port *dp, u16 *vid)
++{
++	return !br_vlan_get_pvid_rcu(dp->user, vid) &&
++	       dsa_qca_qinq_bridge_vid_valid(dp, *vid);
++}
++
+ #endif /* _LINUX_DSA_QCA_QINQ_H */
+--- a/net/dsa/tag_qca_qinq.c
++++ b/net/dsa/tag_qca_qinq.c
+@@ -95,7 +95,7 @@
+ 			    u16 vid)
+ {
+ 	if (br && br_vlan_enabled(br))
+-		return -EINVAL;
++		return dsa_qca_qinq_bridge_vid_valid(dp, vid) ? 0 : -EINVAL;
+ 	if (qca_qinq_internal_vid(dp, br, vid))
+ 		return 1;
+ 	if (!br && dsa_qca_qinq_direct_vid_valid(dp, vid))
+@@ -190,7 +190,8 @@
+ 		return false;
+ 	}
+ 	rcu_read_lock();
+-	valid = dsa_qca_qinq_direct_vid_valid(dp, *tci & VLAN_VID_MASK);
++	valid = dsa_qca_qinq_direct_vid_valid(dp, *tci & VLAN_VID_MASK) ||
++		dsa_qca_qinq_bridge_vid_valid(dp, *tci & VLAN_VID_MASK);
+ 	rcu_read_unlock();
+ 	return valid;
+ }
+@@ -205,8 +206,7 @@
+ 	u8 pcp;
+ 
+ 	/* Linux replicates bridge TX per user port; never use a VBID as SVID. */
+-	if (unlikely(skb->offload_fwd_mark) ||
+-	    (br && br_vlan_enabled(br)) || !pskb_may_pull(skb, ETH_HLEN))
++	if (unlikely(skb->offload_fwd_mark) || !pskb_may_pull(skb, ETH_HLEN))
+ 		return NULL;
+ 
+ 	tagged = skb_vlan_tag_present(skb) ||
+@@ -221,7 +221,15 @@
+ 		}
+ 		skb->protocol = htons(ETH_P_8021Q);
+ 	} else {
+-		if (br) {
++		if (br && br_vlan_enabled(br)) {
++			bool valid;
++
++			rcu_read_lock();
++			valid = dsa_qca_qinq_bridge_pvid(dp, &inner_vid);
++			rcu_read_unlock();
++			if (!valid)
++				return NULL;
++		} else if (br) {
+ 			unsigned int num = dsa_port_bridge_num_get(dp);
+ 
+ 			if (!num || num > DSA_TAG_8021Q_MAX_NUM_BRIDGES)
