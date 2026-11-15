@@ -1,0 +1,51 @@
+Admit routed QCA8337 VLAN-aware bridge customer interfaces.
+
+Require live port membership and published one-level bridge VLAN uppers.
+Preserve QCA rejection of unaware customer bridging, bridged PPP, VLAN+PPP,
+non-bridge masters, tunnels and non-routed traffic. Keep all YT paths intact.
+
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -127,7 +127,7 @@
+ 
+ 		rcu_read_lock();
+ 		br = dsa_port_bridge_dev_get(qdp);
+-		ret = (br && br_vlan_enabled(br)) || (direct && br) ||
++		ret = (direct && br) ||
+ 		      netdev_master_upper_dev_get_rcu(port) != br ? -EOPNOTSUPP : 0;
+ 		rcu_read_unlock();
+ 		if (ret)
+@@ -153,7 +153,8 @@
+ 			}
+ #endif
+ 			if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
+-			    type != (direct ? ECM_DB_IFACE_TYPE_VLAN : ECM_DB_IFACE_TYPE_BRIDGE)) {
++			    type != (direct ? ECM_DB_IFACE_TYPE_VLAN : ECM_DB_IFACE_TYPE_BRIDGE) &&
++			    !(br && br_vlan_enabled(br) && type == ECM_DB_IFACE_TYPE_VLAN)) {
+ 				ret = -EOPNOTSUPP;
+ 				goto out;
+ 			}
+@@ -266,6 +267,11 @@
+ 			     vlan_dev_vlan_proto(dev) == htons(ETH_P_8021Q) &&
+ 			     br && br_vlan_enabled(br) &&
+ 			     vlan_dev_real_dev(dev) == br;
++			if (ok && dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ)
++				ok = !netdev_master_upper_dev_get_rcu(dev) &&
++				     __vlan_find_dev_deep_rcu(br, htons(ETH_P_8021Q),
++							    vlan_dev_vlan_id(dev)) == dev &&
++				     dsa_qca_qinq_bridge_vid_valid(dp, vlan_dev_vlan_id(dev));
+ 		}
+ 		if (!ok) {
+ 			dev_put(dev);
+@@ -328,6 +334,11 @@
+ 	}
+ 	if (br && br_vlan_enabled(br) && br_vlan_get_info_rcu(port, cvid, &vinfo)) {
+ 		ret = -ENOENT;
++		goto unlock;
++	}
++	if (dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ &&
++	    br && br_vlan_enabled(br) && !dsa_qca_qinq_bridge_vid_valid(dp, cvid)) {
++		ret = -EOPNOTSUPP;
+ 		goto unlock;
+ 	}
+ 	side->outer = (ETH_P_8021AD << 16) | svid;

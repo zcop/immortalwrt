@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Ported from the preserved Kuncy7/QinQ reference to qosmio native NSS-DP.
- * The stmmac takeover controller is not used. Only YT921x QinQ is admitted.
+ * The stmmac takeover controller is not used. YT921x and QCA8337 exact-port
+ * QinQ transports are admitted.
  *
  * qca-nss-qinq: NSS firmware VLAN interfaces for the user ports of a DSA
- * switch driven by a tag_8021q tagger (qca-8021q, rtl8365mb-8021q).
+ * switch carrying exact port SVIDs in an outer 802.1ad tag.
  *
  * Single-tag mode (port_id_tpid=0): the switch talks to its CPU port in
  * plain 802.1Q: a standalone port carries its own VID (3072 + port), the
@@ -66,6 +67,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/dsa/8021q.h>
 #include <linux/dsa/yt921x_qinq.h>
+#include <linux/dsa/qca_qinq.h>
 #include <net/dsa.h>
 #include <net/switchdev.h>
 #include <nss_api_if.h>
@@ -79,11 +81,11 @@ struct net_device *dsa_tag_8021q_find_user(struct net_device *conduit,
 int qca_nss_qinq_root_if_num(struct net_device *conduit, u16 vid);
 int qca_nss_qinq_lookup(struct net_device *conduit, u16 svid, u16 vid);
 
-/* This native adapter accepts only the YT921x 0x88a8 QinQ transport. */
+/* Both admitted QinQ protocols use an outer 0x88a8 service tag. */
 static unsigned int port_id_tpid = ETH_P_8021AD;
 module_param(port_id_tpid, uint, 0444);
 MODULE_PARM_DESC(port_id_tpid,
-		 "YT921x QinQ outer TPID; must be 0x88a8");
+		 "QinQ outer TPID; must be 0x88a8");
 
 /*
  * A port-ID port costs a root plus one leaf per inner VID, and the firmware
@@ -300,15 +302,19 @@ static int dsa_nss_node_create(struct dsa_nss_node *n,
  * ===== desired topology (rtnl held) =====
  */
 
-/* A port whose switch runs a tag_8021q tagger (qca-8021q on qca8k,
- * rtl8365mb-8021q on rtl8365mb): the switch talks to the conduit in plain
- * 802.1Q, and the VIDs are the framework's regardless of the switch.
- */
+/* Admit explicit exact-port QinQ protocols, not arbitrary tag_8021q users. */
+static bool dsa_nss_port_is_qca(const struct dsa_port *dp)
+{
+	return dp->ds && dp->ds->dst && dp->ds->dst->tag_ops &&
+	       dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ;
+}
+
 static bool dsa_nss_port_is_8021q(const struct dsa_port *dp)
 {
 	return dp->cpu_dp && dp->ds && dp->ds->tag_8021q_ctx &&
 	       dp->ds->dst && dp->ds->dst->tag_ops &&
-	       dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_YT921X_QINQ;
+	       (dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_YT921X_QINQ ||
+		dsa_nss_port_is_qca(dp));
 }
 
 /* The tag_8021q DSA port behind @dev: @dev itself, or the real device of an
@@ -361,6 +367,9 @@ static bool dsa_nss_collect_bridge_uppers(struct dsa_nss_want *want, int *n,
 {
 	struct net_device *dev;
 
+	if (dsa_nss_port_is_qca(dp))
+		return true;
+
 	for_each_netdev(&init_net, dev) {
 		u16 vid;
 
@@ -399,13 +408,19 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 		dp = dsa_nss_port_of(dev, &upper);
 		if (!dp)
 			continue;
+		/* QCA customer uppers require the live standalone switch policy. */
+		if (dsa_nss_port_is_qca(dp) &&
+		    netdev_master_upper_dev_get(dp->user) != dsa_port_bridge_dev_get(dp))
+			continue;
 		if (upper) {
 			bool valid;
 
 			rcu_read_lock();
 			valid = vlan_dev_vlan_proto(dev) == htons(ETH_P_8021Q) &&
 				!netdev_master_upper_dev_get_rcu(dev) &&
-				dsa_yt921x_qinq_direct_vid_valid(dp, vlan_dev_vlan_id(dev));
+				(dsa_nss_port_is_qca(dp) ?
+				 dsa_qca_qinq_direct_vid_valid(dp, vlan_dev_vlan_id(dev)) :
+				 dsa_yt921x_qinq_direct_vid_valid(dp, vlan_dev_vlan_id(dev)));
 			rcu_read_unlock();
 			if (!valid)
 				continue;
@@ -435,7 +450,9 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 			u16 vid;
 
 			for (vid = 1; vid < VLAN_N_VID; vid++) {
-				if (!dsa_yt921x_qinq_customer_vid_valid(dp->ds, vid))
+				if (!(dsa_nss_port_is_qca(dp) ?
+				      dsa_qca_qinq_customer_vid_valid(dp->ds, vid) :
+				      dsa_yt921x_qinq_customer_vid_valid(dp->ds, vid)))
 					continue;
 				if (br_vlan_get_info(dev, vid, &vinfo))
 					continue;

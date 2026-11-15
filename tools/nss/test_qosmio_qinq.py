@@ -12,6 +12,9 @@ import tempfile
 root = Path(__file__).resolve().parents[2]
 source = (root / 'package/kernel/qca-nss-qinq/src/qca_nss_qinq.c').read_text()
 header = (root / 'target/linux/generic/files/include/linux/dsa/yt921x_qinq.h').read_text()
+qca_header = Path(os.environ.get('QCA_QINQ_HEADER', str(root /
+    'build_dir/target-aarch64_cortex-a53_musl/linux-qualcommax_ipq50xx/linux-6.18.60/include/linux/dsa/qca_qinq.h'))).read_text()
+
 
 
 def function(name, text=source):
@@ -235,6 +238,8 @@ ecm_mock = r'''
 typedef uint32_t u32;
 #define IS_ERR_OR_NULL(p) (!(p))
 #define DSA_TAG_PROTO_YT921X_QINQ 35
+#define DSA_TAG_PROTO_QCA_QINQ 39
+#define NETIF_F_HW_VLAN_CTAG_FILTER 1
 #define DSA_TAG_8021Q_MAX_NUM_BRIDGES 7
 #define ECM_DB_IFACE_HEIRARCHY_MAX 8
 #define NSS_MAX_PHYSICAL_INTERFACES 8
@@ -305,10 +310,11 @@ static void mock_unpublish_upper(struct net_device *bridge, struct net_device *u
 }
 static bool netif_is_bridge_master(struct net_device *dev) { return dev->is_bridge; }
 static struct net_device *netdev_master_upper_dev_get_rcu(struct net_device *dev) { return dev->master; }
+static struct net_device *netdev_master_upper_dev_get(struct net_device *dev) { return dev->master; }
 static struct dsa_port *dsa_port_from_netdev(struct net_device *dev) { return dev->dp; }
-static struct net_device *dsa_port_bridge_dev_get(struct dsa_port *dp) { return dp->bridge; }
+static struct net_device *dsa_port_bridge_dev_get(const struct dsa_port *dp) { return dp->bridge; }
 static int dsa_port_bridge_num_get(struct dsa_port *dp) { return dp->bridge_num; }
-static u16 dsa_tag_8021q_standalone_vid(struct dsa_port *dp) { return 3072 + dp->port; }
+static u16 dsa_tag_8021q_standalone_vid(const struct dsa_port *dp) { return 3072 + dp->port; }
 static u16 dsa_tag_8021q_bridge_vid(int id) { return 3088 + id; }
 #define dsa_switch_for_each_user_port(dp, ds) \
     for ((dp) = (ds)->mock_user_port; (dp); (dp) = NULL)
@@ -511,6 +517,65 @@ int main(void) {
     test_unaware_bridge_upper();
     puts("PASS: actual ECM resolver handles standalone/bridge/L3 VLAN and rejects stale, ambiguous or unsupported paths");
     test_pppoe_hierarchy();
+    /* QCA admits native, live direct and aware-bridge customer VLANs, plus plain PPP. */
+    ops.proto = DSA_TAG_PROTO_QCA_QINQ;
+    clear_nodes(); node(0, 1, 3072, 0, 100, -1);
+    node(1, 1, 3072, 3072, 101, 100);
+    port.dp = &dp; devices[1] = &port; devices[2] = &bridge; devices[3] = &upper;
+    dp.bridge = NULL; ifaces[7] = &port_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == 1 && side.leaf == 101);
+    dp.bridge = &bridge; port.master = &bridge; bridge.vlan_enabled = false; dsa_nss_nodes[1].vid = 3089;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == 1 && side.inner == 0x81000c11U);
+    bridge.vlan_enabled = true;
+    memset(port.vlans, 0, sizeof(port.vlans)); port.vlans[10] = true; dsa_nss_nodes[1].vid = 10;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == 1 && side.inner == 0x8100000aU);
+    port.vlans[20] = true;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) < 0); /* ambiguous bare bridge */
+    upper.real = &bridge; upper.vid = 10; upper.proto = 0x8100;
+    ifaces[6] = &port_ii; ifaces[7] = &upper_ii; upper_ii.type = ECM_DB_IFACE_TYPE_VLAN;
+    mock_publish_upper(&bridge, &upper);
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == 1 && side.inner == 0x8100000aU);
+    mock_unpublish_upper(&bridge, &upper);
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0); /* stale upper */
+    mock_publish_upper(&bridge, &upper); upper.master = &port;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    upper.master = NULL; port.vlans[10] = false;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0); /* stale leaf after membership removal */
+    port.vlans[10] = true; ci.routed = false;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    ci.routed = true; upper.proto = 0x88a8;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    upper.proto = 0x8100; mock_unpublish_upper(&bridge, &upper); ifaces[7] = &port_ii;
+    bridge.vlan_enabled = false; dp.bridge = NULL; port.master = NULL; dsa_nss_nodes[1].vid = 3072;
+    port.master = &bridge; /* A non-DSA bridge master, e.g. bond, is outside scope. */
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) == -EOPNOTSUPP);
+    port.master = NULL;
+    upper.real = &port; upper.proto = 0x8100; upper.vid = 35;
+    ifaces[6] = &port_ii; ifaces[7] = &upper_ii; upper_ii.type = ECM_DB_IFACE_TYPE_VLAN;
+    ds.mock_user_port = &dp; ds.max_num_bridges = 7;
+    mock_publish_upper(&port, &upper);
+    node(2, 1, 3072, 35, 102, 100);
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == 1 && side.leaf == 102 && side.inner == 0x81000023U);
+    mock_unpublish_upper(&port, &upper);
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0); /* stale FW leaf does not grant admission */
+    mock_publish_upper(&port, &upper);
+    port.features = 0;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    port.features = 1; upper.vid = 4094; dsa_nss_nodes[2].vid = 4094;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == 1 && side.inner == 0x81000ffeU);
+    upper.vid = 3072;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    upper.vid = 35; dsa_nss_nodes[2].vid = 35; dp.bridge = &bridge; port.master = &bridge;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    dp.bridge = NULL; port.master = NULL; upper.master = &bridge;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    upper.master = NULL; upper.proto = 0x88a8;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    upper.proto = 0x8100;
+    upper_ii.type = ECM_DB_IFACE_TYPE_PPPOE;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == -EOPNOTSUPP);
+    assert(port.refs == 0 && upper.refs == 0);
+    puts("PASS: QCA direct and aware-bridge VLAN mapping, published uppers, exact membership and ambiguity checks; stale/mastered/S-tagged/PPP misuse rejected");
     return 0;
 }
 '''
@@ -571,13 +636,54 @@ static void test_pppoe_hierarchy(void) {
     ifaces[6] = &upper_ii; ppp_ii.type = 99;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* tunnel */
     assert(port.refs == 0 && upper.refs == 0 && ppp.refs == 0);
+
+    /* QCA admits only a native standalone underlay for one live PPPoE. */
+    struct net_device bridge = {.index = 9};
+    struct ecm_db_iface_instance bridge_ii = {.index = 9, .type = ECM_DB_IFACE_TYPE_BRIDGE};
+    devices[9] = &bridge;
+    ops.proto = DSA_TAG_PROTO_QCA_QINQ;
+    ppp_ii.type = ECM_DB_IFACE_TYPE_PPPOE;
+    ppp_ii.ae = 150; ppp.phys = 150;
+    ppp.type = ARPHRD_PPP; ppp.flags = IFF_POINTOPOINT;
+    dp.bridge = NULL; port.master = NULL;
+    ifaces[5] = NULL; ifaces[6] = &port_ii; ifaces[7] = &ppp_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == 1);
+    assert(side.physical == 1 && side.leaf == 101 &&
+           side.outer == 0x88a80c00U && side.inner == 0x81000c00U);
+    ppp_ii.ae = 149;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    ppp_ii.ae = 150; ppp.phys = -1;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    ppp.phys = 150; ppp.flags = 0;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    ppp.flags = IFF_POINTOPOINT; ppp.type = 1;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    ppp.type = ARPHRD_PPP; ci.routed = false;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    ci.routed = true;
+    ifaces[5] = &port_ii; ifaces[6] = &ppp_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* nested */
+    ifaces[6] = &upper_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* VLAN+PPP */
+    ifaces[6] = &bridge_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* stale/unrelated bridge */
+    ifaces[5] = NULL; ifaces[6] = &port_ii;
+    dp.bridge = &bridge; port.master = &bridge;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0); /* bridged PPP */
+    dp.bridge = NULL; /* A bond/non-DSA master cannot be a PPP underlay. */
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    port.master = NULL;
+    assert(port.refs == 0 && upper.refs == 0 && ppp.refs == 0 && bridge.refs == 0);
+    puts("PASS: QCA standalone PPPoE reuses live-session checks and rejects VLAN/bridge/master/nested/stale/malformed paths");
     puts("PASS: one live PPPoE session over native/customer VLAN; stale, unregistered, malformed, nested and tunnel hierarchies rejected");
 }
 '''
 ecm_checks = ecm_checks.replace('int main(void) {', pppoe_checks + '\nint main(void) {')
 
 header_functions = '\n\n'.join(function(name, header) for name in (
-    'dsa_yt921x_qinq_customer_vid_valid', 'dsa_yt921x_qinq_bridge_upper_valid'))
+    'dsa_yt921x_qinq_customer_vid_valid', 'dsa_yt921x_qinq_bridge_upper_valid')) + '\n\n' + '\n\n'.join(function(name, qca_header) for name in (
+    'dsa_qca_qinq_customer_vid_valid', 'dsa_qca_qinq_direct_vid_valid',
+    'dsa_qca_qinq_bridge_vid_valid'))
 ecm_functions = header_functions + '\n\n' + '\n\n'.join(function(name, ecm) for name in (
     'ecm_nss_qinq_is_port', 'ecm_nss_qinq_is_upper', 'ecm_nss_qinq_side_get'))
 with tempfile.TemporaryDirectory(prefix='qosmio-ecm-') as directory:
@@ -641,13 +747,32 @@ int main(void) {
     bridge.vlan_enabled = true; base.vlans[35] = base.vlans[36] = false; base.vlans[100] = true;
     n = dsa_nss_collect_port_id(want, 64);
     assert(n == 2 && owner(want,n,100) == &base);
-    dp.bridge = NULL; conduit.phys = -1; dsa_nss_waiting_phys = false;
+    ops.proto = DSA_TAG_PROTO_QCA_QINQ;
+    dp.bridge = NULL;
+    n = dsa_nss_collect_port_id(want, 64);
+    assert(n == 2 && owner(want,n,3072) == &base && !owner(want,n,35));
+    mock_publish_upper(&base, &upper35);
+    n = dsa_nss_collect_port_id(want, 64);
+    assert(n == 3 && owner(want,n,35) == &upper35 && !owner(want,n,36));
+    mock_unpublish_upper(&base, &upper35);
+    assert(dsa_nss_collect_port_id(want,64) == 2);
+    mock_publish_upper(&base, &upper35);
+    dp.bridge = &bridge; base.master = &bridge; bridge.vlan_enabled = false;
+    n = dsa_nss_collect_port_id(want, 64);
+    assert(n == 2 && owner(want,n,3089) == &base && !owner(want,n,36));
+    bridge.vlan_enabled = true;
+    n = dsa_nss_collect_port_id(want, 64);
+    assert(n == 2 && owner(want,n,100) == &base && owner(want,n,0) == &base);
+    assert(!owner(want,n,35) && !owner(want,n,3072));
+    dp.bridge = NULL; base.master = &bridge;
+    assert(dsa_nss_collect_port_id(want, 64) == 0);
+    base.master = NULL; conduit.phys = -1; dsa_nss_waiting_phys = false;
     assert(!dsa_nss_collect_port_id(want, 64) && dsa_nss_waiting_phys);
     puts("PASS: actual node collector keeps base leaf, exact direct VID/owner, rejects stale/S-tagged/bridged uppers and bounds capacity");
 }
 '''
 collection_functions = header_functions + '\n\n' + '\n\n'.join(function(name) for name in (
-    'dsa_nss_port_is_8021q', 'dsa_nss_port_of', 'dsa_nss_want_add',
+    'dsa_nss_port_is_qca', 'dsa_nss_port_is_8021q', 'dsa_nss_port_of', 'dsa_nss_want_add',
     'dsa_nss_collect_bridge_uppers', 'dsa_nss_collect_port_id'))
 with tempfile.TemporaryDirectory(prefix='qosmio-collect-') as directory:
     path = Path(directory)

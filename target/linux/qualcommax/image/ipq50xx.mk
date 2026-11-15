@@ -348,6 +348,15 @@ define Device/redmi_ax3000_qinq
 endef
 TARGET_DEVICES += redmi_ax3000_qinq
 
+define Device/redmi_ax3000_nss
+	$(call Device/redmi_ax3000_qinq)
+	DEVICE_VARIANT := Native NSS QinQ experiment
+	DEVICE_DTS := ipq5000-ax3000-nss
+	DEVICE_PACKAGES += kmod-qca-nss-dp kmod-qca-nss-drv \
+		kmod-qca-nss-ecm kmod-qca-nss-qinq nss-firmware-ipq50xx
+endef
+TARGET_DEVICES += redmi_ax3000_nss
+
 define Device/xiaomi_cr881x
 	$(call Device/FitImage)
 	$(call Device/UbiFit)

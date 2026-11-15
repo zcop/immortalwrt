@@ -1,0 +1,52 @@
+Admit one live PPPoE session over a native standalone QCA8337 port.
+
+Reuse the shared session/lifetime checks. Keep customer VLAN, bridged PPP,
+non-bridge master and tunnel hierarchies excluded; preserve YT921x behavior.
+
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -114,11 +114,15 @@
+ 		goto out;
+ 	}
+ 
+-	/* QCA8337 currently implements native standalone/unaware traffic only.
+-	 * Keep VLAN uppers and PPP/tunnels out until their switch policy exists.
++	/* QCA8337 admits native Ethernet/bridge traffic and one standalone
++	 * PPPoE session. Customer VLANs and bridged PPP underlays stay excluded.
+ 	 */
+ 	if (dsa_port_from_netdev(port)->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ) {
+ 		struct dsa_port *qdp = dsa_port_from_netdev(port);
++#ifdef ECM_INTERFACE_PPPOE_ENABLE
++		bool pppoe = ecm_db_iface_type_get(ifaces[ECM_DB_IFACE_HEIRARCHY_MAX - 1]) ==
++			     ECM_DB_IFACE_TYPE_PPPOE;
++#endif
+ 
+ 		rcu_read_lock();
+ 		br = dsa_port_bridge_dev_get(qdp);
+@@ -127,9 +131,26 @@
+ 		rcu_read_unlock();
+ 		if (ret)
+ 			goto out;
++#ifdef ECM_INTERFACE_PPPOE_ENABLE
++		if (pppoe && (br || direct)) {
++			ret = -EOPNOTSUPP;
++			goto out;
++		}
++#endif
+ 		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+ 			ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
+ 
++#ifdef ECM_INTERFACE_PPPOE_ENABLE
++			if (pppoe) {
++				/* Shared checks below validate the one live PPP session. */
++				if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
++				    type != ECM_DB_IFACE_TYPE_PPPOE) {
++					ret = -EOPNOTSUPP;
++					goto out;
++				}
++				continue;
++			}
++#endif
+ 			if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
+ 			    type != ECM_DB_IFACE_TYPE_BRIDGE) {
+ 				ret = -EOPNOTSUPP;

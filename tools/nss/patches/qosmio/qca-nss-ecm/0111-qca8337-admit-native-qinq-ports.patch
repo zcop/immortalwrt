@@ -1,0 +1,48 @@
+Admit the exact QCA8337 QinQ protocol for native routed Ethernet only.
+
+Customer VLANs, VLAN-aware bridges and PPP/tunnel hierarchies remain on
+the host until the QCA switch policy supports them. Preserve YT921x paths.
+
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -62,7 +62,8 @@
+ 		return false;
+ 	dp = dsa_port_from_netdev(dev);
+ 	return !IS_ERR_OR_NULL(dp) && dp->ds && dp->ds->dst && dp->ds->dst->tag_ops &&
+-	       dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_YT921X_QINQ;
++	       (dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_YT921X_QINQ ||
++		dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ);
+ }
+ 
+ bool ecm_nss_qinq_is_upper(struct net_device *dev)
+@@ -111,6 +112,30 @@
+ 	if (!port) {
+ 		ret = direct ? -EOPNOTSUPP : 0;
+ 		goto out;
++	}
++
++	/* QCA8337 currently implements native standalone/unaware traffic only.
++	 * Keep VLAN uppers and PPP/tunnels out until their switch policy exists.
++	 */
++	if (dsa_port_from_netdev(port)->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ) {
++		struct dsa_port *qdp = dsa_port_from_netdev(port);
++
++		rcu_read_lock();
++		br = dsa_port_bridge_dev_get(qdp);
++		ret = (br && br_vlan_enabled(br)) ||
++		      netdev_master_upper_dev_get_rcu(port) != br ? -EOPNOTSUPP : 0;
++		rcu_read_unlock();
++		if (ret)
++			goto out;
++		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++			ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
++
++			if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
++			    type != ECM_DB_IFACE_TYPE_BRIDGE) {
++				ret = -EOPNOTSUPP;
++				goto out;
++			}
++		}
+ 	}
+ 
+ 	/* Routed Ethernet/bridge/one-customer-VLAN, optionally terminating
