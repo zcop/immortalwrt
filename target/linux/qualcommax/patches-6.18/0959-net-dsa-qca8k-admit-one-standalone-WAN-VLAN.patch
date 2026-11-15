@@ -1,0 +1,338 @@
+Subject: [PATCH] net: dsa: qca8k: admit one standalone QinQ WAN VLAN
+
+Use DSA's user/CPU VLAN lifecycle for one registered customer upper on the
+AX3000 WAN port. Slot94 grants its exact SVID/CVID/conduit only after VTU CPU
+membership succeeds; deletion invalidates steering before changing the VTU.
+The native WAN rule also matches its inner VID, closing the prior unrestricted
+CPU steering path. Port VLAN defaults and unrelated/native LAN policy stay
+unchanged. This first customer scope excludes bridged uppers and multiple VIDs.
+
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -460,6 +460,9 @@
+ 	bool qinq;
+ 	bool qinq_acl_owned;
+ 	u8 qinq_fault_map;
++	u16 qinq_wan_vid;
++	u8 qinq_wan_cpu;
++	bool qinq_wan_user, qinq_wan_host;
+ 	u16 qinq_native_vid[QCA8K_NUM_PORTS];
+ 	struct qca8k_ports_config ports_config;
+ 	struct regmap *regmap;
+@@ -510,9 +513,17 @@
+ int qca8k_qinq_setup(struct dsa_switch *ds);
+ void qca8k_qinq_teardown(struct dsa_switch *ds);
+ int qca8k_qinq_conduit(struct qca8k_priv *priv, int port, int cpu);
++int qca8k_qinq_check_conduit(struct qca8k_priv *priv, int port, int cpu);
+ void qca8k_qinq_fault(struct qca8k_priv *priv, int port);
++int qca8k_qinq_block_native(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_vlan_add(struct dsa_switch *ds, int port, u16 vid, u16 flags);
+ int qca8k_qinq_vlan_del(struct dsa_switch *ds, int port, u16 vid);
++int qca8k_qinq_customer_add(struct dsa_switch *ds, int port, u16 vid, u16 flags);
++int qca8k_qinq_customer_del(struct dsa_switch *ds, int port, u16 vid);
++/* Internal VTU helpers shared with the QinQ admission policy. */
++int qca8k_vlan_add(struct qca8k_priv *priv, u8 port, u16 vid, bool untagged);
++int qca8k_vlan_del(struct qca8k_priv *priv, u8 port, u16 vid);
++
+ 
+ /* Common setup function */
+ extern const struct qca8k_mib_desc ar8327_mib[];
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -3,6 +3,7 @@
+ #include <linux/bitfield.h>
+ #include <linux/delay.h>
+ #include <linux/dsa/8021q.h>
++#include <linux/dsa/qca_qinq.h>
+ #include <linux/if_bridge.h>
+ #include <linux/if_vlan.h>
+ #include <linux/rtnetlink.h>
+@@ -145,6 +146,19 @@
+ 	dev_err(priv->dev, "QinQ configuration failed; port %d held down\n", port);
+ }
+ 
++/* Some standalone ports advertise CTAG filtering before DSA's per-port
++ * filtering state is set. Do not move surviving VLAN references to a CPU
++ * for which DSA has not installed the matching host VLAN objects.
++ */
++int qca8k_qinq_check_conduit(struct qca8k_priv *priv, int port, int cpu)
++{
++	if (port < 1 || port > 4 || (cpu != 0 && cpu != 5))
++		return -EOPNOTSUPP;
++	if (port == 4 && priv->qinq_wan_vid && cpu != priv->qinq_wan_cpu)
++		return -EBUSY;
++	return 0;
++}
++
+ int qca8k_qinq_conduit(struct qca8k_priv *priv, int port, int cpu)
+ {
+ 	struct dsa_port *dp = dsa_to_port(priv->ds, port);
+@@ -154,11 +168,153 @@
+ 	u32 action[3] = { 0, (BIT(port) & 7) << 29, BIT(4) | (BIT(port) >> 3) };
+ 	int ret;
+ 
+-	if (port < 1 || port > 4 || (cpu != 0 && cpu != 5))
++	ret = qca8k_qinq_check_conduit(priv, port, cpu);
++	if (ret)
++		return ret;
++	/* WAN's native rule must not admit arbitrary customer C-VIDs. Slot94
++	 * grants the one configured standalone upper only after CPU setup.	 */
++	if (port == 4) {
++		u16 cvid = priv->qinq_native_vid[port] ?: svid;
++
++		value[2] |= (u32)(cvid & 0xff) << 24;
++		value[3] |= cvid >> 8;
++		mask[2] |= 0xff000000;
++		mask[3] = 0xf;
++		mask[4] |= BIT(5) | BIT(4); /* Require the inner C-tag. */
++	}
++	ret = qca8k_qinq_rule(priv, 89 + port, value, mask, action);
++	if (ret)
++		qca8k_qinq_fault(priv, port);
++	return ret;
++}
++
++
++/* A native domain being removed must cease granting TX before its VTU
++ * entry is deleted. The next PVID add publishes its replacement rule.
++ */
++int qca8k_qinq_block_native(struct qca8k_priv *priv, int port)
++{
++	u32 empty[5] = {}, action[3] = {};
++	int ret;
++
++	if (port != 4)
++		return 0;
++	ret = qca8k_qinq_rule(priv, 93, empty, empty, action);
++	if (ret)
++		qca8k_qinq_fault(priv, port);
++	return ret;
++}
++
++/* One standalone WAN upper is the first customer-VLAN hardware gate. The
++ * native domains retain their four rules; slot94 grants the customer VID.
++ * DSA refcounts user/host VLAN objects and calls the driver on first/last use.
++ */
++static int qca8k_qinq_wan_rule(struct qca8k_priv *priv, bool enable)
++{
++	u32 value[5] = {}, mask[5] = {}, action[3] = {};
++	u16 vid = priv->qinq_wan_vid;
++
++	if (enable) {
++		u16 svid = dsa_tag_8021q_standalone_vid(dsa_to_port(priv->ds, 4));
++
++		value[2] = (svid << 8) | ((u32)(vid & 0xff) << 24);
++		value[3] = 0xc1000000 | (vid >> 8);
++		value[4] = BIT(priv->qinq_wan_cpu);
++		mask[2] = 0xff0fff00;
++		mask[3] = 0xf;
++		mask[4] = 0xff;
++		action[2] = BIT(4) | BIT(1); /* Only user port4. */
++	}
++	return qca8k_qinq_rule(priv, 94, value, mask, action);
++}
++
++int qca8k_qinq_customer_add(struct dsa_switch *ds, int port, u16 vid, u16 flags)
++{
++	struct qca8k_priv *priv = ds->priv;
++	struct dsa_port *wan = dsa_to_port(ds, 4);
++	int ret;
++
++	/* VLAN core installs VID0 for priority-tag reception; it grants no
++	 * customer admission and must not replace the native PVID.
++	 */
++	if (!vid)
++		return 0;
++	if (flags || !dsa_qca_qinq_customer_vid_valid(ds, vid))
+ 		return -EOPNOTSUPP;
+-	ret = qca8k_qinq_rule(priv, 89 + port, value, mask, action);
+-	if (ret)
+-		qca8k_qinq_fault(priv, port);
++	if (port == 4) {
++		if (wan->bridge || netdev_master_upper_dev_get(wan->user))
++			return -EOPNOTSUPP;
++		if (priv->qinq_wan_vid && priv->qinq_wan_vid != vid)
++			return -ENOSPC;
++		if (priv->qinq_wan_user)
++			return 0;
++		ret = qca8k_vlan_add(priv, port, vid, false);
++		if (ret)
++			goto fault;
++		priv->qinq_wan_vid = vid;
++		priv->qinq_wan_cpu = wan->cpu_dp->index;
++		priv->qinq_wan_user = true;
++		if (!priv->qinq_wan_host)
++			return 0;
++		ret = qca8k_qinq_wan_rule(priv, true);
++		if (ret)
++			goto fault;
++		return 0;
++	}
++	if (!priv->qinq_wan_user || priv->qinq_wan_vid != vid ||
++	    port != priv->qinq_wan_cpu)
++		return -EOPNOTSUPP;
++	if (priv->qinq_wan_host) {
++		ret = qca8k_qinq_wan_rule(priv, true);
++		if (ret)
++			goto fault;
++		return 0;
++	}
++	ret = qca8k_vlan_add(priv, port, vid, false);
++	if (ret)
++		goto fault;
++	priv->qinq_wan_host = true;
++	ret = qca8k_qinq_wan_rule(priv, true);
++	if (!ret)
++		return 0;
++	priv->qinq_wan_host = false;
++	qca8k_vlan_del(priv, port, vid);
++fault:
++	qca8k_qinq_fault(priv, 4);
++	return ret;
++}
++
++int qca8k_qinq_customer_del(struct dsa_switch *ds, int port, u16 vid)
++{
++	struct qca8k_priv *priv = ds->priv;
++	bool *present;
++	int ret;
++
++	if (!vid || vid != priv->qinq_wan_vid)
++		return 0;
++	if (port == 4)
++		present = &priv->qinq_wan_user;
++	else if (port == priv->qinq_wan_cpu)
++		present = &priv->qinq_wan_host;
++	else
++		return -EOPNOTSUPP;
++	if (!*present)
++		return 0;
++	/* Withdraw steering before VTU deletion; ACL overrides bypass VTU
++	 * egress admission. Either deletion order must immediately close TX.
++	 */
++	ret = qca8k_qinq_wan_rule(priv, false);
++	if (ret)
++		goto fault;
++	ret = qca8k_vlan_del(priv, port, vid);
++	if (ret)
++		goto fault;
++	*present = false;
++	if (!priv->qinq_wan_user && !priv->qinq_wan_host)
++		priv->qinq_wan_vid = 0;
++	return 0;
++fault:
++	qca8k_qinq_fault(priv, 4);
+ 	return ret;
+ }
+ 
+@@ -206,7 +362,7 @@
+ 		mutex_unlock(&priv->reg_mutex);
+ 		if (ret)
+ 			return ret;
+-		if (entry[4] & 7)
++		if (entry[4] & (QINQ_RULE_COMPLETE | GENMASK(2, 0)))
+ 			return -EBUSY;
+ 	}
+ 	priv->qinq_acl_owned = true;
+@@ -284,6 +440,7 @@
+ 	if (ret)
+ 		goto fail;
+ 	ds->max_num_bridges = DSA_TAG_8021Q_MAX_NUM_BRIDGES;
++	ds->needs_standalone_vlan_filtering = true;
+ 	rtnl_lock();
+ 	ret = dsa_tag_8021q_register(ds, htons(ETH_P_8021AD));
+ 	rtnl_unlock();
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -390,7 +390,7 @@
+ 	return 0;
+ }
+ 
+-static int qca8k_vlan_add(struct qca8k_priv *priv, u8 port, u16 vid,
++int qca8k_vlan_add(struct qca8k_priv *priv, u8 port, u16 vid,
+ 			  bool untagged)
+ {
+ 	u32 reg;
+@@ -428,7 +428,7 @@
+ 	return ret;
+ }
+ 
+-static int qca8k_vlan_del(struct qca8k_priv *priv, u8 port, u16 vid)
++int qca8k_vlan_del(struct qca8k_priv *priv, u8 port, u16 vid)
+ {
+ 	u32 reg, mask;
+ 	int ret, i;
+@@ -1097,8 +1097,8 @@
+ 	int ret;
+ 
+ 	if (priv->qinq) {
+-		if (vlan_filtering) {
+-			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: customer VLAN policy is pending");
++		if (vlan_filtering && dsa_port_bridge_dev_get(dsa_to_port(ds, port))) {
++			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: VLAN-aware bridge policy is pending");
+ 			return -EOPNOTSUPP;
+ 		}
+ 		return 0; /* Keep fallback lookup for the QinQ parser. */
+@@ -1126,8 +1126,10 @@
+ 	int ret;
+ 
+ 	if (priv->qinq) {
+-		NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: customer VLAN policy is pending");
+-		return -EOPNOTSUPP;
++		ret = qca8k_qinq_customer_add(ds, port, vlan->vid, vlan->flags);
++		if (ret == -EOPNOTSUPP || ret == -ENOSPC)
++			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: one standalone WAN customer VLAN is supported");
++		return ret;
+ 	}
+ 	ret = qca8k_vlan_add(priv, port, vlan->vid, untagged);
+ 	if (ret) {
+@@ -1156,6 +1158,8 @@
+ 	struct qca8k_priv *priv = ds->priv;
+ 	int ret;
+ 
++	if (priv->qinq)
++		return qca8k_qinq_customer_del(ds, port, vlan->vid);
+ 	ret = qca8k_vlan_del(priv, port, vlan->vid);
+ 	if (ret)
+ 		dev_err(priv->dev, "Failed to delete VLAN from port %d (%d)", port, ret);
+@@ -1430,6 +1434,12 @@
+ 		if (ret)
+ 			goto fail;
+ 		priv->qinq_native_vid[port] = vid;
++		if (port == 4) {
++			ret = qca8k_qinq_conduit(priv, port,
++					       dsa_to_port(ds, port)->cpu_dp->index);
++			if (ret)
++				goto fail;
++		}
+ 	}
+ 	return 0;
+ fail:
+@@ -1444,6 +1454,11 @@
+ 
+ 	if (!priv->qinq)
+ 		return -EOPNOTSUPP;
++	if (priv->qinq_native_vid[port] == vid) {
++		ret = qca8k_qinq_block_native(priv, port);
++		if (ret)
++			return ret;
++	}
+ 	ret = qca8k_vlan_del(priv, port, vid);
+ 	if (ret) {
+ 		qca8k_qinq_fault(priv, port);
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -1835,6 +1835,13 @@
+ 	if (priv->qinq && (netif_is_lag_master(master) || !master->dsa_ptr ||
+ 			   master->dsa_ptr->ds != ds))
+ 		return -EOPNOTSUPP;
++
++	/* Reject a CPU transition before touching either membership table. */
++	if (priv->qinq) {
++		ret = qca8k_qinq_check_conduit(priv, port, master->dsa_ptr->index);
++		if (ret)
++			return ret;
++	}
+ 
+ 	/* With LAG of CPU port, compose the mask for port LOOKUP MEMBER */
+ 	if (netif_is_lag_master(master)) {

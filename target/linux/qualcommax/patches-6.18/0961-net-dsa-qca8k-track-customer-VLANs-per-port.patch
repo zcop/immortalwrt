@@ -1,0 +1,433 @@
+From: Zcop <zcop@users.noreply.github.com>
+Subject: [PATCH] net: dsa: qca8k: track customer VLAN permissions per port
+
+Separate per-port VID steering from DSA's shared CPU VLAN membership.
+Claim free ACL slots on demand and withdraw every affected path before a
+shared CPU membership disappears. Keep capacity bounded by the NSS node
+budget and preserve entries owned by other users of the hardware ACL.
+
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -8,6 +8,8 @@
+ #ifndef __QCA8K_H
+ #define __QCA8K_H
+ 
++#include <linux/bitmap.h>
++#include <linux/if_vlan.h>
+ #include <linux/delay.h>
+ #include <linux/regmap.h>
+ #include <linux/gpio.h>
+@@ -445,6 +447,14 @@
+ 	struct led_classdev cdev;
+ };
+ 
++/* Each entry grants one exact user-port/customer-VID egress path. */
++#define QCA8K_QINQ_MAX_VLANS 56
++struct qca8k_qinq_vlan {
++	u16 vid;
++	u8 port, cpu, slot;
++	bool used;
++};
++
+ struct qca8k_priv {
+ 	u8 switch_id;
+ 	u8 switch_revision;
+@@ -460,9 +470,8 @@
+ 	bool qinq;
+ 	bool qinq_acl_owned;
+ 	u8 qinq_fault_map;
+-	u16 qinq_customer_vid;
+-	u8 qinq_customer_cpu, qinq_customer_port;
+-	bool qinq_customer_user, qinq_customer_host;
++	struct qca8k_qinq_vlan qinq_vlans[QCA8K_QINQ_MAX_VLANS];
++	unsigned long qinq_host_vlans[2][BITS_TO_LONGS(VLAN_N_VID)];
+ 	u16 qinq_native_vid[QCA8K_NUM_PORTS];
+ 	struct qca8k_ports_config ports_config;
+ 	struct regmap *regmap;
+@@ -513,6 +522,7 @@
+ int qca8k_qinq_setup(struct dsa_switch *ds);
+ void qca8k_qinq_teardown(struct dsa_switch *ds);
+ int qca8k_qinq_conduit(struct qca8k_priv *priv, int port, int cpu);
++bool qca8k_qinq_customer_busy(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_check_conduit(struct qca8k_priv *priv, int port, int cpu);
+ void qca8k_qinq_fault(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_block_native(struct qca8k_priv *priv, int port);
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -150,13 +150,28 @@
+  * filtering state is set. Do not move surviving VLAN references to a CPU
+  * for which DSA has not installed the matching host VLAN objects.
+  */
++bool qca8k_qinq_customer_busy(struct qca8k_priv *priv, int port)
++{
++	int i;
++
++	for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++)
++		if (priv->qinq_vlans[i].used && priv->qinq_vlans[i].port == port)
++			return true;
++	return false;
++}
++
+ int qca8k_qinq_check_conduit(struct qca8k_priv *priv, int port, int cpu)
+ {
++	int i;
++
+ 	if (port < 1 || port > 4 || (cpu != 0 && cpu != 5))
+ 		return -EOPNOTSUPP;
+-	if (port == priv->qinq_customer_port && priv->qinq_customer_vid &&
+-	    cpu != priv->qinq_customer_cpu)
+-		return -EBUSY;
++	for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++) {
++		struct qca8k_qinq_vlan *v = &priv->qinq_vlans[i];
++
++		if (v->used && v->port == port && v->cpu != cpu)
++			return -EBUSY;
++	}
+ 	return 0;
+ }
+ 
+@@ -207,124 +222,217 @@
+ 	return ret;
+ }
+ 
+-/* One standalone upper is shared across user ports. The native domains
+- * retain their four rules; slot94 grants the selected customer VID/port.
+- * DSA refcounts user/host VLAN objects and calls the driver on first/last use.
++/* CPU VLAN objects are reference-counted by DSA independently of each
++ * user's VID. A shared VID therefore has one CPU membership and several
++ * exact-port steering entries. Publish only after both memberships exist.
+  */
+-static int qca8k_qinq_customer_rule(struct qca8k_priv *priv, bool enable)
++static struct qca8k_qinq_vlan *qca8k_qinq_customer_find(struct qca8k_priv *priv,
++						    int port, u16 vid)
++{
++	int i;
++
++	for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++) {
++		struct qca8k_qinq_vlan *v = &priv->qinq_vlans[i];
++
++		if (v->used && v->port == port && v->vid == vid)
++			return v;
++	}
++	return NULL;
++}
++
++static int qca8k_qinq_customer_slot(struct qca8k_priv *priv)
++{
++	u32 mask[5];
++	int n, slot, i, ret;
++	bool owned;
++
++	/* Slot94 was the original customer gate. Claim other free entries
++	 * only as needed, preserving ACLs installed by another owner.
++	 */
++	for (n = 0; n <= QINQ_ACL_FIRST; n++) {
++		slot = n ? n - 1 : 94;
++		owned = false;
++		for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++)
++			if (priv->qinq_vlans[i].used &&
++			    priv->qinq_vlans[i].slot == slot)
++				owned = true;
++		if (owned)
++			continue;
++		mutex_lock(&priv->reg_mutex);
++		ret = qca8k_qinq_acl_read(priv, slot, QINQ_ACL_MASKS, mask, 5);
++		mutex_unlock(&priv->reg_mutex);
++		if (ret)
++			return ret;
++		if (!(mask[4] & (QINQ_RULE_COMPLETE | GENMASK(2, 0))))
++			return slot;
++	}
++	return -ENOSPC;
++}
++
++static int qca8k_qinq_customer_rule(struct qca8k_priv *priv,
++				   struct qca8k_qinq_vlan *v, bool enable)
+ {
+ 	u32 value[5] = {}, mask[5] = {}, action[3] = {};
+-	u16 vid = priv->qinq_customer_vid;
+ 
+ 	if (enable) {
+-		struct dsa_port *dp = dsa_to_port(priv->ds, priv->qinq_customer_port);
+-		u16 svid = dsa_tag_8021q_standalone_vid(dp);
+-
+-		value[2] = (svid << 8) | ((u32)(vid & 0xff) << 24);
+-		value[3] = 0xc1000000 | (vid >> 8);
+-		value[4] = BIT(priv->qinq_customer_cpu);
++		u16 svid = dsa_tag_8021q_standalone_vid(dsa_to_port(priv->ds, v->port));
++
++		value[2] = (svid << 8) | ((u32)(v->vid & 0xff) << 24);
++		value[3] = 0xc1000000 | (v->vid >> 8);
++		value[4] = BIT(v->cpu);
+ 		mask[2] = 0xff0fff00;
+ 		mask[3] = 0xf;
+ 		mask[4] = 0xff;
+-		action[1] = (BIT(priv->qinq_customer_port) & 7) << 29;
+-		action[2] = BIT(4) | (BIT(priv->qinq_customer_port) >> 3);
+-	}
+-	return qca8k_qinq_rule(priv, 94, value, mask, action);
++		action[1] = (BIT(v->port) & 7) << 29;
++		action[2] = BIT(4) | (BIT(v->port) >> 3);
++	}
++	return qca8k_qinq_rule(priv, v->slot, value, mask, action);
++}
++
++static void qca8k_qinq_customer_cpu_fault(struct qca8k_priv *priv, int cpu, u16 vid)
++{
++	int i;
++
++	for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++) {
++		struct qca8k_qinq_vlan *v = &priv->qinq_vlans[i];
++
++		if (!v->used || v->cpu != cpu || v->vid != vid)
++			continue;
++		qca8k_qinq_customer_rule(priv, v, false);
++		qca8k_qinq_fault(priv, v->port);
++	}
++}
++
++static int qca8k_qinq_customer_cpu_rules(struct qca8k_priv *priv, int cpu,
++					      u16 vid, bool enable)
++{
++	int i, ret;
++
++	for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++) {
++		struct qca8k_qinq_vlan *v = &priv->qinq_vlans[i];
++
++		if (!v->used || v->cpu != cpu || v->vid != vid)
++			continue;
++		ret = qca8k_qinq_customer_rule(priv, v, enable);
++		if (ret) {
++			qca8k_qinq_customer_cpu_fault(priv, cpu, vid);
++			return ret;
++		}
++	}
++	return 0;
+ }
+ 
+ int qca8k_qinq_customer_add(struct dsa_switch *ds, int port, u16 vid, u16 flags)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
++	struct qca8k_qinq_vlan *v;
+ 	struct dsa_port *dp;
+-	int ret;
+-
+-	/* VLAN core installs VID0 for priority-tag reception; it grants no
+-	 * customer admission and must not replace the native PVID.
+-	 */
++	int i, slot, ret;
++	bool new_host;
++
+ 	if (!vid)
+ 		return 0;
+ 	if (flags || !dsa_qca_qinq_customer_vid_valid(ds, vid))
+ 		return -EOPNOTSUPP;
+-	if (dsa_is_user_port(ds, port)) {
+-		dp = dsa_to_port(ds, port);
+-		if (dp->bridge || netdev_master_upper_dev_get(dp->user))
++	if (!dsa_is_user_port(ds, port)) {
++		if (port != 0 && port != 5)
+ 			return -EOPNOTSUPP;
+-		if (priv->qinq_customer_vid &&
+-		    (priv->qinq_customer_vid != vid ||
+-		     priv->qinq_customer_port != port))
+-			return -ENOSPC;
+-		if (priv->qinq_customer_user)
++		for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++) {
++			v = &priv->qinq_vlans[i];
++			if (v->used && v->cpu == port && v->vid == vid &&
++			    (priv->qinq_fault_map & BIT(v->port)))
++				return -EIO;
++		}
++		new_host = !test_bit(vid, priv->qinq_host_vlans[port == 5]);
++		if (new_host) {
++			ret = qca8k_vlan_add(priv, port, vid, false);
++			if (ret)
++				goto cpu_fault;
++			set_bit(vid, priv->qinq_host_vlans[port == 5]);
++		}
++		ret = qca8k_qinq_customer_cpu_rules(priv, port, vid, true);
++		if (ret && new_host && !qca8k_vlan_del(priv, port, vid))
++			clear_bit(vid, priv->qinq_host_vlans[port == 5]);
++		return ret;
++	}
++	if (priv->qinq_fault_map & BIT(port))
++		return -EIO;
++	dp = dsa_to_port(ds, port);
++	if (dp->bridge || netdev_master_upper_dev_get(dp->user))
++		return -EOPNOTSUPP;
++	v = qca8k_qinq_customer_find(priv, port, vid);
++	if (v)
++		return 0;
++	for (i = 0; i < QCA8K_QINQ_MAX_VLANS; i++)
++		if (!priv->qinq_vlans[i].used)
++			break;
++	if (i == QCA8K_QINQ_MAX_VLANS)
++		return -ENOSPC;
++	slot = qca8k_qinq_customer_slot(priv);
++	if (slot < 0)
++		return slot;
++	ret = qca8k_vlan_add(priv, port, vid, false);
++	if (ret)
++		goto fault;
++	v = &priv->qinq_vlans[i];
++	*v = (struct qca8k_qinq_vlan) {
++		.vid = vid, .port = port, .cpu = dp->cpu_dp->index,
++		.slot = slot, .used = true,
++	};
++	if (!test_bit(vid, priv->qinq_host_vlans[v->cpu == 5]))
++		return 0;
++	ret = qca8k_qinq_customer_rule(priv, v, true);
++	if (ret) {
++		if (!qca8k_vlan_del(priv, port, vid))
++			memset(v, 0, sizeof(*v));
++		goto fault;
++	}
++	return 0;
++cpu_fault:
++	qca8k_qinq_customer_cpu_fault(priv, port, vid);
++	return ret;
++fault:
++	qca8k_qinq_fault(priv, port);
++	return ret;
++}
++
++int qca8k_qinq_customer_del(struct dsa_switch *ds, int port, u16 vid)
++{
++	struct qca8k_priv *priv = ds->priv;
++	struct qca8k_qinq_vlan *v;
++	int ret;
++
++	if (!vid)
++		return 0;
++	if (!dsa_is_user_port(ds, port)) {
++		if (port != 0 && port != 5)
++			return -EOPNOTSUPP;
++		if (!test_bit(vid, priv->qinq_host_vlans[port == 5]))
+ 			return 0;
+-		ret = qca8k_vlan_add(priv, port, vid, false);
+-		if (ret)
+-			goto fault;
+-		priv->qinq_customer_vid = vid;
+-		priv->qinq_customer_port = port;
+-		priv->qinq_customer_cpu = dp->cpu_dp->index;
+-		priv->qinq_customer_user = true;
+-		if (!priv->qinq_customer_host)
+-			return 0;
+-		ret = qca8k_qinq_customer_rule(priv, true);
+-		if (ret)
+-			goto fault;
+-		return 0;
+-	}
+-	if (!priv->qinq_customer_user || priv->qinq_customer_vid != vid ||
+-	    port != priv->qinq_customer_cpu)
+-		return -EOPNOTSUPP;
+-	if (priv->qinq_customer_host) {
+-		ret = qca8k_qinq_customer_rule(priv, true);
+-		if (ret)
+-			goto fault;
+-		return 0;
+-	}
+-	ret = qca8k_vlan_add(priv, port, vid, false);
+-	if (ret)
+-		goto fault;
+-	priv->qinq_customer_host = true;
+-	ret = qca8k_qinq_customer_rule(priv, true);
+-	if (!ret)
+-		return 0;
+-	priv->qinq_customer_host = false;
+-	qca8k_vlan_del(priv, port, vid);
+-fault:
+-	qca8k_qinq_fault(priv, dsa_is_user_port(ds, port) ?
+-			      port : priv->qinq_customer_port);
+-	return ret;
+-}
+-
+-int qca8k_qinq_customer_del(struct dsa_switch *ds, int port, u16 vid)
+-{
+-	struct qca8k_priv *priv = ds->priv;
+-	bool *present;
+-	int ret;
+-
+-	if (!vid || vid != priv->qinq_customer_vid)
+-		return 0;
+-	if (port == priv->qinq_customer_port)
+-		present = &priv->qinq_customer_user;
+-	else if (port == priv->qinq_customer_cpu)
+-		present = &priv->qinq_customer_host;
+-	else
+-		return -EOPNOTSUPP;
+-	if (!*present)
+-		return 0;
+-	/* Withdraw steering before VTU deletion; ACL overrides bypass VTU
+-	 * egress admission. Either deletion order must immediately close TX.
+-	 */
+-	ret = qca8k_qinq_customer_rule(priv, false);
++		ret = qca8k_qinq_customer_cpu_rules(priv, port, vid, false);
++		if (ret)
++			return ret;
++		ret = qca8k_vlan_del(priv, port, vid);
++		if (ret) {
++			qca8k_qinq_customer_cpu_fault(priv, port, vid);
++			return ret;
++		}
++		clear_bit(vid, priv->qinq_host_vlans[port == 5]);
++		return 0;
++	}
++	v = qca8k_qinq_customer_find(priv, port, vid);
++	if (!v)
++		return 0;
++	ret = qca8k_qinq_customer_rule(priv, v, false);
+ 	if (ret)
+ 		goto fault;
+ 	ret = qca8k_vlan_del(priv, port, vid);
+ 	if (ret)
+ 		goto fault;
+-	*present = false;
+-	if (!priv->qinq_customer_user && !priv->qinq_customer_host)
+-		priv->qinq_customer_vid = 0;
++	memset(v, 0, sizeof(*v));
+ 	return 0;
+ fault:
+-	qca8k_qinq_fault(priv, dsa_is_user_port(ds, port) ?
+-			      port : priv->qinq_customer_port);
++	qca8k_qinq_fault(priv, port);
+ 	return ret;
+ }
+ 
+@@ -347,7 +455,15 @@
+ 	mutex_lock(&priv->reg_mutex);
+ 	for (slot = QINQ_ACL_FIRST; slot <= QINQ_ACL_LAST; slot++)
+ 		qca8k_qinq_acl_write(priv, slot, QINQ_ACL_MASKS, disabled, 5);
++	for (slot = 0; slot < QCA8K_QINQ_MAX_VLANS; slot++) {
++		struct qca8k_qinq_vlan *v = &priv->qinq_vlans[slot];
++
++		if (v->used && v->slot < QINQ_ACL_FIRST)
++			qca8k_qinq_acl_write(priv, v->slot, QINQ_ACL_MASKS, disabled, 5);
++	}
+ 	mutex_unlock(&priv->reg_mutex);
++	memset(priv->qinq_vlans, 0, sizeof(priv->qinq_vlans));
++	memset(priv->qinq_host_vlans, 0, sizeof(priv->qinq_host_vlans));
+ 	priv->qinq_acl_owned = false;
+ }
+ 
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -738,7 +738,7 @@
+ 	int ret;
+ 
+ 	if (priv->qinq) {
+-		if (priv->qinq_customer_vid && priv->qinq_customer_port == port) {
++		if (qca8k_qinq_customer_busy(priv, port)) {
+ 			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: remove the standalone customer VLAN before bridge join");
+ 			return -EBUSY;
+ 		}
+@@ -1132,7 +1132,7 @@
+ 	if (priv->qinq) {
+ 		ret = qca8k_qinq_customer_add(ds, port, vlan->vid, vlan->flags);
+ 		if (ret == -EOPNOTSUPP || ret == -ENOSPC)
+-			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: one standalone customer VLAN across user ports is supported");
++			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: standalone tagged VLAN or ACL capacity exceeded");
+ 		return ret;
+ 	}
+ 	ret = qca8k_vlan_add(priv, port, vlan->vid, untagged);

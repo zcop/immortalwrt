@@ -1,0 +1,255 @@
+From: Zcop <zcop@users.noreply.github.com>
+Subject: [PATCH] net: dsa: qca8k: allow the standalone customer VLAN on any user port
+
+Keep a single customer admission slot, selecting both port and VID. Bind all
+native steering rules to their current native C-VID so deletion cannot fall
+through to a permissive LAN rule. Refuse bridge or conduit migration while
+customer VLAN references remain; remove the upper before reconfiguration.
+
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -460,9 +460,9 @@
+ 	bool qinq;
+ 	bool qinq_acl_owned;
+ 	u8 qinq_fault_map;
+-	u16 qinq_wan_vid;
+-	u8 qinq_wan_cpu;
+-	bool qinq_wan_user, qinq_wan_host;
++	u16 qinq_customer_vid;
++	u8 qinq_customer_cpu, qinq_customer_port;
++	bool qinq_customer_user, qinq_customer_host;
+ 	u16 qinq_native_vid[QCA8K_NUM_PORTS];
+ 	struct qca8k_ports_config ports_config;
+ 	struct regmap *regmap;
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -154,7 +154,8 @@
+ {
+ 	if (port < 1 || port > 4 || (cpu != 0 && cpu != 5))
+ 		return -EOPNOTSUPP;
+-	if (port == 4 && priv->qinq_wan_vid && cpu != priv->qinq_wan_cpu)
++	if (port == priv->qinq_customer_port && priv->qinq_customer_vid &&
++	    cpu != priv->qinq_customer_cpu)
+ 		return -EBUSY;
+ 	return 0;
+ }
+@@ -171,9 +172,10 @@
+ 	ret = qca8k_qinq_check_conduit(priv, port, cpu);
+ 	if (ret)
+ 		return ret;
+-	/* WAN's native rule must not admit arbitrary customer C-VIDs. Slot94
+-	 * grants the one configured standalone upper only after CPU setup.	 */
+-	if (port == 4) {
++	/* Native steering must not admit arbitrary customer C-VIDs. Slot94
++	 * grants the selected standalone upper after both VTU objects exist.
++	 */
++	{
+ 		u16 cvid = priv->qinq_native_vid[port] ?: svid;
+ 
+ 		value[2] |= (u32)(cvid & 0xff) << 24;
+@@ -197,33 +199,35 @@
+ 	u32 empty[5] = {}, action[3] = {};
+ 	int ret;
+ 
+-	if (port != 4)
+-		return 0;
+-	ret = qca8k_qinq_rule(priv, 93, empty, empty, action);
++	if (port < 1 || port > 4)
++		return 0;
++	ret = qca8k_qinq_rule(priv, 89 + port, empty, empty, action);
+ 	if (ret)
+ 		qca8k_qinq_fault(priv, port);
+ 	return ret;
+ }
+ 
+-/* One standalone WAN upper is the first customer-VLAN hardware gate. The
+- * native domains retain their four rules; slot94 grants the customer VID.
++/* One standalone upper is shared across user ports. The native domains
++ * retain their four rules; slot94 grants the selected customer VID/port.
+  * DSA refcounts user/host VLAN objects and calls the driver on first/last use.
+  */
+-static int qca8k_qinq_wan_rule(struct qca8k_priv *priv, bool enable)
++static int qca8k_qinq_customer_rule(struct qca8k_priv *priv, bool enable)
+ {
+ 	u32 value[5] = {}, mask[5] = {}, action[3] = {};
+-	u16 vid = priv->qinq_wan_vid;
++	u16 vid = priv->qinq_customer_vid;
+ 
+ 	if (enable) {
+-		u16 svid = dsa_tag_8021q_standalone_vid(dsa_to_port(priv->ds, 4));
++		struct dsa_port *dp = dsa_to_port(priv->ds, priv->qinq_customer_port);
++		u16 svid = dsa_tag_8021q_standalone_vid(dp);
+ 
+ 		value[2] = (svid << 8) | ((u32)(vid & 0xff) << 24);
+ 		value[3] = 0xc1000000 | (vid >> 8);
+-		value[4] = BIT(priv->qinq_wan_cpu);
++		value[4] = BIT(priv->qinq_customer_cpu);
+ 		mask[2] = 0xff0fff00;
+ 		mask[3] = 0xf;
+ 		mask[4] = 0xff;
+-		action[2] = BIT(4) | BIT(1); /* Only user port4. */
++		action[1] = (BIT(priv->qinq_customer_port) & 7) << 29;
++		action[2] = BIT(4) | (BIT(priv->qinq_customer_port) >> 3);
+ 	}
+ 	return qca8k_qinq_rule(priv, 94, value, mask, action);
+ }
+@@ -231,7 +235,7 @@
+ int qca8k_qinq_customer_add(struct dsa_switch *ds, int port, u16 vid, u16 flags)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
+-	struct dsa_port *wan = dsa_to_port(ds, 4);
++	struct dsa_port *dp;
+ 	int ret;
+ 
+ 	/* VLAN core installs VID0 for priority-tag reception; it grants no
+@@ -241,31 +245,35 @@
+ 		return 0;
+ 	if (flags || !dsa_qca_qinq_customer_vid_valid(ds, vid))
+ 		return -EOPNOTSUPP;
+-	if (port == 4) {
+-		if (wan->bridge || netdev_master_upper_dev_get(wan->user))
++	if (dsa_is_user_port(ds, port)) {
++		dp = dsa_to_port(ds, port);
++		if (dp->bridge || netdev_master_upper_dev_get(dp->user))
+ 			return -EOPNOTSUPP;
+-		if (priv->qinq_wan_vid && priv->qinq_wan_vid != vid)
++		if (priv->qinq_customer_vid &&
++		    (priv->qinq_customer_vid != vid ||
++		     priv->qinq_customer_port != port))
+ 			return -ENOSPC;
+-		if (priv->qinq_wan_user)
++		if (priv->qinq_customer_user)
+ 			return 0;
+ 		ret = qca8k_vlan_add(priv, port, vid, false);
+ 		if (ret)
+ 			goto fault;
+-		priv->qinq_wan_vid = vid;
+-		priv->qinq_wan_cpu = wan->cpu_dp->index;
+-		priv->qinq_wan_user = true;
+-		if (!priv->qinq_wan_host)
++		priv->qinq_customer_vid = vid;
++		priv->qinq_customer_port = port;
++		priv->qinq_customer_cpu = dp->cpu_dp->index;
++		priv->qinq_customer_user = true;
++		if (!priv->qinq_customer_host)
+ 			return 0;
+-		ret = qca8k_qinq_wan_rule(priv, true);
++		ret = qca8k_qinq_customer_rule(priv, true);
+ 		if (ret)
+ 			goto fault;
+ 		return 0;
+ 	}
+-	if (!priv->qinq_wan_user || priv->qinq_wan_vid != vid ||
+-	    port != priv->qinq_wan_cpu)
++	if (!priv->qinq_customer_user || priv->qinq_customer_vid != vid ||
++	    port != priv->qinq_customer_cpu)
+ 		return -EOPNOTSUPP;
+-	if (priv->qinq_wan_host) {
+-		ret = qca8k_qinq_wan_rule(priv, true);
++	if (priv->qinq_customer_host) {
++		ret = qca8k_qinq_customer_rule(priv, true);
+ 		if (ret)
+ 			goto fault;
+ 		return 0;
+@@ -273,14 +281,15 @@
+ 	ret = qca8k_vlan_add(priv, port, vid, false);
+ 	if (ret)
+ 		goto fault;
+-	priv->qinq_wan_host = true;
+-	ret = qca8k_qinq_wan_rule(priv, true);
++	priv->qinq_customer_host = true;
++	ret = qca8k_qinq_customer_rule(priv, true);
+ 	if (!ret)
+ 		return 0;
+-	priv->qinq_wan_host = false;
++	priv->qinq_customer_host = false;
+ 	qca8k_vlan_del(priv, port, vid);
+ fault:
+-	qca8k_qinq_fault(priv, 4);
++	qca8k_qinq_fault(priv, dsa_is_user_port(ds, port) ?
++			      port : priv->qinq_customer_port);
+ 	return ret;
+ }
+ 
+@@ -290,12 +299,12 @@
+ 	bool *present;
+ 	int ret;
+ 
+-	if (!vid || vid != priv->qinq_wan_vid)
+-		return 0;
+-	if (port == 4)
+-		present = &priv->qinq_wan_user;
+-	else if (port == priv->qinq_wan_cpu)
+-		present = &priv->qinq_wan_host;
++	if (!vid || vid != priv->qinq_customer_vid)
++		return 0;
++	if (port == priv->qinq_customer_port)
++		present = &priv->qinq_customer_user;
++	else if (port == priv->qinq_customer_cpu)
++		present = &priv->qinq_customer_host;
+ 	else
+ 		return -EOPNOTSUPP;
+ 	if (!*present)
+@@ -303,18 +312,19 @@
+ 	/* Withdraw steering before VTU deletion; ACL overrides bypass VTU
+ 	 * egress admission. Either deletion order must immediately close TX.
+ 	 */
+-	ret = qca8k_qinq_wan_rule(priv, false);
++	ret = qca8k_qinq_customer_rule(priv, false);
+ 	if (ret)
+ 		goto fault;
+ 	ret = qca8k_vlan_del(priv, port, vid);
+ 	if (ret)
+ 		goto fault;
+ 	*present = false;
+-	if (!priv->qinq_wan_user && !priv->qinq_wan_host)
+-		priv->qinq_wan_vid = 0;
++	if (!priv->qinq_customer_user && !priv->qinq_customer_host)
++		priv->qinq_customer_vid = 0;
+ 	return 0;
+ fault:
+-	qca8k_qinq_fault(priv, 4);
++	qca8k_qinq_fault(priv, dsa_is_user_port(ds, port) ?
++			      port : priv->qinq_customer_port);
+ 	return ret;
+ }
+ 
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -738,6 +738,10 @@
+ 	int ret;
+ 
+ 	if (priv->qinq) {
++		if (priv->qinq_customer_vid && priv->qinq_customer_port == port) {
++			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: remove the standalone customer VLAN before bridge join");
++			return -EBUSY;
++		}
+ 		if (br_vlan_enabled(bridge.dev)) {
+ 			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: VLAN-aware bring-up is pending");
+ 			return -EOPNOTSUPP;
+@@ -1128,7 +1132,7 @@
+ 	if (priv->qinq) {
+ 		ret = qca8k_qinq_customer_add(ds, port, vlan->vid, vlan->flags);
+ 		if (ret == -EOPNOTSUPP || ret == -ENOSPC)
+-			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: one standalone WAN customer VLAN is supported");
++			NL_SET_ERR_MSG_MOD(extack, "QCA QinQ: one standalone customer VLAN across user ports is supported");
+ 		return ret;
+ 	}
+ 	ret = qca8k_vlan_add(priv, port, vlan->vid, untagged);
+@@ -1434,12 +1438,10 @@
+ 		if (ret)
+ 			goto fail;
+ 		priv->qinq_native_vid[port] = vid;
+-		if (port == 4) {
+-			ret = qca8k_qinq_conduit(priv, port,
+-					       dsa_to_port(ds, port)->cpu_dp->index);
+-			if (ret)
+-				goto fail;
+-		}
++		ret = qca8k_qinq_conduit(priv, port,
++					   dsa_to_port(ds, port)->cpu_dp->index);
++		if (ret)
++			goto fail;
+ 	}
+ 	return 0;
+ fail:

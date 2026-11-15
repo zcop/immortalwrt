@@ -1,0 +1,194 @@
+Subject: [PATCH] net: dsa: qca-qinq: retain registered standalone customer tags
+
+Preserve one customer C-tag on a live standalone 802.1Q upper. Validate the
+exact registered upper, protocol and private-VID exclusions before admitting
+the packet. Native bridge/port transport and the YT921x taggers are unchanged.
+Switch-side VTU/ACL admission is provided by the platform driver patch.
+
+--- /dev/null
++++ b/include/linux/dsa/qca_qinq.h
+@@ -0,0 +1,58 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_DSA_QCA_QINQ_H
++#define _LINUX_DSA_QCA_QINQ_H
++
++#include <linux/if_ether.h>
++#include <linux/if_vlan.h>
++#include <linux/netdevice.h>
++#include <linux/dsa/8021q.h>
++#include <net/dsa.h>
++
++static inline bool dsa_qca_qinq_customer_vid_valid(struct dsa_switch *ds,
++						   u16 vid)
++{
++	struct dsa_port *dp;
++	unsigned int num;
++
++	if (!ds || !vid || vid >= VLAN_VID_MASK)
++		return false;
++
++	dsa_switch_for_each_user_port(dp, ds) {
++		if (vid == dsa_tag_8021q_standalone_vid(dp))
++			return false;
++	}
++
++	for (num = 1; num <= ds->max_num_bridges; num++) {
++		if (vid == dsa_tag_8021q_bridge_vid(num))
++			return false;
++	}
++	return true;
++}
++
++/* Must be called under RCU read lock. */
++static inline bool dsa_qca_qinq_direct_vid_valid(const struct dsa_port *dp,
++						 u16 vid)
++{
++	struct net_device *user, *upper;
++
++	if (!dp || !dp->ds || !dp->ds->dst || !dp->ds->dst->tag_ops ||
++	    dp->ds->dst->tag_ops->proto != DSA_TAG_PROTO_QCA_QINQ)
++		return false;
++	if (!dsa_qca_qinq_customer_vid_valid(dp->ds, vid))
++		return false;
++	user = dp->user;
++	if (!user || !(user->features & NETIF_F_HW_VLAN_CTAG_FILTER))
++		return false;
++	if (dsa_port_bridge_dev_get(dp) ||
++	    netdev_master_upper_dev_get_rcu(user))
++		return false;
++	upper = __vlan_find_dev_deep_rcu(user, htons(ETH_P_8021Q), vid);
++	if (!upper || !is_vlan_dev(upper) || vlan_dev_real_dev(upper) != user ||
++	    vlan_dev_vlan_proto(upper) != htons(ETH_P_8021Q) ||
++	    vlan_dev_vlan_id(upper) != vid ||
++	    netdev_master_upper_dev_get_rcu(upper))
++		return false;
++	return true;
++}
++
++#endif /* _LINUX_DSA_QCA_QINQ_H */
+--- a/net/dsa/tag_qca_qinq.c
++++ b/net/dsa/tag_qca_qinq.c
+@@ -5,6 +5,7 @@
+  * Customer VLAN/control-protocol acceptance needs separate hardware testing.
+  */
+ #include <linux/dsa/8021q.h>
++#include <linux/dsa/qca_qinq.h>
+ #include <linux/etherdevice.h>
+ #include <linux/if_bridge.h>
+ #include <linux/if_vlan.h>
+@@ -64,7 +65,8 @@
+ 
+ 	dp = dsa_user_to_port(user);
+ 
+-	if (dp->cpu_dp != conduit->dsa_ptr)
++	if (!dp->cpu_dp || dp->cpu_dp != conduit->dsa_ptr ||
++	    dp->cpu_dp->conduit != conduit)
+ 		return NULL;
+ 
+ 	/* Exact match rejects VBID and reserved-bit aliases. */
+@@ -94,7 +96,11 @@
+ {
+ 	if (br && br_vlan_enabled(br))
+ 		return -EINVAL;
+-	return qca_qinq_internal_vid(dp, br, vid) ? 1 : -EINVAL;
++	if (qca_qinq_internal_vid(dp, br, vid))
++		return 1;
++	if (!br && dsa_qca_qinq_direct_vid_valid(dp, vid))
++		return 0;
++	return -EINVAL;
+ }
+ 
+ static int qca_qinq_pop_inner(struct sk_buff *skb)
+@@ -159,34 +165,76 @@
+ 	return skb;
+ }
+ 
++static bool qca_qinq_customer_tag(struct dsa_port *dp, struct sk_buff *skb,
++				  u16 *tci, bool *hwaccel)
++{
++	struct vlan_ethhdr *veh;
++	bool valid;
++
++	*hwaccel = false;
++	if (skb_vlan_tag_present(skb)) {
++		if (skb->vlan_proto != htons(ETH_P_8021Q) ||
++		    qca_qinq_is_vlan_tpid(eth_hdr(skb)->h_proto))
++			return false;
++		*tci = skb_vlan_tag_get(skb);
++		*hwaccel = true;
++	} else if (qca_qinq_is_vlan_tpid(eth_hdr(skb)->h_proto)) {
++		if (!pskb_may_pull(skb, ETH_HLEN + VLAN_HLEN))
++			return false;
++		veh = vlan_eth_hdr(skb);
++		if (veh->h_vlan_proto != htons(ETH_P_8021Q) ||
++		    qca_qinq_is_vlan_tpid(veh->h_vlan_encapsulated_proto))
++			return false;
++		*tci = ntohs(veh->h_vlan_TCI);
++	} else {
++		return false;
++	}
++	rcu_read_lock();
++	valid = dsa_qca_qinq_direct_vid_valid(dp, *tci & VLAN_VID_MASK);
++	rcu_read_unlock();
++	return valid;
++}
++
+ static struct sk_buff *qca_qinq_xmit(struct sk_buff *skb,
+ 				      struct net_device *netdev)
+ {
+ 	struct dsa_port *dp = dsa_user_to_port(netdev);
+ 	struct net_device *br = dsa_port_bridge_dev_get(dp);
+-	u16 inner_vid;
++	bool hwaccel = false, tagged;
++	u16 inner_vid, tci;
+ 	u8 pcp;
+ 
+ 	/* Linux replicates bridge TX per user port; never use a VBID as SVID. */
+-	if (unlikely(skb->offload_fwd_mark) || skb_vlan_tag_present(skb) ||
++	if (unlikely(skb->offload_fwd_mark) ||
+ 	    (br && br_vlan_enabled(br)) || !pskb_may_pull(skb, ETH_HLEN))
+ 		return NULL;
+-	if (qca_qinq_is_vlan_tpid(eth_hdr(skb)->h_proto))
+-		return NULL;
+-
+-	if (br) {
+-		unsigned int num = dsa_port_bridge_num_get(dp);
+-
+-		if (!num || num > DSA_TAG_8021Q_MAX_NUM_BRIDGES)
++
++	tagged = skb_vlan_tag_present(skb) ||
++		 qca_qinq_is_vlan_tpid(eth_hdr(skb)->h_proto);
++	if (tagged) {
++		if (!qca_qinq_customer_tag(dp, skb, &tci, &hwaccel))
+ 			return NULL;
+-		inner_vid = dsa_tag_8021q_bridge_vid(num);
++		if (hwaccel) {
++			if (__vlan_insert_tag(skb, htons(ETH_P_8021Q), tci))
++				return NULL;
++			__vlan_hwaccel_clear_tag(skb);
++		}
++		skb->protocol = htons(ETH_P_8021Q);
+ 	} else {
+-		inner_vid = dsa_tag_8021q_standalone_vid(dp);
+-	}
+-
+-	if (__vlan_insert_tag(skb, htons(ETH_P_8021Q), inner_vid))
+-		return NULL;
+-	skb->protocol = htons(ETH_P_8021Q);
++		if (br) {
++			unsigned int num = dsa_port_bridge_num_get(dp);
++
++			if (!num || num > DSA_TAG_8021Q_MAX_NUM_BRIDGES)
++				return NULL;
++			inner_vid = dsa_tag_8021q_bridge_vid(num);
++		} else {
++			inner_vid = dsa_tag_8021q_standalone_vid(dp);
++		}
++		if (__vlan_insert_tag(skb, htons(ETH_P_8021Q), inner_vid))
++			return NULL;
++		skb->protocol = htons(ETH_P_8021Q);
++	}
++
+ 	pcp = netdev_txq_to_tc(netdev, skb_get_queue_mapping(skb));
+ 	if (__vlan_insert_tag(skb, htons(ETH_P_8021AD),
+ 			      ((pcp & 7) << VLAN_PRIO_SHIFT) |
