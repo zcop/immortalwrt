@@ -1,0 +1,82 @@
+Subject: [PATCH] net: dsa: qca8k: allow MDIO-only management
+
+Add a read-only mdio_only load/boot parameter, default off, to validate the
+independent switch/PHY/MIB management path before QinQ disables proprietary
+data headers. Keep the setting per switch for the later tag-protocol setup.
+Never publish an Ethernet management conduit in this mode. Reject register
+and PHY Ethernet requests before allocating or sending a packet, leaving the
+existing locked MDIO fallback and direct MIB register reads in control.
+Legacy QCA and QCA_ETYPE transport behavior is unchanged by default.
+
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -23,6 +23,11 @@
+ 
+ #include "qca8k.h"
+ #include "qca8k_leds.h"
++
++/* Opt in at load/boot to validate management without QCA packet headers. */
++static bool mdio_only;
++module_param(mdio_only, bool, 0444);
++MODULE_PARM_DESC(mdio_only, "Use MDIO only for switch, PHY and MIB access");
+ 
+ static void
+ qca8k_split_addr(u32 regaddr, u16 *r1, u16 *r2, u16 *page)
+@@ -327,6 +332,9 @@
+ 	bool ack;
+ 	int ret;
+ 
++	if (READ_ONCE(priv->mdio_only))
++		return -EOPNOTSUPP;
++
+ 	skb = qca8k_alloc_mdio_header(MDIO_READ, reg, NULL,
+ 				      QCA8K_ETHERNET_MDIO_PRIORITY, len,
+ 				      priv->etype_hdr);
+@@ -379,6 +387,9 @@
+ 	struct sk_buff *skb;
+ 	bool ack;
+ 	int ret;
++
++	if (READ_ONCE(priv->mdio_only))
++		return -EOPNOTSUPP;
+ 
+ 	skb = qca8k_alloc_mdio_header(MDIO_WRITE, reg, val,
+ 				      QCA8K_ETHERNET_MDIO_PRIORITY, len,
+@@ -646,6 +657,9 @@
+ 
+ 	if (regnum >= QCA8K_MDIO_MASTER_MAX_REG)
+ 		return -EINVAL;
++
++	if (READ_ONCE(priv->mdio_only))
++		return -EOPNOTSUPP;
+ 
+ 	mgmt_eth_data = &priv->mgmt_eth_data;
+ 
+@@ -1924,7 +1938,8 @@
+ 	mutex_lock(&priv->mgmt_eth_data.mutex);
+ 	mutex_lock(&priv->mib_eth_data.mutex);
+ 
+-	priv->mgmt_conduit = operational ? (struct net_device *)conduit : NULL;
++	priv->mgmt_conduit = operational && !READ_ONCE(priv->mdio_only) ?
++			     (struct net_device *)conduit : NULL;
+ 
+ 	mutex_unlock(&priv->mib_eth_data.mutex);
+ 	mutex_unlock(&priv->mgmt_eth_data.mutex);
+@@ -2225,6 +2240,7 @@
+ 	priv->bus = mdiodev->bus;
+ 	priv->dev = &mdiodev->dev;
+ 	priv->info = of_device_get_match_data(priv->dev);
++	priv->mdio_only = mdio_only;
+ 
+ 	priv->reset_gpio = devm_gpiod_get_optional(priv->dev, "reset",
+ 						   GPIOD_OUT_HIGH);
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -456,6 +456,7 @@
+ 	 */
+ 	u8 port_enabled_map;
+ 	u8 port_isolated_map;
++	bool mdio_only; /* No proprietary in-band management transport */
+ 	struct qca8k_ports_config ports_config;
+ 	struct regmap *regmap;
+ 	struct mii_bus *bus;
