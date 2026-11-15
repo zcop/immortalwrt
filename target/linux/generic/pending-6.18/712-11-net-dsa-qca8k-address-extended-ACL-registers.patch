@@ -1,0 +1,76 @@
+Subject: [PATCH] net: dsa: qca8k: retain extended ACL register addresses
+
+QCA8337 ACL and VLAN translation SRAM sits above the 16-bit regmap range.
+Use a native 32-bit register formatter and keep its raw read/write callbacks
+in agreement, so addresses such as 0x58be0 cannot alias 0x8be0. The existing
+MDIO page splitter and management packet format already carry these bits.
+Add only the ACL and VLAN translation regions to the readable table.
+Fix MDIO bulk reads to advance by u32 values instead of overlapping bytes.
+
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -519,7 +519,8 @@
+ {
+ 	int i, count = val_len / sizeof(u32), ret;
+ 	struct qca8k_priv *priv = ctx;
+-	u32 reg = *(u16 *)reg_buf;
++	u32 reg = *(u32 *)reg_buf;
++	u32 *val = val_buf;
+ 
+ 	if (priv->mgmt_conduit &&
+ 	    !qca8k_read_eth(priv, reg, val_buf, val_len))
+@@ -527,7 +528,7 @@
+ 
+ 	/* loop count times and increment reg of 4 */
+ 	for (i = 0; i < count; i++, reg += sizeof(u32)) {
+-		ret = qca8k_read_mii(priv, reg, val_buf + i);
++		ret = qca8k_read_mii(priv, reg, val + i);
+ 		if (ret < 0)
+ 			return ret;
+ 	}
+@@ -541,7 +542,7 @@
+ {
+ 	int i, count = val_len / sizeof(u32), ret;
+ 	struct qca8k_priv *priv = ctx;
+-	u32 reg = *(u16 *)reg_buf;
++	u32 reg = *(u32 *)reg_buf;
+ 	u32 *val = (u32 *)val_buf;
+ 
+ 	if (priv->mgmt_conduit &&
+@@ -563,8 +564,8 @@
+ static int
+ qca8k_bulk_write(void *ctx, const void *data, size_t bytes)
+ {
+-	return qca8k_bulk_gather_write(ctx, data, sizeof(u16), data + sizeof(u16),
+-				       bytes - sizeof(u16));
++	return qca8k_bulk_gather_write(ctx, data, sizeof(u32), data + sizeof(u32),
++				       bytes - sizeof(u32));
+ }
+ 
+ static int
+@@ -579,10 +580,10 @@
+ }
+ 
+ static const struct regmap_config qca8k_regmap_config = {
+-	.reg_bits = 16,
++	.reg_bits = 32,
+ 	.val_bits = 32,
+ 	.reg_stride = 4,
+-	.max_register = 0x16ac, /* end MIB - Port6 range */
++	.max_register = 0x5adfc, /* end QCA8337 VLAN translation table */
+ 	.read = qca8k_bulk_read,
+ 	.write = qca8k_bulk_write,
+ 	.reg_update_bits = qca8k_regmap_update_bits,
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -94,6 +94,10 @@
+ 	regmap_reg_range(0x1400, 0x14ac), /* MIB - Port4 */
+ 	regmap_reg_range(0x1500, 0x15ac), /* MIB - Port5 */
+ 	regmap_reg_range(0x1600, 0x16ac), /* MIB - Port6 */
++	regmap_reg_range(0x58000, 0x58bf0), /* ACL rule values */
++	regmap_reg_range(0x59000, 0x59bf0), /* ACL rule masks */
++	regmap_reg_range(0x5a000, 0x5a5f8), /* ACL rule actions */
++	regmap_reg_range(0x5ac00, 0x5adfc), /* VLAN translation */
+ };
+ 
+ const struct regmap_access_table qca8k_readable_table = {
