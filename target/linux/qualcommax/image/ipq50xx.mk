@@ -332,6 +332,7 @@ define Device/redmi_ax3000
 		-ath11k-firmware-ipq5018 \
 		-dnsmasq-full dnsmasq \
 		kmod-dsa-qca8k \
+		luci-theme-zcop luci-app-zcop-dashboard \
 		-automount \
 		-kmod-usb3 -kmod-usb-dwc3 -kmod-usb-dwc3-qcom \
 		-kmod-usb-storage -kmod-usb-storage-uas \
