@@ -637,7 +637,7 @@ static void test_pppoe_hierarchy(void) {
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* tunnel */
     assert(port.refs == 0 && upper.refs == 0 && ppp.refs == 0);
 
-    /* QCA admits only a native standalone underlay for one live PPPoE. */
+    /* QCA admits a native or one-customer-VLAN standalone PPPoE underlay. */
     struct net_device bridge = {.index = 9};
     struct ecm_db_iface_instance bridge_ii = {.index = 9, .type = ECM_DB_IFACE_TYPE_BRIDGE};
     devices[9] = &bridge;
@@ -664,7 +664,46 @@ static void test_pppoe_hierarchy(void) {
     ifaces[5] = &port_ii; ifaces[6] = &ppp_ii;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* nested */
     ifaces[6] = &upper_ii;
-    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* VLAN+PPP */
+    ds.mock_user_port = &dp; ds.max_num_bridges = 7;
+    mock_publish_upper(&port, &upper);
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) == 1);
+    assert(side.physical == 1 && side.leaf == 102 &&
+           side.outer == 0x88a80c00U && side.inner == 0x81000023U);
+    assert(port.refs == 0 && upper.refs == 0 && ppp.refs == 0);
+    upper.vid = 4094; port.vlans[4094] = true; dsa_nss_nodes[2].vid = 4094;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) == 1 &&
+           side.leaf == 102 && side.inner == 0x81000ffeU);
+    upper.vid = 35; dsa_nss_nodes[2].vid = 35;
+    mock_unpublish_upper(&port, &upper);
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* stale firmware leaf */
+    mock_publish_upper(&port, &upper);
+    port.features = 0;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* customer filter disabled */
+    port.features = 1; dsa_nss_nodes[2].ready = false;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* no ready leaf */
+    dsa_nss_nodes[2].ready = true; dsa_nss_nodes[2].phys_if = 2;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* other conduit */
+    dsa_nss_nodes[2].phys_if = 1; upper.proto = 0x88a8;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* customer S-tag */
+    upper.proto = 0x8100; upper.vid = 3072; port.vlans[3072] = true;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* private transport VID */
+    upper.vid = 35; upper.master = &bridge;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* mastered upper */
+    upper.master = NULL; ppp_ii.ae = 149;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* stale PPP session */
+    ppp_ii.ae = 150; ppp.phys = -1;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* unregistered PPP */
+    ppp.phys = 150; dsa_nss_reconfiguring = true;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) == -EAGAIN);
+    dsa_nss_reconfiguring = false;
+    struct net_device stacked = {.index = 4, .is_vlan = true,
+                                 .real = &upper, .vid = 36, .proto = 0x8100};
+    struct ecm_db_iface_instance stacked_ii = {.index = 4, .type = ECM_DB_IFACE_TYPE_VLAN};
+    devices[4] = &stacked;
+    ifaces[4] = &port_ii; ifaces[5] = &upper_ii; ifaces[6] = &stacked_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 4, &side) < 0); /* stacked customer VLANs */
+    assert(port.refs == 0 && upper.refs == 0 && stacked.refs == 0 && ppp.refs == 0);
+    ifaces[4] = NULL; ifaces[5] = &port_ii;
     ifaces[6] = &bridge_ii;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 5, &side) < 0); /* stale/unrelated bridge */
     ifaces[5] = NULL; ifaces[6] = &port_ii;
@@ -674,7 +713,7 @@ static void test_pppoe_hierarchy(void) {
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
     port.master = NULL;
     assert(port.refs == 0 && upper.refs == 0 && ppp.refs == 0 && bridge.refs == 0);
-    puts("PASS: QCA standalone PPPoE reuses live-session checks and rejects VLAN/bridge/master/nested/stale/malformed paths");
+    puts("PASS: QCA native/customer-VLAN PPPoE selects exact live leaves and rejects stale VLAN/session, wrong-conduit, S-tag, private-VID, bridge/master and nested paths");
     puts("PASS: one live PPPoE session over native/customer VLAN; stale, unregistered, malformed, nested and tunnel hierarchies rejected");
 }
 '''

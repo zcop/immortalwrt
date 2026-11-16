@@ -1,0 +1,38 @@
+Admit one live PPPoE session over a standalone QCA8337 customer VLAN.
+
+Reuse the exact published VLAN, port membership, firmware-leaf and PPP
+registration checks below. Keep bridged PPP, stacked customer VLANs, tunnels
+and non-DSA masters excluded, without changing the YT921x resolver policy.
+
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -115,8 +115,8 @@
+ 		goto out;
+ 	}
+ 
+-	/* QCA8337 admits native Ethernet/bridge traffic and one standalone
+-	 * PPPoE session. A live standalone customer VLAN is also admitted; bridged PPP stays excluded.
++	/* QCA8337 admits native/aware bridge routing and a standalone
++	 * customer VLAN, optionally terminating in one live PPPoE session.
+ 	 */
+ 	if (dsa_port_from_netdev(port)->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ) {
+ 		struct dsa_port *qdp = dsa_port_from_netdev(port);
+@@ -133,7 +133,7 @@
+ 		if (ret)
+ 			goto out;
+ #ifdef ECM_INTERFACE_PPPOE_ENABLE
+-		if (pppoe && (br || direct)) {
++		if (pppoe && br) {
+ 			ret = -EOPNOTSUPP;
+ 			goto out;
+ 		}
+@@ -145,7 +145,8 @@
+ 			if (pppoe) {
+ 				/* Shared checks below validate the one live PPP session. */
+ 				if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
+-				    type != ECM_DB_IFACE_TYPE_PPPOE) {
++				    type != ECM_DB_IFACE_TYPE_PPPOE &&
++				    !(direct && type == ECM_DB_IFACE_TYPE_VLAN)) {
+ 					ret = -EOPNOTSUPP;
+ 					goto out;
+ 				}

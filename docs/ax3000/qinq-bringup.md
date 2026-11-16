@@ -107,16 +107,31 @@ port/C-VID steering, unknown-VID and wrong-port rejection, and withdrawal/recove
 across upper deletion and recreation. Routed IPv4/IPv6 TCP through VLAN-aware
 bridge uppers also passes with live ECM acceleration and NSS packet counters,
 about 904–930 Mbps and 98–99% CPU idle. Cold-boot validation of an aware bridge
-configuration remains open. PPPoE over a customer VLAN remains excluded.
+configuration remains open.
 
-Standalone native PPPoE is also admitted with `kmod-qca-nss-drv-pppoe` selected.
+Standalone PPPoE is admitted on a native port or one customer 802.1Q upper,
+such as `wan.35`, with `kmod-qca-nss-drv-pppoe` selected.
 The shared ECM resolver requires one live, currently registered PPP session;
-bridged PPP underlays, customer VLANs and nested PPP remain excluded for QCA.
-IPv4 NAT and routed IPv6 acceleration, PAP/CHAP success and wrong-password
-rejection, session teardown/recreation with a reused session ID, and the
-1492-byte MTU boundary are verified. Oversized packets receive IPv4
+bridged PPP underlays, stacked customer VLANs and nested PPP remain excluded
+for QCA. Tagged PPP uses the existing exact port/C-VID steering and firmware
+leaf; it adds no switch rule format or additional transport tag. The customer
+upper must still be published and its firmware leaf ready. Stale PPP or VLAN
+registrations do not authorize acceleration.
+
+Native PPPoE checks cover IPv4 NAT and routed IPv6 acceleration, PAP/CHAP
+success and wrong-password rejection, session teardown/recreation with a
+reused session ID, and the
+1492-byte MTU boundary. Oversized packets receive IPv4
 fragmentation-needed or IPv6 Packet Too Big replies. These are local
 access-concentrator checks, not validation against an ISP.
+
+An external access concentrator also confirms IPv4 NAT/TCP and routed IPv6
+TCP through VLAN35/4094 in both directions, with ECM mode2 and firmware PPP/IP
+packet counters. Reconnect with a reused session ID, the VLAN35 IPv4 MTU1492
+boundary, PAP on VLAN35 and CHAP-MD5 on VLAN4094 pass; wrong passwords leave
+no live PPP registration. Traffic was paced at 100 Mbps, so this does not
+establish peak tagged-PPPoE throughput. Tagged UDP, DHCPv6-PD, cold boot and
+ISP interoperability remain unvalidated.
 
 Use an external peer to validate non-NAT routing. A peer namespace on the same
 router, cabled back through another NSS-managed switch port, lets an unchanged
