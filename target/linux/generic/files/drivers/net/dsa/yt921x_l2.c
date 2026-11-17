@@ -988,19 +988,34 @@ yt921x_dsa_set_ageing_time(struct dsa_switch *ds, unsigned int msecs)
 	return res;
 }
 
-/* In tag_8021q mode a bridge that is not VLAN-aware hands its FDB and MDB
- * entries over with VID 0; the switch learns (IVL) in the tag_8021q VID the
- * frames are classified into, so the static entries have to go there. The
- * DSA core zeroes db.bridge.num for a switch without FDB isolation, so the
- * bridge's number is taken from a port that is in it.
+/* DSA uses VID 0 for VLAN-unaware databases. Resolve it in the database,
+ * not the callback port, which can be a CPU port for host addresses.
+ * Enhanced mode classifies unaware ingress into YT921X_VID_UNAWARE;
+ * tag_8021q uses its bridge or standalone VID instead. The DSA core zeroes
+ * db.bridge.num without FDB isolation, so recover it from a member port.
  */
 static u16 yt921x_db_vid(struct yt921x_priv *priv, struct dsa_db db, u16 vid)
 {
 	struct dsa_switch *ds = &priv->ds;
 	struct dsa_port *dp;
 
-	if (!priv->tag_8021q || vid)
+	if (vid)
 		return vid;
+
+	if (!priv->tag_8021q) {
+		switch (db.type) {
+		case DSA_DB_BRIDGE:
+			return br_vlan_enabled(db.bridge.dev) ? vid :
+				YT921X_VID_UNAWARE;
+		case DSA_DB_PORT:
+			if (!dsa_is_user_port(ds, db.dp->index))
+				return vid;
+			return dsa_port_is_vlan_filtering(db.dp) ? vid :
+				YT921X_VID_UNAWARE;
+		default:
+			return vid;
+		}
+	}
 
 	switch (db.type) {
 	case DSA_DB_BRIDGE:

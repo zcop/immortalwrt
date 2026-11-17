@@ -19,6 +19,21 @@ and CPU-port policy bits from the general multicast mask, then applies the
 storm mask. The unknown multicast mask still uses the preserved base and
 mrouter policy. Broadcast and unknown-unicast programming are unchanged.
 
+## Host unicast and database domains
+
+DSA passes VID 0 for a VLAN-unaware FDB database. Enhanced mode must map
+that entry to `YT921X_VID_UNAWARE` (4095), matching its ingress PVID. Use the
+bridge or standalone user-port database to resolve VLAN state: host FDB
+callbacks target CPU ports, whose state does not identify that database.
+Add and delete must resolve the same key. Keep explicit VIDs unchanged;
+private tag_8021q/QinQ retains its bridge and standalone VID mapping.
+
+A permanent host entry in FID 0 cannot satisfy an ingress lookup in FID
+4095. A learned copy can temporarily hide that mismatch until it ages out,
+then unknown-unicast CPU suppression prevents local delivery. The correct
+repair is the static entry's database mapping, not enabling CPU flooding.
+`tools/nss/test_yt921x_db_vid.py` checks these mappings and add/delete symmetry.
+
 ## Host-joined multicast
 
 Linux installs host MDB entries for groups it joins, including each local
