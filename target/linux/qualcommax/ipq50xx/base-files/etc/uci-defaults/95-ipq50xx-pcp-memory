@@ -1,8 +1,19 @@
 #!/bin/sh
 
+# Bound per-CPU free-page caches on these 256 MiB IPQ5018 boards.
 . /lib/functions/system.sh
 
-[ "$(board_name)" = "xiaomi,cr881x" ] || exit 0
+case "$(board_name)" in
+	xiaomi,cr881x)
+		pcp_file=13-cr881x-pcp.conf
+		pcp_board=CR881x
+		;;
+	redmi,ax3000)
+		pcp_file=13-ax3000-pcp.conf
+		pcp_board=AX3000
+		;;
+	*) exit 0 ;;
+esac
 [ -w /proc/sys/vm/percpu_pagelist_high_fraction ] || exit 0
 
 # Respect an existing administrator setting, including an explicit zero.
@@ -15,8 +26,8 @@ fi
 # of free pages on each CPU. Keep the watermark and allocation batch size,
 # but cap these caches at 1% of managed RAM shared between the CPUs.
 mkdir -p /etc/sysctl.d
-cat > /etc/sysctl.d/13-cr881x-pcp.conf <<'EOF'
-# Keep free pages available to the shared allocator on the 256 MiB CR881x.
+cat > "/etc/sysctl.d/$pcp_file" <<EOF
+# Keep free pages available to the shared allocator on the 256 MiB $pcp_board.
 # Set this to 0 to restore the kernel's automatic per-CPU cache limits.
 vm.percpu_pagelist_high_fraction = 100
 EOF

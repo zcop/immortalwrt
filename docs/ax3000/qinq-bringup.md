@@ -186,6 +186,12 @@ Peak throughput, AP mode, Wi-Fi IPv6, roaming and sustained simultaneous
 dual-radio load remain unvalidated. Check minimum
 memory headroom during traffic as well as the idle value afterward.
 
+The 256 MiB AX3000 also defaults `vm.percpu_pagelist_high_fraction` to `100`,
+as CR881x does, to return cached free pages to the shared allocator sooner.
+`95-ipq50xx-pcp-memory` installs `13-ax3000-pcp.conf` only when no administrator
+setting exists, including an explicit zero. This leaves the 16 MiB emergency
+watermark, DMA pools, NSS limits and firmware reservations unchanged.
+
 AX3000 requires `qcom,smp2p-feature-ssr-ack` on `wcss_smp2p_out` to restart
 the shared Q6 after removing `ath11k_ahb`. Without it, restart times out and
 the following attempt reports an unbalanced IRQ enable; the older non-NSS

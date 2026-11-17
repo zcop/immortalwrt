@@ -268,8 +268,8 @@ This proves about14MiB can be returned to the shared allocator in this sample;
 the later wired throughput checks and bounded Build36 5GHz STA load passed.
 AP mode,2.4GHz traffic and long-term stability remain untested.
 
-The new95-cr881x-pcp-memory UCI-default script installs cap100 only on
-xiaomi,cr881x and only if no explicit PCP sysctl already exists. S11sysctl
+The95-ipq50xx-pcp-memory UCI-default script installs cap100 on
+xiaomi,cr881x and redmi,ax3000 only if no explicit PCP sysctl already exists. S11sysctl
 loads the persisted default on every boot. Standard sysctl precedence applies:
 use /etc/sysctl.conf (loaded last) or a later-numbered sysctl.d drop-in to
 change it;0 restores automatic limits. No daemon is added. The cap is1% of
