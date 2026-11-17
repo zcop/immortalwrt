@@ -1831,10 +1831,14 @@ int yt921x_apply_flood_filters_locked(struct yt921x_priv *priv)
 	/*
 	 * BR_MCAST_FLOOD user bits only suppress unknown multicast;
 	 * known offloaded MDB groups remain selectively deliverable
-	 * when unknown flooding is disabled.
+	 * when unknown flooding is disabled. CPU destinations must also
+	 * remain reachable when the bridge has installed a host MDB entry.
+	 * Keep CPU flood suppression in FILTER_UNK_MCAST: FILTER_MCAST
+	 * also applies to known multicast and would override that entry.
 	 */
 	u32 mcast_mask = (priv->flood_mcast_base_mask &
-			  ~yt921x_user_ports_mask(&priv->ds)) |
+			  ~(yt921x_user_ports_mask(&priv->ds) |
+			    priv->cpu_ports_mask)) |
 			 priv->flood_storm_mask;
 	u32 bcast_mask = priv->flood_bcast_base_mask | priv->flood_storm_mask;
 	u32 unk_mcast_mask;

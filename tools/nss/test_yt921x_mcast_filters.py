@@ -65,6 +65,7 @@ struct dsa_switch {
 };
 
 struct yt921x_priv {
+	u32 cpu_ports_mask;
 	u32 flood_unk_ucast_base_mask;
 	u32 flood_mcast_base_mask;
 	u32 flood_bcast_base_mask;
@@ -206,10 +207,11 @@ static void test_matrix(void)
 						priv.flood_bcast_base_mask = preserved | BIT(0);
 						priv.flood_storm_mask = storm;
 						priv.ds.user_mask = user_mask;
+						priv.cpu_ports_mask = BIT(4) | BIT(8);
 
 						expect[0] = (preserved | BIT(1)) & YT921X_FILTER_PORTS_M;
 						expect[1] = (base & ~router) & YT921X_FILTER_PORTS_M;
-						expect[2] = (preserved | storm) & YT921X_FILTER_PORTS_M;
+						expect[2] = (BIT(10) | storm) & YT921X_FILTER_PORTS_M;
 						expect[3] = ((preserved | BIT(0)) | storm) & YT921X_FILTER_PORTS_M;
 
 						reset_ops();
@@ -244,12 +246,13 @@ static void test_known_flag_scope(void)
 			clear.flood_bcast_base_mask = preserved | bit;
 			clear.flood_storm_mask = storm;
 			clear.ds.user_mask = BIT(0) | BIT(1) | BIT(2) | BIT(3);
+			clear.cpu_ports_mask = BIT(4) | BIT(8);
 			set = clear;
 			set.flood_mcast_base_mask |= bit;
 
 			unk_clear = (preserved & ~router) & YT921X_FILTER_PORTS_M;
 			expect[0] = preserved;
-			expect[2] = (preserved | storm) & YT921X_FILTER_PORTS_M;
+			expect[2] = (BIT(10) | storm) & YT921X_FILTER_PORTS_M;
 			expect[3] = ((preserved | bit) | storm) & YT921X_FILTER_PORTS_M;
 			expect[1] = unk_clear;
 			reset_ops();
@@ -262,6 +265,50 @@ static void test_known_flag_scope(void)
 			router_value = router;
 			snprintf(label, sizeof(label), "known-flag ctx%d bit%d set", c, b);
 			check_ok(label, yt921x_apply_flood_filters_locked(&set), expect);
+		}
+	}
+}
+
+/* Host-joined groups, including IPv6 solicited-node multicast, must be
+ * eligible at every CPU destination selected by their MDB entry. Keeping
+ * unknown flooding disabled must not override that known destination.
+ */
+static void test_host_mdb(void)
+{
+	static const u32 cpus[] = {
+		BIT(4), BIT(8), BIT(4) | BIT(8), BIT(5) | BIT(9),
+	};
+	int c, native;
+
+	for (c = 0; c < 4; c++) {
+		for (native = 0; native < 2; native++) {
+			struct yt921x_priv priv = {0};
+			u32 eligible;
+
+			priv.cpu_ports_mask = cpus[c];
+			priv.ds.user_mask = BIT(0) | BIT(1) | BIT(2) | BIT(3);
+			priv.flood_mcast_base_mask = BIT(10) | priv.ds.user_mask |
+				(native ? 0 : cpus[c]);
+			reset_ops();
+			if (yt921x_apply_flood_filters_locked(&priv)) {
+				failf("host MDB: register update failed");
+				continue;
+			}
+			eligible = cpus[c] & ~write_val[2];
+			if (eligible != cpus[c])
+				failf("host MDB: CPU=0x%x mode=%d eligible=0x%x",
+				      cpus[c], native, eligible);
+			if ((write_val[1] & cpus[c]) != (native ? 0 : cpus[c]))
+				failf("host MDB: unknown multicast CPU policy changed");
+			if (write_val[2] != BIT(10))
+				failf("host MDB: known user destinations or reserved port changed");
+
+			/* An explicit storm block must still win over MDB delivery. */
+			priv.flood_storm_mask = cpus[c];
+			reset_ops();
+			yt921x_apply_flood_filters_locked(&priv);
+			if ((write_val[2] & cpus[c]) != cpus[c])
+				failf("host MDB: explicit CPU storm block was lost");
 		}
 	}
 }
@@ -281,9 +328,10 @@ static void test_faults(void)
 		priv.flood_bcast_base_mask = contexts[c] | BIT(0);
 		priv.flood_storm_mask = BIT(2);
 		priv.ds.user_mask = BIT(0) | BIT(1);
+		priv.cpu_ports_mask = BIT(4) | BIT(8);
 		expect[0] = priv.flood_unk_ucast_base_mask & YT921X_FILTER_PORTS_M;
 		expect[1] = (priv.flood_mcast_base_mask & ~BIT(3)) & YT921X_FILTER_PORTS_M;
-		expect[2] = (contexts[c] | BIT(2)) & YT921X_FILTER_PORTS_M;
+		expect[2] = (BIT(10) | BIT(2)) & YT921X_FILTER_PORTS_M;
 		expect[3] = (priv.flood_bcast_base_mask | BIT(2)) & YT921X_FILTER_PORTS_M;
 
 		reset_ops();
@@ -318,6 +366,7 @@ int main(void)
 {
 	test_matrix();
 	test_known_flag_scope();
+	test_host_mdb();
 	test_faults();
 	if (failures) {
 		printf("%d check(s) failed\n", failures);

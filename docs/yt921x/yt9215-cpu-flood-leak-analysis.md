@@ -1,56 +1,65 @@
-# YT921x L2 Offload CPU Port Leak Analysis
+# YT921x CPU delivery and multicast filters
 
-**Date:** June 16, 2026
-**Target:** YT9215 Switch (e.g., CR881x)
+The filter registers use destination **drop masks**: a set bit blocks the
+port. Port 10 is the internal MCU destination; the host CPU ports come from
+`priv->cpu_ports_mask` and are commonly ports 4 and 8 on CR881x.
 
-## Problem Statement
-When L2 bridge offloading is enabled on the YT921x switch, tests show that traffic between LAN ports (e.g., LAN1 to LAN2) still partially leaks to the CPU port.
+| Register | Traffic controlled | Host CPU policy |
+| --- | --- | --- |
+| `YT921X_FILTER_UNK_UCAST` | Unknown unicast | Enhanced mode suppresses CPU flooding. |
+| `YT921X_FILTER_UNK_MCAST` | Unknown multicast | Preserve flood flags and the static mrouter-port exemptions. |
+| `YT921X_FILTER_MCAST` | General multicast, including known MDB hits | Allow CPU destinations selected by a host MDB entry; retain explicit storm blocks. |
+| `YT921X_FILTER_BCAST` | Broadcast | Allow CPU delivery required by ARP and DHCP. |
 
-## Root Cause Analysis
-1. The flood filter registers (`YT921X_FILTER_UNK_UCAST`, `YT921X_FILTER_UNK_MCAST`, `YT921X_FILTER_MCAST`, `YT921X_FILTER_BCAST`) use **drop-mask logic**: `1` means drop/block, `0` means forward/allow.
-2. In the driver (`yt921x_chip.c` and `yt921x_core.c`), the default base masks were hardcoded to `BIT(10)`.
-3. Port 10 (`p10`) is the internal **MCU port**, not the **CPU port**. The CPU port is typically `p8` or `p4` (defined dynamically in `priv->cpu_ports_mask`).
-4. Because the CPU port bit was `0` in these masks, the hardware switch was permitted to flood all Unknown Unicast, Unknown Multicast, and Broadcast traffic directly up the CPU conduit, completely bypassing the intended bridge offload isolation and causing the observed leak.
+The MCU bit stays blocked. `BR_MCAST_FLOOD` controls unknown multicast on
+user ports; disabling it must not suppress a known offloaded MDB group.
+The same distinction applies to the CPU flood-suppression bits in enhanced
+mode. `yt921x_apply_flood_filters_locked()` removes both user-port policy bits
+and CPU-port policy bits from the general multicast mask, then applies the
+storm mask. The unknown multicast mask still uses the preserved base and
+mrouter policy. Broadcast and unknown-unicast programming are unchanged.
 
-## Proposed Fix & Architectural Constraints
+## Host-joined multicast
 
-To fix the leak, we must include the CPU port(s) in the drop masks (`priv->cpu_ports_mask`). However, we must be very careful about *which* traffic types we block from reaching the CPU.
+Linux installs host MDB entries for groups it joins, including each local
+IPv6 address's solicited-node multicast group. In a VLAN-unaware bridge,
+legacy MDB entries use FID 4095. A VLAN-aware bridge uses its resolved VID.
 
-### 1. Unknown Unicast
-*   **Action:** SAFE TO BLOCK
-*   **Reason:** The CPU does not need to see unknown unicast traffic destined for other MAC addresses. Reducing this noise is beneficial.
+For example, a host entry selecting CPU4 and CPU8 has destination mask
+`0x110`. A general multicast drop mask of `0x510` blocks both destinations,
+even though the MDB entry is correct. This prevents Neighbor Solicitations
+from reaching the local IPv6 stack. The general filter must leave those
+CPU bits clear; with the usual CR881x layout its baseline is `0x400`.
+The implementation derives the CPU bits from the switch configuration.
 
-### 2. Unknown Multicast
-*   **Action:** SAFE TO BLOCK
-*   **Reason:** Normally, blocking multicast would break control-plane protocols like IGMP/MLD and Spanning Tree (STP/BPDU). However, the YT921x hardware has dedicated bypasses:
-    *   **IGMP/MLD:** `YT921X_ACT_UNK_MCAST_BYPASS_DROP_IGMP` is explicitly set in the driver. This ensures IGMP traffic is trapped to the CPU regardless of the drop mask.
-    *   **STP/LLDP/LACP:** `YT921X_RMA_CTRLn` registers are programmed to trap specific Reserved Multicast Addresses (RMAs) to the CPU.
-    *   Therefore, it is safe to set the CPU port bit in the Multicast drop masks.
+This does not flood every multicast packet to Linux. A known group's MDB
+entry selects its destinations, while unknown traffic still passes through
+the unknown-multicast policy. IGMP/MLD and reserved control-frame traps have
+separate bypass rules; they do not replace correct host MDB delivery.
 
-### 3. Broadcast
-*   **Action:** **UNSAFE TO BLOCK** (Do NOT include CPU port in the drop mask)
-*   **Reason:** IPv4 ARP relies on standard data-plane broadcasts. The switch does not have a dedicated "ARP bypass" mechanism. If we block Broadcast traffic from reaching the CPU, the router will no longer receive ARP requests and will lose the ability to resolve IPs on the local LAN, effectively breaking routing.
+Private tag_8021q/QinQ mode already omits the enhanced CPU-suppression bits
+from its base mask, so this correction leaves its normal filter values
+unchanged. MDB membership, FDB aging, VLAN domains and conduit assignment
+remain responsible for their existing roles.
 
-## Required Code Changes (Pending)
+## Reproducible checks
 
-1.  **`yt921x_chip.c` (`yt921x_chip_setup_dsa`)**:
-    *   Update `priv->flood_unk_ucast_base_mask` to `priv->cpu_ports_mask | BIT(10)`.
-    *   Update `priv->flood_mcast_base_mask` to `priv->cpu_ports_mask | BIT(10)`.
-    *   **Keep** `priv->flood_bcast_base_mask` as `BIT(10)` (allow CPU to receive broadcasts).
+`tools/nss/test_yt921x_mcast_filters.py` extracts the actual C function and
+checks host MDB reachability, varied CPU layouts, flood flags, mrouter
+exemptions, explicit storm blocks and register-error propagation. The
+`--source` option supports an older source file as a negative control;
+`--sanitize` adds address and undefined-behavior checks.
 
-2.  **`yt921x_core.c` (`yt921x_refresh_flood_masks_locked`)**:
-    *   Update local `unk_ucast_mask` to `priv->cpu_ports_mask | BIT(10)`.
-    *   Update local `mcast_mask` to `priv->cpu_ports_mask | BIT(10)`.
-    *   **Keep** local `bcast_mask` as `BIT(10)`.
+For hardware verification, use an isolated bridge and a wired peer. Enable
+snooping and a querier, add a temporary IPv6 address, and inspect its
+solicited-node MAC entry with `fdb lookup <mac> 4095` through `yt921x_cmd`.
+Read `get_flood_filter` and compare the MDB CPU destinations with the
+actual general drop mask. Clear only that peer neighbor entry before each
+probe, or verify that a fresh target has no resolved MAC. Check IPv6 ping
+and HTTP, then restore all temporary addresses and settings.
 
-3.  **`yt921x_l2.c` (`yt921x_sync_mrouter_masks_locked`)**:
-    *   Update the `YT921X_FILTER_UNK_MCAST` drop mask calculation to include `priv->cpu_ports_mask` alongside `BIT(10)`, so the dynamic mrouter sync maintains the CPU isolation.
-
-## Additional Hypotheses & Areas to Monitor
-
-If LAN-to-LAN traffic continues to appear on the CPU port even after correcting the flood masks, it implies an intentional (even if incorrect) routing decision by the switch's internal logic matrix. Other potential causes to investigate include:
-
-1.  **FDB Misses:** Traffic for MAC addresses that have aged out or haven't been learned yet will hit the Unknown Unicast/Multicast rules. If those rules aren't strict enough or bypasses exist, it floods to the CPU.
-    *   *Git History Note:* Recent commits by `zcop` (specifically `cc1ce14e79`) made FDB timeout recovery **non-destructive**. The driver no longer performs "hard flushes" of the dynamic FDB table on timeout. Therefore, unless a physical link is flapping (`YT921X_FDB_HW_FLUSH_ON_LINKDOWN`) or STP state is changing, continuous FDB flooding is unlikely to be the cause of a continuous leak. If the leak is continuous, investigate traps or isolation overrides.
-2.  **Multicast/Broadcast Traps:** Ensure that control plane traps (e.g., ARP, IPv6 Neighbor Discovery, IGMP/MLD, STP) are not overly broad and inadvertently capturing regular data plane traffic.
-3.  **Port Matrix Overrides:** A register (such as the `0x180294` Port Isolation gates) might be persistently tagging the CPU port as an allowed destination for specific flows, overriding the flood mask restrictions.
+Exercise both conduits with their user ports linked. Check known IPv4 and
+IPv6 UDP multicast groups for payload loss and duplicates, and separately
+verify unknown-multicast suppression at the CPU conduits. Collect captures
+at each layer and distinguish control-frame copies from duplicate delivery
+to an application. Restore temporary masks after each check.
