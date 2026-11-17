@@ -84,8 +84,8 @@ master paths remain excluded for QCA. Firmware VLAN-node creation
 and IPv4 NAT/TCP, bidirectional IPv4 UDP, and routed IPv6 TCP/UDP acceleration
 are verified with live ECM state and NSS packet counters. IPv4 UDP qualifies
 under the default bidirectional policy. Controlled one-way IPv6 UDP tests use
-`accel_delay_pkts=0`, then restore the default `1`; default-policy IPv6 UDP
-with an external bidirectional peer remains unverified. Full-MTU traffic,
+`accel_delay_pkts=0`, then restore the default `1`; default-policy non-PPPoE
+IPv6 UDP with an external bidirectional peer remains unverified. Full-MTU traffic,
 software forwarding, IPv6 neighbour rediscovery, Packet Too Big handling and
 accelerated TCP at MTU1280 pass. Automatic NSS startup passes warm and cold
 boot. This does not certify NSS L2 bridging, multicast, tunnels or Wi-Fi.
@@ -130,8 +130,28 @@ TCP through VLAN35/4094 in both directions, with ECM mode2 and firmware PPP/IP
 packet counters. Reconnect with a reused session ID, the VLAN35 IPv4 MTU1492
 boundary, PAP on VLAN35 and CHAP-MD5 on VLAN4094 pass; wrong passwords leave
 no live PPP registration. Traffic was paced at 100 Mbps, so this does not
-establish peak tagged-PPPoE throughput. Tagged UDP, DHCPv6-PD, cold boot and
-ISP interoperability remain unvalidated.
+establish peak tagged-PPPoE throughput.
+
+Bidirectional UDP echo also passes on native PPPoE and VLAN35/4094 with the
+normal classifier policy `accel_delay_pkts=1`. IPv4 and IPv6 payloads of 64,
+1200 and full-MTU size (1464/1444 bytes respectively) have exact payload and
+reply-count checks, per-flow ECM mode2 and firmware IP/PPP counter proof.
+No endpoint loss, corruption or measured drop/header/VID/checksum errors occur
+in these low-rate checks; burst behavior and UDP capacity remain unvalidated.
+
+DHCPv6-PD over VLAN35/4094 also passes prefix acquisition, renewal during TCP,
+prefix replacement without reconnecting PPP, and acquisition after a PPP
+reconnect. A delegated `/56` supplies the existing LAN's configured `/60`;
+Windows obtains a preferred `/64` SLAAC address and routed IPv6 TCP from that
+address accelerates in both directions. Old SLAAC addresses become deprecated;
+DHCPv6 address leases retain their separate preferred/valid lifetimes. The
+external test uses the normal explicit WAN6 client with `fakeroutes=0` and
+`defaultroute=0` to keep default routes off the test computers. Normal PPP
+automatic-client prefix acquisition also succeeds. This is a single-LAN,
+paced 100 Mbps check. Installed-image tests after a cold boot also confirm
+VLAN35 IPv4 NAT/TCP, default-policy IPv4/IPv6 UDP, and delegated-prefix IPv6
+TCP in both directions, including renewal during traffic. ISP interoperability
+remains unvalidated.
 
 Use an external peer to validate non-NAT routing. A peer namespace on the same
 router, cabled back through another NSS-managed switch port, lets an unchanged
@@ -162,6 +182,12 @@ shared CPU membership, bridge filtering/PVID transitions and readback
 corruption. `check-qinq-tagger.py` checks frame construction and admission;
 `tools/nss/test_qosmio_qinq.py` checks adapter/ECM policy. Host tests do not
 establish packet forwarding or NSS firmware behavior.
+
+For default-policy UDP checks, exchange traffic in both directions. The ECM
+service sets `accel_delay_pkts=1` after loading the module; direct `insmod`
+replacement bypasses that initialization. Restore policy `1` before comparing
+results. Match the complete flow tuple in either orientation: ECM can create
+the accelerated flow when it first sees the reply.
 
 When testing a tagged Linux endpoint, distinguish its NIC transmit failures
 from switch drops. The test workstation's r8169 NIC reproducibly stopped
