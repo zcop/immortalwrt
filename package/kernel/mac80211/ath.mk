@@ -379,6 +379,7 @@ define KernelPackage/ath11k/config
                prompt "ath11k NSS memory profile"
                depends on ATH11K_NSS_SUPPORT
                default ATH11K_MEM_PROFILE_256M if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss
+               default ATH11K_MEM_PROFILE_256M if TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
                default ATH11K_MEM_PROFILE_512M
 
        config ATH11K_MEM_PROFILE_512M

@@ -88,7 +88,8 @@ under the default bidirectional policy. Controlled one-way IPv6 UDP tests use
 IPv6 UDP with an external bidirectional peer remains unverified. Full-MTU traffic,
 software forwarding, IPv6 neighbour rediscovery, Packet Too Big handling and
 accelerated TCP at MTU1280 pass. Automatic NSS startup passes warm and cold
-boot. This does not certify NSS L2 bridging, multicast, tunnels or Wi-Fi.
+boot. This does not certify NSS L2 bridging, multicast or tunnels. Wi-Fi
+validation is described below.
 
 For standalone customer traffic, configure `wan.35` through normal netifd WAN
 settings. Its registered upper grants a firmware leaf below the port's SVID
@@ -162,11 +163,41 @@ A same-switch cable fixture can also flood host-bound unknown unicast back
 into WAN before PPPoE encapsulation. Eliminate that duplicate path before
 interpreting NSS ingress-VID mismatches as a PPPoE failure.
 
+## Wi-Fi NSS
+
+The NSS device node must have `qcom,wlan-dataplane-offload-enabled` before
+ath11k registers either radio. This initializes wifili handlers and the
+external-radio interface pool. The NSS profile selects ath11k offload with
+`frame_mode=2`, the 256 MiB host and NSS memory profiles, and small buffers.
+Both IPQ5018 and QCN6122 report 4096 TX descriptors, 2048 completions,
+CE5 256/256 and private RX buffers; host TX rings are omitted while offloading.
+No firmware carveout changes are required for this selection.
+
+Forwarded IPv4 NAT/TCP through a QinQ LAN port and a station interface is
+verified on both bands with bulk-flow ECM mode2 and matching firmware IP and
+wifili counters, including the first WPA2 association and data after power
+removal. UDP echo on both bands confirms small and full-MTU payload integrity
+and default-policy acceleration. Bidirectional iperf UDP uses separate streams:
+a stream whose tracker has an unknown side can stay in software under the
+normal policy.
+The current 2.4 GHz peer has a weak link with UDP timeouts and inconsistent
+TCP downloads, so that check establishes operation rather than capacity.
+Peak throughput, AP mode, Wi-Fi IPv6, roaming and sustained simultaneous
+dual-radio load remain unvalidated. Check minimum
+memory headroom during traffic as well as the idle value afterward.
+
+For cold-boot acceptance, test the first WPA2 association and forwarded data
+after removing power. Warm registration alone is insufficient. Check each
+radio's wifili TX/completion and REO counters alongside the actual ECM data
+flow, and compare allocation/drop counters before and after traffic. REO error
+events alone do not identify a switch-tag or buffer-allocation failure.
+
 ## Build and checks
 
 Use `configs/redmi_ax3000_qinq.config` for QinQ or
 `configs/redmi_ax3000_dsa.config` for the standard DSA comparison;
-`configs/redmi_ax3000_nss.config` enables wired NSS with Wi-Fi NSS disabled.
+`configs/redmi_ax3000_nss.config` enables wired and Wi-Fi NSS with the 256 MiB
+allocation profile.
 Sysupgrade archives retain `BOARD_NAME=redmi_ax3000` for compatibility with
 older upgraders.
 
