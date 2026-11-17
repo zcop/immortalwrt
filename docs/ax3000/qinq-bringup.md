@@ -192,6 +192,15 @@ as CR881x does, to return cached free pages to the shared allocator sooner.
 setting exists, including an explicit zero. This leaves the 16 MiB emergency
 watermark, DMA pools, NSS limits and firmware reservations unchanged.
 
+IPQ50xx LOW-profile linear NSS receive refills use slab-backed SKB heads.
+Long-lived firmware buffers can otherwise pin partly used 32 KiB fragment
+pages while short-lived status buffers cycle through the allocator. Slabs
+reuse freed head objects while other buffers remain live. This can cost more
+than tightly packed fragments initially, but avoids the observed backing-page
+growth after using both radios. `NET_SKB_PAD`, `SKB_ALLOC_RX`, atomic allocation
+and DMA buffer lengths are preserved. Pool counts and watermarks are unchanged;
+paged/jumbo refills and other memory profiles retain their existing allocators.
+
 AX3000 requires `qcom,smp2p-feature-ssr-ack` on `wcss_smp2p_out` to restart
 the shared Q6 after removing `ath11k_ahb`. Without it, restart times out and
 the following attempt reports an unbalanced IRQ enable; the older non-NSS

@@ -1,0 +1,50 @@
+Subject: [PATCH] ipq50xx: reuse LOW-profile NSS receive buffer heads
+
+The firmware retains RX payload buffers while short-lived status buffers
+cycle through the same refill allocator. Shared page fragments cannot reuse
+freed holes until every fragment in the backing page has been released.
+
+Use the slab-backed RX SKB path for IPQ50xx LOW-profile linear refills, keeping
+NET_SKB_PAD and SKB_ALLOC_RX emergency-allocation semantics. Freed head objects
+can then be reused while other objects in the slab remain with firmware.
+Firmware buffer lengths and pool watermarks are unchanged.
+
+--- a/nss_core.c
++++ b/nss_core.c
+@@ -2004,6 +2004,27 @@
+ }
+ 
+ /*
++ * Long-lived firmware buffers must be able to reuse freed head objects.
++ * A shared page-fragment cache cannot reuse holes in a pinned 32 KiB page.
++ */
++static struct sk_buff *nss_core_alloc_linear_rx_skb(uint16_t size)
++{
++#if defined(NSS_HAL_IPQ50XX_SUPPORT) && defined(NSS_MEM_PROFILE_LOW)
++	struct sk_buff *nbuf;
++
++	nbuf = __alloc_skb(size + NET_SKB_PAD, GFP_ATOMIC,
++			   SKB_ALLOC_RX, NUMA_NO_NODE);
++	if (likely(nbuf)) {
++		skb_reserve(nbuf, NET_SKB_PAD);
++	}
++
++	return nbuf;
++#else
++	return dev_alloc_skb(size);
++#endif
++}
++
++/*
+  * nss_core_alloc_max_avail_size_buffers()
+  *	Allocate maximum available sized buffers.
+  */
+@@ -2024,7 +2045,7 @@
+ 		dma_addr_t buffer;
+ 		struct h2n_descriptor *desc = &desc_ring[hlos_index];
+ 
+-		struct sk_buff *nbuf = dev_alloc_skb(max_buf_size);
++		struct sk_buff *nbuf = nss_core_alloc_linear_rx_skb(max_buf_size);
+ 		if (unlikely(!nbuf)) {
+ 			/*
+ 			 * ERR:
