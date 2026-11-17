@@ -474,6 +474,11 @@
 	};
 };
 
+&wcss_smp2p_out {
+	/* Acknowledge WCSS SMP2P notifications during protection-domain restart. */
+	qcom,smp2p-feature-ssr-ack;
+};
+
 &wifi {
 	// IPQ5000
 	qcom,rproc = <&q6_wcss_pd1>;

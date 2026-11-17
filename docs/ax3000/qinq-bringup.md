@@ -186,6 +186,14 @@ Peak throughput, AP mode, Wi-Fi IPv6, roaming and sustained simultaneous
 dual-radio load remain unvalidated. Check minimum
 memory headroom during traffic as well as the idle value afterward.
 
+AX3000 requires `qcom,smp2p-feature-ssr-ack` on `wcss_smp2p_out` to restart
+the shared Q6 after removing `ath11k_ahb`. Without it, restart times out and
+the following attempt reports an unbalanced IRQ enable; the older non-NSS
+image has the same failure. With it, repeated reloads pass after warm and cold
+boot. After explicitly running `wifi down`, use `wifi up` once both radios
+have registered; registration may complete after `modprobe` returns. Wired
+NSS nodes remain active throughout these Wi-Fi reloads.
+
 For cold-boot acceptance, test the first WPA2 association and forwarded data
 after removing power. Warm registration alone is insufficient. Check each
 radio's wifili TX/completion and REO counters alongside the actual ECM data
