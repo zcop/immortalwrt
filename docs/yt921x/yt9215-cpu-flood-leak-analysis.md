@@ -34,6 +34,17 @@ then unknown-unicast CPU suppression prevents local delivery. The correct
 repair is the static entry's database mapping, not enabling CPU flooding.
 `tools/nss/test_yt921x_db_vid.py` checks these mappings and add/delete symmetry.
 
+## Hardware aging policy
+
+The switch has one aging interval, in five-second units. DSA selects the
+shortest requested per-port timeout. A port must publish its new timeout
+before that aggregation and roll it back on failure; otherwise increasing
+the timeout can leave hardware using the previous shorter minimum. This
+also affects restoration after STP temporarily shortens the aging time.
+The kernel patch `646-net-dsa-update-ageing-time-before-notifying.patch`
+fixes the notification order. `tools/nss/test_dsa_ageing.py` exercises the
+prepared kernel's aggregation, first-request increases and error rollback.
+
 ## Host-joined multicast
 
 Linux installs host MDB entries for groups it joins, including each local

@@ -1,0 +1,41 @@
+From: zcop <hongson.hn@gmail.com>
+Subject: [PATCH] net: dsa: include the new port ageing time in switch aggregation
+
+The switch chooses the shortest per-port ageing time before calling the
+hardware driver. Publish the new value before notifying it, otherwise an
+increase can select the requesting port's old shorter value. Once every
+port has been updated, hardware still holds the previous minimum until
+another notification arrives. STP topology-change recovery can therefore
+leave hardware ageing faster than the bridge requests.
+
+Restore the cached port value if the notifier rejects the update. Keep
+the switch-wide minimum across other ports and bridges unchanged.
+
+Signed-off-by: zcop <hongson.hn@gmail.com>
+
+--- a/net/dsa/port.c
++++ b/net/dsa/port.c
+@@ -896,17 +896,18 @@
+ 	unsigned long ageing_jiffies = clock_t_to_jiffies(ageing_clock);
+ 	unsigned int ageing_time = jiffies_to_msecs(ageing_jiffies);
+ 	struct dsa_notifier_ageing_time_info info;
++	unsigned int old_ageing_time = dp->ageing_time;
+ 	int err;
+ 
+ 	info.ageing_time = ageing_time;
+ 
++	/* The switch-wide minimum must include this port's new value. */
++	dp->ageing_time = ageing_time;
+ 	err = dsa_port_notify(dp, DSA_NOTIFIER_AGEING_TIME, &info);
+ 	if (err)
+-		return err;
+-
+-	dp->ageing_time = ageing_time;
+-
+-	return 0;
++		dp->ageing_time = old_ageing_time;
++
++	return err;
+ }
+ 
+ int dsa_port_mst_enable(struct dsa_port *dp, bool on,
