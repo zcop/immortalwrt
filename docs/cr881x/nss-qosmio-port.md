@@ -219,11 +219,13 @@ with the reference. The full source pin record is `logs/source-pins.json`.
 
 ### Dependency overlay and validation boundary
 
-Qosmio gates `NSS_DRV_VLAN_ENABLE` to IPQ807x/IPQ60xx. Run
-`python3 tools/nss/apply-qosmio-overlay.py` before indexing/generating config.
-The guarded, idempotent overlay admits IPQ50xx to the **core VLAN API**
-needed for QinQ firmware nodes. It checks the exact feed revision and the
-complete original/post-edit file before changing the option. It does not
+Qosmio gates `NSS_DRV_VLAN_ENABLE` to IPQ807x/IPQ60xx. Normal
+`./scripts/feeds update -a` applies `patches/feeds-nss/series` before indexing
+and links the repository-owned source patches into the feed package patch
+directories. Revision checks and forward/reverse patch checks reject conflicts.
+The patches admit IPQ50xx to the **core VLAN API** needed for QinQ firmware
+nodes. The native NSS device variants default to firmware 12.2, LOW NSS memory,
+QinQ and the small 256 MiB Wi-Fi allocation profile. This does not
 enable the generic SSDK/PPE VLAN-manager package on IPQ50xx; that package
 is deliberately absent from this profile. The QinQ-specific node adapter
 is now supplied by `package/kernel/qca-nss-qinq`. The old measured firmware capability is a reference
@@ -271,10 +273,11 @@ The selected packages now compile and pass module symbol resolution:
   PPTP/L2TP. PPPoE and Linux bonding remain available; NSS acceleration over
   bonding is not enabled. Optional protocol acceleration is not certified.
 
-Package source fixes live in `tools/nss/patches/qosmio/` and are installed
-into the separate feed checkout by `apply-qosmio-overlay.py`. The installer
-checks the pinned feed revision and exact base/final recipes, rejects
-conflicting edits, and is idempotent. Do not maintain fixes only inside
+Package source fixes live in `tools/nss/patches/qosmio/` and normal feed updates
+link them into the separate feed checkout. Package dependency hashes include
+the original patch directories so source edits trigger re-preparation. The
+legacy `apply-qosmio-overlay.py` entrypoint uses the same installer; it is no
+longer a build prerequisite. Do not maintain fixes only inside
 ignored `feeds/` or `build_dir/` directories.
 
 Bounded Qoder reviews checked the shared API surface, SSDK fixes, and ECM
@@ -332,7 +335,6 @@ Validation commands after building:
 ```sh
 python3 -B tools/nss/test_qosmio_qinq.py
 python3 -B tools/yt921x/test_8021q_transport.py
-python3 -B tools/nss/apply-qosmio-overlay.py
 git diff --check
 ```
 

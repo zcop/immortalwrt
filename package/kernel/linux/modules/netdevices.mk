@@ -929,6 +929,7 @@ define KernelPackage/dsa-qca8k/config
 	config DSA_QCA8K_EXPERIMENTAL_QINQ
 		bool "Enable AX3000 native QinQ driver bring-up"
 		depends on PACKAGE_kmod-dsa-qca8k
+		default y if TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
 		default n
 		help
 		  Select the boot-only QCA8337 transport for AX3000. It preserves
@@ -981,6 +982,7 @@ define KernelPackage/dsa-yt921x/config
     config DSA_YT921X_EXPERIMENTAL_QINQ
       bool "Use experimental YT921x QinQ port-ID CPU transport at early boot"
       depends on TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x || TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss
+      default y if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss
       default n
       help
         Pass experimental_qinq=1 when the CR881x switch driver first loads.

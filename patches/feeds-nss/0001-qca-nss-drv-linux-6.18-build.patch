@@ -1,0 +1,14 @@
+Subject: [PATCH] qca-nss-drv: preserve Linux 6.18 flags and selected feature dependencies
+
+--- a/qca-nss-drv/Makefile
++++ b/qca-nss-drv/Makefile
+@@ -354,7 +354,8 @@
+ 		CROSS_COMPILE="$(TARGET_CROSS)" \
+ 		ARCH="$(LINUX_KARCH)" \
+ 		M="$(PKG_BUILD_DIR)" \
+-		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
++		NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
++		CFLAGS_MODULE="$(filter -W%,$(EXTRA_CFLAGS))" \
+ 		SoC=$(SOC) \
+ 		$(KERNEL_MAKE_FLAGS) \
+ 		$(PKG_JOBS) \

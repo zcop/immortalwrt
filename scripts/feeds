@@ -124,6 +124,15 @@ sub update_index($)
 {
 	my $name = shift;
 
+	# Apply repository-owned feed adaptations before scanning package metadata.
+	# A series file opts a feed in; legacy manual patches keep their old scope.
+	if (-f "patches/feeds-$name/series") {
+		system("$ENV{TOPDIR}/scripts/apply-local-feed-patches.sh", $name) == 0 or do {
+			warn "Local patches for feed '$name' failed; index was not regenerated.\n";
+			return 1;
+		};
+	}
+
 	-d "./feeds/$name.tmp" or mkdir "./feeds/$name.tmp" or return 1;
 	-d "./feeds/$name.tmp/info" or mkdir "./feeds/$name.tmp/info" or return 1;
 

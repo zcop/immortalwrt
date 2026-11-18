@@ -1,0 +1,6 @@
+0001-qca-nss-drv-linux-6.18-build.patch
+0002-qca-nss-clients-linux-6.18-build.patch
+0003-qca-nss-ecm-linux-6.18-build.patch
+0004-qca-nss-drv-ipq50xx-core-vlan.patch
+0005-ipq50xx-memory-and-firmware-defaults.patch
+0006-nss-track-local-patches-and-memory-profile.patch

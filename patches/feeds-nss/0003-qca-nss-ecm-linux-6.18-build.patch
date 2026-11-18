@@ -1,0 +1,67 @@
+Subject: [PATCH] qca-nss-ecm: preserve Linux 6.18 flags and selected feature dependencies
+
+--- a/qca-nss-ecm/Makefile
++++ b/qca-nss-ecm/Makefile
+@@ -16,7 +16,10 @@
+ PKG_BUILD_FLAGS:=gc-sections lto
+ 
+ PKG_CONFIG_DEPENDS:= \
+-	CONFIG_NSS_DRV_PPPOE_ENABLE
++	CONFIG_NSS_DRV_PPPOE_ENABLE \
++	CONFIG_NSS_DRV_PPTP_ENABLE \
++	CONFIG_NSS_DRV_L2TP_ENABLE \
++	CONFIG_NSS_DRV_LAG_ENABLE
+ 
+ include $(INCLUDE_DIR)/kernel.mk
+ include $(INCLUDE_DIR)/package.mk
+@@ -38,8 +41,8 @@
+ 		   +PACKAGE_kmod-nat46:kmod-nat46 \
+ 		   +PACKAGE_kmod-ppp:kmod-ppp \
+ 		   +PACKAGE_kmod-pppoe:kmod-pppoe \
+-		   +PACKAGE_kmod-pppoe:kmod-pptp \
+-		   +PACKAGE_kmod-pppoe:kmod-pppol2tp
++		   +NSS_DRV_PPTP_ENABLE:kmod-pptp \
++		   +NSS_DRV_L2TP_ENABLE:kmod-pppol2tp
+   TITLE:=QCA NSS Enhanced Connection Manager (ECM)
+   FILES:=$(PKG_BUILD_DIR)/ecm.ko
+   KCONFIG:=CONFIG_NF_CONNTRACK_DSCPREMARK_EXT=y
+@@ -129,7 +132,7 @@
+ 
+ ifneq ($(CONFIG_PACKAGE_kmod-pppoe),)
+ ECM_MAKE_OPTS+=ECM_INTERFACE_PPPOE_ENABLE=y \
+-			   ECM_INTERFACE_PPTP_ENABLE=y \
++			   ECM_INTERFACE_PPTP_ENABLE=$(if $(CONFIG_NSS_DRV_PPTP_ENABLE),y,n) \
+ 			   ECM_INTERFACE_PPP_ENABLE=y
+ else
+ ECM_MAKE_OPTS+=ECM_INTERFACE_PPPOE_ENABLE=n \
+@@ -137,7 +140,7 @@
+ 			   ECM_INTERFACE_PPP_ENABLE=n
+ endif
+ 
+-ifneq ($(CONFIG_PACKAGE_kmod-pppol2tp),)
++ifneq ($(CONFIG_NSS_DRV_L2TP_ENABLE),)
+ ECM_MAKE_OPTS+=ECM_INTERFACE_L2TPV2_ENABLE=y
+ else
+ ECM_MAKE_OPTS+=ECM_INTERFACE_L2TPV2_ENABLE=n
+@@ -160,8 +163,10 @@
+ ECM_MAKE_OPTS+=ECM_CLASSIFIER_MSCS_ENABLE=y
+ endif
+ 
+-ifneq ($(CONFIG_PACKAGE_kmod-bonding),)
++ifneq ($(CONFIG_NSS_DRV_LAG_ENABLE),)
+ ECM_MAKE_OPTS+=ECM_INTERFACE_BOND_ENABLE=y
++else
++ECM_MAKE_OPTS+=ECM_INTERFACE_BOND_ENABLE=n
+ endif
+ 
+ ifneq ($(CONFIG_PACKAGE_kmod-qmi_wwan_q),)
+@@ -186,7 +191,8 @@
+ 		CROSS_COMPILE="$(TARGET_CROSS)" \
+ 		ARCH="$(LINUX_KARCH)" \
+ 		M="$(PKG_BUILD_DIR)" \
+-		EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
++		NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
++		CFLAGS_MODULE="$(filter -W%,$(EXTRA_CFLAGS))" \
+ 		SoC=$(SOC) \
+ 		$(KERNEL_MAKE_FLAGS) \
+ 		$(PKG_JOBS) \

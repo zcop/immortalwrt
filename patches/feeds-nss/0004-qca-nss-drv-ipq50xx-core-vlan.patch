@@ -1,0 +1,13 @@
+Subject: [PATCH] qca-nss-drv: admit the IPQ50xx core VLAN API
+
+--- a/qca-nss-drv/Config.in
++++ b/qca-nss-drv/Config.in
+@@ -239,7 +239,7 @@
+ 	bool
+ 	default n
+ 	prompt "Enable VLAN"
+-	depends on TARGET_qualcommax_ipq807x || TARGET_qualcommax_ipq60xx
++	depends on TARGET_qualcommax_ipq807x || TARGET_qualcommax_ipq60xx || TARGET_qualcommax_ipq50xx
+ 
+ config NSS_DRV_VXLAN_ENABLE
+ 	bool

@@ -227,6 +227,10 @@ Use `configs/redmi_ax3000_qinq.config` for QinQ or
 `configs/redmi_ax3000_dsa.config` for the standard DSA comparison;
 `configs/redmi_ax3000_nss.config` enables wired and Wi-Fi NSS with the 256 MiB
 allocation profile.
+Normal `./scripts/feeds update -a` applies the repository's NSS recipe patches
+and links its source patch series into the pinned Qosmio feed before indexing.
+Selecting the native NSS device defaults to firmware 12.2, LOW memory, QinQ
+and the 256 MiB Wi-Fi allocation profile; no overlay command is required.
 Sysupgrade archives retain `BOARD_NAME=redmi_ax3000` for compatibility with
 older upgraders.
 

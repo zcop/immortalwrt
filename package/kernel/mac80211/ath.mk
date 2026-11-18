@@ -366,6 +366,7 @@ define KernelPackage/ath11k/config
 
        config ATH11K_NSS_SUPPORT
                bool "Enable NSS Wi-Fi offload"
+               default y if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss || TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
                default n
                select PACKAGE_kmod-qca-nss-drv
                select PACKAGE_MAC80211_NSS_SUPPORT
@@ -404,6 +405,7 @@ define KernelPackage/ath11k/config
        config ATH11K_SMALLBUFFERS
                bool "Use smaller ath11k buffers on low-RAM devices"
                depends on PACKAGE_kmod-ath11k
+               default y if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss || TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
                default n
                help
                  Reduce TX completion and monitor buffer rings. This saves

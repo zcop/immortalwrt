@@ -1,0 +1,53 @@
+Subject: [PATCH] nss: track repository patch and core memory-profile changes
+
+--- a/qca-nss-drv/Makefile
++++ b/qca-nss-drv/Makefile
+@@ -2,6 +2,10 @@
+ 
+ PKG_NAME:=qca-nss-drv
+ PKG_RELEASE:=17
++
++# Source patches are repository-owned; feed update links them into patches/.
++# Include their real directory so package stamps follow edits behind symlinks.
++PKG_FILE_DEPENDS += $(TOPDIR)/tools/nss/patches/qosmio/qca-nss-drv
+ 
+ PKG_SOURCE_URL:=https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-drv.git
+ PKG_SOURCE_PROTO:=git
+@@ -15,6 +19,11 @@
+ PKG_FLAGS:=nonshared
+ 
+ PKG_CONFIG_DEPENDS:= \
++	CONFIG_NSS_MEM_PROFILE_LOW \
++	CONFIG_NSS_MEM_PROFILE_MEDIUM \
++	CONFIG_NSS_MEM_PROFILE_HIGH \
++	CONFIG_NSS_FIRMWARE_VERSION_12_2 \
++	CONFIG_NSS_FIRMWARE_VERSION_12_5 \
+ 	CONFIG_NSS_DRV_BRIDGE_ENABLE \
+ 	CONFIG_NSS_DRV_CAPWAP_ENABLE \
+ 	CONFIG_NSS_DRV_C2C_ENABLE \
+--- a/qca-nss-clients/Makefile
++++ b/qca-nss-clients/Makefile
+@@ -2,6 +2,10 @@
+ 
+ PKG_NAME:=qca-nss-clients
+ PKG_RELEASE:=8
++
++# Source patches are repository-owned; feed update links them into patches/.
++# Include their real directory so package stamps follow edits behind symlinks.
++PKG_FILE_DEPENDS += $(TOPDIR)/tools/nss/patches/qosmio/qca-nss-clients
+ 
+ PKG_SOURCE_URL:=https://git.codelinaro.org/clo/qsdk/oss/lklm/nss-clients.git
+ PKG_SOURCE_PROTO:=git
+--- a/qca-nss-ecm/Makefile
++++ b/qca-nss-ecm/Makefile
+@@ -2,6 +2,10 @@
+ 
+ PKG_NAME:=qca-nss-ecm
+ PKG_RELEASE:=7
++
++# Source patches are repository-owned; feed update links them into patches/.
++# Include their real directory so package stamps follow edits behind symlinks.
++PKG_FILE_DEPENDS += $(TOPDIR)/tools/nss/patches/qosmio/qca-nss-ecm
+ 
+ PKG_SOURCE_URL:=https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-nss-ecm.git
+ PKG_SOURCE_PROTO:=git

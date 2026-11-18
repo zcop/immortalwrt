@@ -1,0 +1,19 @@
+Subject: [PATCH] qca-nss-clients: preserve Linux 6.18 flags and selected feature dependencies
+
+--- a/qca-nss-clients/Makefile
++++ b/qca-nss-clients/Makefile
+@@ -850,11 +850,12 @@
+ 	-Wno-empty-body
+ 
+ define Build/Compile
+-	+$(MAKE) -C "$(LINUX_DIR)" $(strip $(NSS_CLIENTS_MAKE_OPTS)) \
++	+$(MAKE) -C "$(LINUX_DIR)" $(strip $(NSS_CLIENTS_MAKE_OPTS)) NSS_LAG_SUPPORT=$(if $(CONFIG_NSS_DRV_LAG_ENABLE),y,n) \
+ 	  CROSS_COMPILE="$(TARGET_CROSS)" \
+ 	  ARCH="$(LINUX_KARCH)" \
+ 	  M="$(PKG_BUILD_DIR)" \
+-	  EXTRA_CFLAGS="$(EXTRA_CFLAGS) -include $(PKG_BUILD_DIR)/compat.h" \
++	  NOSTDINC_FLAGS="$(KERNEL_NOSTDINC_FLAGS) $(EXTRA_CFLAGS)" \
++	  CFLAGS_MODULE="$(filter -W%,$(EXTRA_CFLAGS))" \
+ 	  DTLSMGR_DIR="$(DTLSMGR_DIR)" \
+ 	  IPSECMGR_DIR="$(IPSECMGR_DIR)" \
+ 	  SoC=$(SOC) \

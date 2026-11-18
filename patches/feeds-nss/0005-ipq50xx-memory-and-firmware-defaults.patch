@@ -1,0 +1,22 @@
+Subject: [PATCH] nss: default CR881x and AX3000 to LOW memory and firmware 12.2
+
+--- a/qca-nss-drv/Config.in
++++ b/qca-nss-drv/Config.in
+@@ -5,6 +5,7 @@
+ 
+ choice
+   prompt "Memory Profile"
++  default NSS_MEM_PROFILE_LOW if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss || TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
+   default NSS_MEM_PROFILE_HIGH if TARGET_qualcommax_ipq807x
+   default NSS_MEM_PROFILE_MEDIUM if (TARGET_qualcommax_ipq60xx || TARGET_qualcommax_ipq50xx)
+   help
+--- a/firmware/nss-firmware/Makefile
++++ b/firmware/nss-firmware/Makefile
+@@ -73,6 +73,7 @@
+ 
+   choice
+     prompt "Version"
++    default NSS_FIRMWARE_VERSION_12_2 if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss || TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
+     default NSS_FIRMWARE_VERSION_11_4
+ 
+     config NSS_FIRMWARE_VERSION_12_5

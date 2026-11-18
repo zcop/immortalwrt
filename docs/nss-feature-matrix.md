@@ -102,5 +102,6 @@ peak rates, advanced switch controls or complete recovery coverage.
   [daily packet delivery](cr881x/nss-qinq-daily-traffic.md).
 - AX3000: [QCA8337 QinQ implementation and validation limits](ax3000/qinq-bringup.md).
 - Build profiles: [CR881x](../configs/xiaomi_cr881x_nss_qosmio.config) and
-  [AX3000](../configs/redmi_ax3000_nss.config). Apply the documented NSS feed
-  overlay before generating configuration.
+  [AX3000](../configs/redmi_ax3000_nss.config). Normal `./scripts/feeds update -a`
+  applies repository-owned NSS patches before indexing. The native NSS device
+  variants default to firmware 12.2, LOW memory, QinQ and small Wi-Fi buffers.
