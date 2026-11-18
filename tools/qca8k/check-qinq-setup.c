@@ -39,11 +39,19 @@ static void clear_bit(unsigned n, unsigned long *a) { a[n / (8 * sizeof(*a))] &=
 #define lockdep_assert_held(lock) assert(*(lock))
 
 struct net_device { void *master; };
-struct dsa_port { int index; struct dsa_port *cpu_dp; void *bridge; struct net_device *user; };
+struct dsa_bridge { struct net_device *dev; unsigned int num; };
+struct dsa_port {
+	int index;
+	struct dsa_switch *ds;
+	struct dsa_port *cpu_dp;
+	struct dsa_bridge *bridge;
+	struct net_device *user;
+};
 struct dsa_switch {
 	void *priv, *tag_8021q_ctx;
 	unsigned max_num_bridges, cpu_mask, user_mask;
 	bool needs_standalone_vlan_filtering, configure_vlan_while_not_filtering;
+	bool fdb_isolation;
 	struct dsa_port ports[7];
 };
 struct qca8k_qinq_vlan { u16 vid, flags; u8 port, cpu, slot; bool used, bridge, installed; };
@@ -160,7 +168,7 @@ static bool dsa_qca_qinq_customer_vid_valid(struct dsa_switch *sw, u16 vid)
 			return false;
 	return true;
 }
-static struct net_device *dsa_port_bridge_dev_get(struct dsa_port *dp) { return dp->bridge; }
+static struct net_device *dsa_port_bridge_dev_get(struct dsa_port *dp) { return (void *)dp->bridge; }
 static void *netdev_master_upper_dev_get(struct net_device *dev) { return dev->master; }
 static int qca8k_vlan_add(struct qca8k_priv *p, int port, u16 vid, bool untagged)
 {
@@ -182,6 +190,51 @@ static int qca8k_vlan_del(struct qca8k_priv *p, int port, u16 vid)
 
 #include "driver-setup.h"
 
+enum { DSA_DB_BRIDGE, DSA_DB_PORT };
+struct dsa_db {
+	int type;
+	union { struct dsa_bridge bridge; struct dsa_port *dp; };
+};
+struct switchdev_obj_port_mdb { u16 vid; };
+struct dsa_notifier_fdb_info {
+	struct dsa_port *dp;
+	const unsigned char *addr;
+	u16 vid;
+	struct dsa_db db;
+};
+struct dsa_notifier_mdb_info {
+	const struct dsa_port *dp;
+	const struct switchdev_obj_port_mdb *mdb;
+	struct dsa_db db;
+};
+enum { DSA_NOTIFIER_FDB_ADD, DSA_NOTIFIER_FDB_DEL,
+	DSA_NOTIFIER_MDB_ADD, DSA_NOTIFIER_MDB_DEL };
+static int dsa_port_notify(const struct dsa_port *dp, unsigned long event, void *arg);
+
+#include "driver-database.h"
+
+static unsigned int notified_bridge;
+static u16 notified_vid;
+static int dsa_port_notify(const struct dsa_port *dp, unsigned long event, void *arg)
+{
+	struct dsa_db db;
+	u16 vid;
+
+	if (event == DSA_NOTIFIER_FDB_ADD || event == DSA_NOTIFIER_FDB_DEL) {
+		struct dsa_notifier_fdb_info *info = arg;
+		db = info->db;
+		vid = info->vid;
+	} else {
+		struct dsa_notifier_mdb_info *info = arg;
+		assert(event == DSA_NOTIFIER_MDB_ADD || event == DSA_NOTIFIER_MDB_DEL);
+		db = info->db;
+		vid = info->mdb->vid;
+	}
+	notified_bridge = db.bridge.num;
+	notified_vid = qca8k_qinq_db_vid(&priv, dp->index, vid, db);
+	return 0;
+}
+
 static void reset(void)
 {
 	assert(!rtnl);
@@ -199,6 +252,7 @@ static void reset(void)
 	priv.switch_id = 0x13;
 	for (int i = 0; i < 7; i++) {
 		ds.ports[i].index = i;
+		ds.ports[i].ds = &ds;
 		ds.ports[i].user = &users[i];
 		ds.ports[i].cpu_dp = &ds.ports[0];
 	}
@@ -443,7 +497,7 @@ static void test_customer_failed_add_rollback(void)
 static void bridge_setup(void)
 {
 	reset(); assert(qca8k_qinq_setup(&ds) == 0);
-	ds.ports[2].bridge = &users[6]; users[2].master = &users[6];
+	ds.ports[2].bridge = (void *)&users[6]; users[2].master = &users[6];
 	priv.qinq_native_vid[2] = 3088; vtu_member[2][3088] = true;
 	assert(qca8k_qinq_customer_add(&ds, 2, 35, BRIDGE_VLAN_INFO_PVID | BRIDGE_VLAN_INFO_UNTAGGED) == 0);
 	assert(qca8k_qinq_customer_add(&ds, 2, 36, 0) == 0);
@@ -500,6 +554,52 @@ static void test_bridge_vlans(void)
 		}
 	}
 	printf("PASS: cached bridge VLAN replay, independent PVID/SVID, tagged/untagged membership, filtering on/off/on, PVID deletion, bridge leave, %d enable and %d disable write faults hold only test port down\n", on_writes, off_writes);
+}
+
+static void test_database_domains(void)
+{
+	const unsigned char mac[6] = { 2, 0x17, 0, 0x83, 0, 0x35 };
+	struct dsa_bridge bridge = { .dev = &users[6] };
+	struct switchdev_obj_port_mdb mdb;
+	u16 vids[] = { 0, 1, 35, 4094 };
+	struct dsa_port *dp;
+
+	reset();
+	assert(qca8k_qinq_setup(&ds) == 0);
+	dp = &ds.ports[1];
+	dp->bridge = &bridge;
+	for (bridge.num = 1; bridge.num <= 7; bridge.num++) {
+		for (unsigned int v = 0; v < sizeof(vids) / sizeof(vids[0]); v++) {
+			u16 expected = vids[v] ?: dsa_tag_8021q_bridge_vid(bridge.num);
+			mdb.vid = vids[v];
+			assert(dsa_port_fdb_add(dp, mac, vids[v]) == 0);
+			assert(notified_bridge == bridge.num && notified_vid == expected);
+			assert(dsa_port_fdb_del(dp, mac, vids[v]) == 0);
+			assert(notified_bridge == bridge.num && notified_vid == expected);
+			assert(dsa_port_mdb_add(dp, &mdb) == 0);
+			assert(notified_bridge == bridge.num && notified_vid == expected);
+			assert(dsa_port_mdb_del(dp, &mdb) == 0);
+			assert(notified_bridge == bridge.num && notified_vid == expected);
+			/* A CPU port has no native user VID; its database is decisive. */
+			struct dsa_db db = { .type = DSA_DB_BRIDGE, .bridge = bridge };
+			assert(qca8k_qinq_db_vid(&priv, 5, vids[v], db) == expected);
+		}
+	}
+	struct dsa_db db = { .type = DSA_DB_PORT, .dp = &ds.ports[2] };
+	assert(qca8k_qinq_db_vid(&priv, 5, 0, db) == 3074);
+
+	/* Standard tagging still uses DSA's shared database and explicit VIDs. */
+	reset();
+	priv.qinq = false;
+	bridge.num = 7;
+	dp = &ds.ports[1];
+	dp->bridge = &bridge;
+	assert(dsa_port_fdb_add(dp, mac, 0) == 0);
+	assert(notified_bridge == 0 && notified_vid == 0);
+	mdb.vid = 35;
+	assert(dsa_port_mdb_del(dp, &mdb) == 0);
+	assert(notified_bridge == 0 && notified_vid == 35);
+	puts("PASS: real DSA FDB/MDB add/delete preserve all seven QinQ bridge domains, explicit VLANs and CPU database identity; standard shared database unchanged");
 }
 
 int main(void)
@@ -581,5 +681,6 @@ int main(void)
 	test_shared_customers();
 	test_customer_failed_add_rollback();
 	test_bridge_vlans();
+	test_database_domains();
 	return 0;
 }

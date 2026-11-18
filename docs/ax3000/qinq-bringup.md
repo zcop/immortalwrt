@@ -22,6 +22,12 @@ VID. RX requires the exact port SVID, owning conduit and current VLAN membership
 are not accepted as physical port identities. FDB/MDB operations use the internal domain VID in unaware mode and customer
 VID in aware mode. Proprietary QCA CPU headers are disabled.
 
+QinQ advertises DSA FDB isolation because private bridge VIDs are separate
+forwarding databases. DSA must retain the real bridge number in FDB/MDB
+add/delete notifications and CPU-port reference counts. Otherwise bridge 1
+traffic uses VID3088 while its entries are incorrectly installed at VID3072.
+Standard QCA tagging keeps its shared-database behavior.
+
 ## Switch programming
 
 Use qca8k's regmap API to preserve MDIO locking and its cached page selector.

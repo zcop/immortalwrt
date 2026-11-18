@@ -1,0 +1,25 @@
+Subject: [PATCH] net: dsa: qca8k: preserve QinQ bridge database domains
+
+QinQ assigns each VLAN-unaware bridge a private VID using its DSA bridge
+number. Without fdb_isolation, DSA zeroes that number in FDB/MDB database
+notifications and the QinQ mapper programs VID 3072 instead of the active
+bridge VID (3088 for bridge 1). Static unicast and multicast entries then
+miss the packets they should constrain.
+
+Advertise the isolation already provided by the private bridge VLANs.
+This preserves database identity for both add/delete notifications and CPU
+port reference counting. Standard QCA tagging retains its existing behavior.
+
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -761,6 +761,10 @@ int qca8k_qinq_setup(struct dsa_switch *ds)
+ 	if (ret)
+ 		goto fail;
+ 	ds->max_num_bridges = DSA_TAG_8021Q_MAX_NUM_BRIDGES;
++	/* Private bridge VIDs require the real database bridge number,
++	 * including FDB/MDB notifications and shared CPU-port entries.
++	 */
++	ds->fdb_isolation = true;
+ 	ds->needs_standalone_vlan_filtering = true;
+ 	ds->configure_vlan_while_not_filtering = true;
+ 	rtnl_lock();
