@@ -105,3 +105,8 @@ peak rates, advanced switch controls or complete recovery coverage.
   [AX3000](../configs/redmi_ax3000_nss.config). Normal `./scripts/feeds update -a`
   applies repository-owned NSS patches before indexing. The native NSS device
   variants default to firmware 12.2, LOW memory, QinQ and small Wi-Fi buffers.
+
+Binary package repositories default to ImmortalWrt snapshots. Custom kernel
+modules require the repository produced for the matching firmware build;
+`CONFIG_VERSION_REPO` selects a self-hosted build repository. Optional extra
+URLs belong in `/etc/apk/repositories.d/customfeeds.list`.
