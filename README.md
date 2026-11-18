@@ -8,8 +8,11 @@ Compared to upstream, we allow to use (non-upstreamable) modifications/hacks to 
 Default login address: http://192.168.2.1 or http://immortalwrt.lan, username: __root__, password: _none_.
 
 ## Board/Driver Notes
+
 - YT921x enhanced switch driver feature README:
   - [README.yt921x.md](README.yt921x.md)
+- NSS + DSA feature comparison for CR881x and AX3000:
+  - [NSS feature table](docs/nss-feature-matrix.md)
 
 ## Download
 Built firmware images are available for many architectures and come with a package selection to be used as WiFi home router. To quickly find a factory image usable to migrate from a vendor stock firmware to ImmortalWrt, try the *Firmware Selector*.
