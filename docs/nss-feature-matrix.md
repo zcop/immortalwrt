@@ -101,10 +101,30 @@ peak rates, advanced switch controls or complete recovery coverage.
   [PPPoE coverage](cr881x/nss-pppoe.md) and
   [daily packet delivery](cr881x/nss-qinq-daily-traffic.md).
 - AX3000: [QCA8337 QinQ implementation and validation limits](ax3000/qinq-bringup.md).
-- Build profiles: [CR881x](../configs/xiaomi_cr881x_nss_qosmio.config) and
-  [AX3000](../configs/redmi_ax3000_nss.config). Normal `./scripts/feeds update -a`
-  applies repository-owned NSS patches before indexing. The native NSS device
-  variants default to firmware 12.2, LOW memory, QinQ and small Wi-Fi buffers.
+
+## Building NSS images
+
+From a fresh checkout of this repository, use the profile for your device.
+The example uses the [CR881x profile](../configs/xiaomi_cr881x_nss_qosmio.config).
+For AX3000, use the [AX3000 profile](../configs/redmi_ax3000_nss.config).
+The feed update applies the repository's NSS patches automatically.
+
+```sh
+./scripts/feeds update -a &&
+./scripts/feeds install -a &&
+cp configs/xiaomi_cr881x_nss_qosmio.config .config &&
+make defconfig &&
+grep -x 'CONFIG_NSS_FIRMWARE_VERSION_12_2=y' .config &&
+make
+```
+
+IPQ50xx builds that enable NSS default to the tested firmware **12.2**.
+Both profiles also select LOW NSS memory, QinQ and the ath11k 256 MiB
+profiles with small buffers. If you keep an older
+`.config`, select firmware 12.2 in `make menuconfig` before building.
+`make defconfig` preserves an explicit firmware choice. The build check
+rejects firmware 11.4 on IPQ50xx when the NSS driver is selected because
+its driver and patch directory lack Linux 6.18 compatibility.
 
 Binary package repositories default to ImmortalWrt snapshots. Custom kernel
 modules require the repository produced for the matching firmware build;

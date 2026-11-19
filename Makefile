@@ -95,6 +95,16 @@ tmp/.prereq_packages: .config
 endif
 
 # check prerequisites before starting to build
+.PHONY: check-nss-firmware
+check-nss-firmware:
+ifeq ($(CONFIG_TARGET_qualcommax_ipq50xx)$(CONFIG_NSS_FIRMWARE_VERSION_11_4),yy)
+ifneq ($(filter y m,$(CONFIG_PACKAGE_kmod-qca-nss-drv)),)
+	$(error NSS firmware 11.4 selects a driver without the IPQ50xx Linux 6.18 compatibility patches. \
+	  Run make menuconfig and select NSS firmware 12.2)
+endif
+endif
+	@:
+
 prereq: $(target/stamp-prereq) tmp/.prereq_packages
 	@if [ ! -f "$(INCLUDE_DIR)/site/$(ARCH)" ]; then \
 		echo 'ERROR: Missing site config for architecture "$(ARCH)" !'; \

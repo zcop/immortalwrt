@@ -267,7 +267,7 @@ CONFIG_CHECK_FILES:=.config Config.in config target toolchain package feeds \
 	tmp/.config-package.in tmp/.config-target.in tmp/.config-feeds.in scripts/config/conf
 
 %::
-	@+$(PREP_MK) $(NO_TRACE_MAKE) -r -s prereq
+	@+$(PREP_MK) $(NO_TRACE_MAKE) -r -s $(if $(filter world prepare %/prepare %/compile %/install,$@),check-nss-firmware) prereq
 	@( \
 		[ -f $(CONFIG_CHECK_STAMP) ] && [ -z "$$(find $(CONFIG_CHECK_FILES) -newer $(CONFIG_CHECK_STAMP) \
 			\( -name .config -o -name conf -o -name '*.in' -o -name 'Config.*' \) -print -quit 2>/dev/null)" ] && exit 0; \
