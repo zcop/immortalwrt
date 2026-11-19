@@ -1,4 +1,6 @@
-Subject: [PATCH] nss: default CR881x and AX3000 to LOW memory and firmware 12.2
+Subject: [PATCH] nss: default IPQ50xx to firmware 12.2
+
+Default the native CR881x and AX3000 images to LOW memory.
 
 --- a/qca-nss-drv/Config.in
 +++ b/qca-nss-drv/Config.in
@@ -16,7 +18,7 @@ Subject: [PATCH] nss: default CR881x and AX3000 to LOW memory and firmware 12.2
  
    choice
      prompt "Version"
-+    default NSS_FIRMWARE_VERSION_12_2 if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss || TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
++    default NSS_FIRMWARE_VERSION_12_2 if TARGET_qualcommax_ipq50xx
      default NSS_FIRMWARE_VERSION_11_4
  
      config NSS_FIRMWARE_VERSION_12_5

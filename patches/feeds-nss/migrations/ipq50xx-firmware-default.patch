@@ -1,0 +1,10 @@
+Update feeds that already carry the old, device-specific firmware default.
+
+--- a/firmware/nss-firmware/Makefile
++++ b/firmware/nss-firmware/Makefile
+@@ -74,4 +74,4 @@ define Package/nss-firmware/config
+   choice
+     prompt "Version"
+-    default NSS_FIRMWARE_VERSION_12_2 if TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss || TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss
++    default NSS_FIRMWARE_VERSION_12_2 if TARGET_qualcommax_ipq50xx
+     default NSS_FIRMWARE_VERSION_11_4

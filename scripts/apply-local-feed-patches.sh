@@ -90,19 +90,25 @@ link_nss_source_patches() {
 apply_feed() {
 	local name="$1"
 	local patch_dir="$TOPDIR/patches/feeds-$name"
+	local repo="$TOPDIR/feeds/$name"
+	local migration="$patch_dir/migrations/ipq50xx-firmware-default.patch"
 	local expected actual
 
 	case "$name" in ''|*[!A-Za-z0-9_-]*) echo "Invalid feed name: $name" >&2; return 1 ;; esac
 	[ -d "$patch_dir" ] || return 0
 	if [ -f "$patch_dir/revision" ]; then
 		expected="$(cat "$patch_dir/revision")"
-		actual="$(git -C "$TOPDIR/feeds/$name" rev-parse HEAD)"
+		actual="$(git -C "$repo" rev-parse HEAD)"
 		[ "$actual" = "$expected" ] || {
 			echo "Unexpected $name feed revision: $actual (expected $expected)" >&2
 			return 1
 		}
 	fi
-	apply_patch_dir "$TOPDIR/feeds/$name" "$patch_dir"
+	# Migrate the previous NSS default before checking the current series.
+	if [ "$name" = nss ] && git -C "$repo" apply --check "$migration" >/dev/null 2>&1; then
+		apply_one_patch "$repo" "$migration"
+	fi
+	apply_patch_dir "$repo" "$patch_dir"
 	[ "$name" != nss ] || link_nss_source_patches
 }
 

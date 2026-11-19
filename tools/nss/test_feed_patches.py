@@ -72,7 +72,7 @@ root = Path(os.environ['TOPDIR'])
 feed = root / 'feeds/nss'
 assert 'NOSTDINC_FLAGS=' in (feed / 'qca-nss-drv/Makefile').read_text()
 assert 'default NSS_MEM_PROFILE_LOW if' in (feed / 'qca-nss-drv/Config.in').read_text()
-assert 'default NSS_FIRMWARE_VERSION_12_2 if' in (feed / 'firmware/nss-firmware/Makefile').read_text()
+assert 'default NSS_FIRMWARE_VERSION_12_2 if TARGET_qualcommax_ipq50xx\\n' in (feed / 'firmware/nss-firmware/Makefile').read_text()
 for patch in (root / 'tools/nss/patches/qosmio').glob('*/*.patch'):
     target = feed / patch.parent.name / 'patches' / patch.name
     assert target.is_symlink() and target.read_bytes() == patch.read_bytes()
@@ -114,6 +114,19 @@ with (root / 'index-calls').open('a') as f:
             target.parent.mkdir(exist_ok=True)
             shutil.copy2(source, target)
         self.update()
+
+    def test_migrate_previous_firmware_default(self):
+        self.update()
+        expected = self.digest()
+        recipe = self.feed / 'firmware/nss-firmware/Makefile'
+        old_target = ('TARGET_qualcommax_ipq50xx_DEVICE_xiaomi_cr881x_nss || '
+                      'TARGET_qualcommax_ipq50xx_DEVICE_redmi_ax3000_nss')
+        recipe.write_text(recipe.read_text().replace(
+            'default NSS_FIRMWARE_VERSION_12_2 if TARGET_qualcommax_ipq50xx\n',
+            f'default NSS_FIRMWARE_VERSION_12_2 if {old_target}\n'))
+        self.assertNotEqual(self.digest(), expected)
+        self.update(index_only=False)
+        self.assertEqual(self.digest(), expected)
 
     def test_recipe_conflict_stops_index(self):
         path = self.feed / 'qca-nss-drv/Makefile'
