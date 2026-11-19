@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compile and exercise the shared YT921x QinQ customer-VID predicate.
 
-The test uses the header added by namespace.patch and minimal local DSA stubs.
+The test extracts the production predicate with minimal local DSA stubs.
 It checks the complete 12-bit VID space for the stock local topology and for a
 shifted switch-index/port layout. No kernel build, device, or private path.
 """
@@ -64,7 +64,11 @@ CASE_C = r"""\
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <linux/dsa/yt921x_qinq.h>
+#include <linux/dsa/8021q.h>
+#include <linux/if_vlan.h>
+#include <net/dsa.h>
+
+/* ACTUAL_NAMESPACE_PREDICATE */
 
 u16 dsa_tag_8021q_standalone_vid(const struct dsa_port *dp)
 {
@@ -178,11 +182,20 @@ def write_stub(base: Path, rel: str, text: str) -> None:
     path.write_text(text)
 
 
+def namespace_predicate() -> str:
+    text = HEADER.read_text()
+    start = text.index("static inline bool dsa_yt921x_qinq_customer_vid_valid(")
+    opening = text.index("{", start)
+    depth, end = 1, opening + 1
+    while depth:
+        depth += (text[end] == "{") - (text[end] == "}")
+        end += 1
+    return text[start:end]
+
+
 def main() -> None:
     if not HEADER.is_file():
-        raise SystemExit(
-            f"missing {HEADER}; apply logs/qinq-input/vid-namespace/namespace.patch first"
-        )
+        raise SystemExit(f"missing source header: {HEADER}")
 
     with tempfile.TemporaryDirectory(prefix="yt921x-qinq-vid-") as tmp:
         work = Path(tmp)
@@ -193,7 +206,7 @@ def main() -> None:
         write_stub(stubs, "net/dsa.h", NET_DSA_H)
 
         source = work / "qinq_vid_namespace.c"
-        source.write_text(CASE_C)
+        source.write_text(CASE_C.replace("/* ACTUAL_NAMESPACE_PREDICATE */", namespace_predicate()))
         binary = work / "qinq_vid_namespace"
         cmd = [
             os.environ.get("CC", "cc"),
