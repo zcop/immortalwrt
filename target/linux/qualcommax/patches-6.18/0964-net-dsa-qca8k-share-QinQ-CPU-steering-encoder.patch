@@ -1,0 +1,89 @@
+Share the CPU-only SVID/CVID steering encoder between native and customer
+domains. Keep front-panel forwarding in the existing VTU/FDB path and
+validate conduit selectors before indexing ports or shifting CPU bits.
+
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -175,13 +175,31 @@
+ 	return 0;
+ }
+ 
++/* CPU transport steering only. Native domains and customer VLANs share the
++ * same exact CPU/SVID/CVID match; front-panel forwarding stays in VTU/FDB.
++ */
++static int qca8k_qinq_steer(struct qca8k_priv *priv, int slot, int port,
++			  int cpu, u16 cvid)
++{
++	u32 value[5] = {}, action[3] = {};
++	u32 mask[5] = { 0, 0, 0xff0fff00, 0xf, 0xff };
++	u16 svid;
++
++	if (port < 1 || port > 4 || (cpu != 0 && cpu != 5))
++		return -EOPNOTSUPP;
++	svid = dsa_tag_8021q_standalone_vid(dsa_to_port(priv->ds, port));
++	value[2] = (svid << 8) | ((u32)(cvid & 0xff) << 24);
++	value[3] = 0xc1000000 | (cvid >> 8);
++	value[4] = BIT(cpu);
++	action[1] = (BIT(port) & 7) << 29;
++	action[2] = BIT(4) | (BIT(port) >> 3);
++
++	return qca8k_qinq_rule(priv, slot, value, mask, action);
++}
++
+ int qca8k_qinq_conduit(struct qca8k_priv *priv, int port, int cpu)
+ {
+-	struct dsa_port *dp = dsa_to_port(priv->ds, port);
+-	u16 svid = dsa_tag_8021q_standalone_vid(dp);
+-	u32 value[5] = { 0, 0, svid << 8, 0xc1000000, BIT(cpu) };
+-	u32 mask[5] = { 0, 0, 0xfff00, 0, 0xcf };
+-	u32 action[3] = { 0, (BIT(port) & 7) << 29, BIT(4) | (BIT(port) >> 3) };
++	u16 cvid;
+ 	int ret;
+ 
+ 	ret = qca8k_qinq_check_conduit(priv, port, cpu);
+@@ -192,16 +210,9 @@
+ 	/* Native steering must not admit arbitrary customer C-VIDs. Slot94
+ 	 * grants the selected standalone upper after both VTU objects exist.
+ 	 */
+-	{
+-		u16 cvid = priv->qinq_native_vid[port] ?: svid;
+-
+-		value[2] |= (u32)(cvid & 0xff) << 24;
+-		value[3] |= cvid >> 8;
+-		mask[2] |= 0xff000000;
+-		mask[3] = 0xf;
+-		mask[4] |= BIT(5) | BIT(4); /* Require the inner C-tag. */
+-	}
+-	ret = qca8k_qinq_rule(priv, 89 + port, value, mask, action);
++	cvid = priv->qinq_native_vid[port] ?:
++		dsa_tag_8021q_standalone_vid(dsa_to_port(priv->ds, port));
++	ret = qca8k_qinq_steer(priv, 89 + port, port, cpu, cvid);
+ 	if (ret)
+ 		qca8k_qinq_fault(priv, port);
+ 	return ret;
+@@ -274,21 +285,11 @@
+ static int qca8k_qinq_customer_rule(struct qca8k_priv *priv,
+ 				   struct qca8k_qinq_vlan *v, bool enable)
+ {
+-	u32 value[5] = {}, mask[5] = {}, action[3] = {};
+-
+-	if (enable) {
+-		u16 svid = dsa_tag_8021q_standalone_vid(dsa_to_port(priv->ds, v->port));
++	u32 empty[5] = {}, action[3] = {};
+ 
+-		value[2] = (svid << 8) | ((u32)(v->vid & 0xff) << 24);
+-		value[3] = 0xc1000000 | (v->vid >> 8);
+-		value[4] = BIT(v->cpu);
+-		mask[2] = 0xff0fff00;
+-		mask[3] = 0xf;
+-		mask[4] = 0xff;
+-		action[1] = (BIT(v->port) & 7) << 29;
+-		action[2] = BIT(4) | (BIT(v->port) >> 3);
+-	}
+-	return qca8k_qinq_rule(priv, v->slot, value, mask, action);
++	if (enable)
++		return qca8k_qinq_steer(priv, v->slot, v->port, v->cpu, v->vid);
++	return qca8k_qinq_rule(priv, v->slot, empty, empty, action);
+ }
+ 
+ static void qca8k_qinq_customer_cpu_fault(struct qca8k_priv *priv, int cpu, u16 vid)
