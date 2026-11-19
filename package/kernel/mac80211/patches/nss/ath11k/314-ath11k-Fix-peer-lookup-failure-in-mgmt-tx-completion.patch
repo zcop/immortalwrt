@@ -25,13 +25,12 @@ diff --git a/drivers/net/wireless/ath/ath11k/mac.c b/drivers/net/wireless/ath/at
 index 0f8267e..fe368be 100644
 --- a/drivers/net/wireless/ath/ath11k/mac.c
 +++ b/drivers/net/wireless/ath/ath11k/mac.c
-@@ -7925,8 +7925,10 @@ err_vdev_del:
+@@ -7925,7 +7925,9 @@ err_vdev_del:
  	kfree(arvif->vlan_keyid_map);
  	ath11k_peer_cleanup(ar, arvif->vdev_id);
  
 +	spin_lock_bh(&ar->data_lock);
- 	idr_for_each(&ar->txmgmt_idr,
- 		     ath11k_mac_vif_txmgmt_idr_remove, vif);
+ 	ath11k_mac_vif_txmgmt_cleanup(ar, vif);
 +	spin_unlock_bh(&ar->data_lock);
  
  	for (i = 0; i < ab->hw_params.hal_params->num_tx_rings; i++) {

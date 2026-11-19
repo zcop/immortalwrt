@@ -669,7 +669,7 @@ index e9bcc9d..ff8b8bd 100644
  				   struct ath11k_vif *ap_vlan_arvif,
  				   struct ieee80211_sta *sta);
  
-@@ -913,16 +913,16 @@ void ath11k_mac_peer_cleanup_all(struct ath11k *ar)
+@@ -913,17 +913,17 @@ void ath11k_mac_peer_cleanup_all(struct ath11k *ar)
  
  	lockdep_assert_held(&ar->conf_mutex);
  
@@ -681,6 +681,7 @@ index e9bcc9d..ff8b8bd 100644
  		ath11k_peer_rx_tid_cleanup(ar, peer);
 -		ath11k_peer_rhash_delete(ab, peer);
 +		ath11k_peer_rhash_delete(ar, peer);
+ 		ath11k_mac_station_cleanup(peer->sta);
  		list_del(&peer->list);
  		kfree(peer);
  	}
