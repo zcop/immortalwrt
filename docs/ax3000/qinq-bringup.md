@@ -36,6 +36,12 @@ ACL entries use the indirect function window: command `0x400`, data
 Complete-entry writes hold `reg_mutex`, invalidate first, publish the mask last
 and verify values, actions and masks after committing.
 
+Data steering is CPU-only: native and customer rules bind the owning CPU
+port0 or5 plus the exact SVID/CVID. They do not match front-panel ingress on
+ports1–4, whose LAN-to-LAN forwarding remains in the normal VTU/FDB path.
+The private outer tag belongs to CPU copies; front-panel egress retains the
+configured untagged or customer-tagged format.
+
 | ACL slots | Purpose |
 | --- | --- |
 |89| Reject external S-tags on user ports |
@@ -239,11 +245,13 @@ Against the prepared kernel source:
 ```sh
 python3 tools/qca8k/check-mdio.py "$LINUX_DIR/drivers/net/dsa/qca"
 python3 tools/qca8k/check-qinq-setup.py "$LINUX_DIR/drivers/net/dsa/qca"
+python3 tools/qca8k/check-qinq-tagger.py "$LINUX_DIR"
 ```
 
 These cover MDIO transactions, ACL-window failures, active-rule updates,
-shared CPU membership, bridge filtering/PVID transitions and readback
-corruption. `check-qinq-tagger.py` checks frame construction and admission;
+CPU-only steering tuples, invalid conduit selectors, shared CPU membership,
+bridge filtering/PVID transitions and readback corruption.
+`check-qinq-tagger.py` checks frame construction and admission;
 `tools/nss/test_qosmio_qinq.py` checks adapter/ECM policy. Host tests do not
 establish packet forwarding or NSS firmware behavior.
 

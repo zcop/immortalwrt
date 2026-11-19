@@ -602,6 +602,75 @@ static void test_database_domains(void)
 	puts("PASS: real DSA FDB/MDB add/delete preserve all seven QinQ bridge domains, explicit VLANs and CPU database identity; standard shared database unchanged");
 }
 
+static void check_cpu_steering(int slot, int port, int cpu, u16 vid)
+{
+	u32 low = regs[QINQ_ACL_V(slot, 2) / 4];
+	u32 high = regs[QINQ_ACL_V(slot, 3) / 4];
+	u32 sources = regs[QINQ_ACL_V(slot, 4) / 4];
+	u32 destinations = (regs[QINQ_ACL_A(slot, 1) / 4] >> 29) |
+		((regs[QINQ_ACL_A(slot, 2) / 4] & 7) << 3);
+
+	assert(((low >> 8) & 4095) == (unsigned)(3072 + port));
+	assert(((low >> 24) | ((high & 15) << 8)) == vid);
+	assert(high >> 16 == 0xc100);
+	assert(regs[QINQ_ACL_M(slot, 2) / 4] == 0xff0fff00);
+	assert(regs[QINQ_ACL_M(slot, 3) / 4] == 15);
+	assert(regs[QINQ_ACL_M(slot, 4) / 4] == 255);
+	assert(sources == BIT(cpu) && !(sources & GENMASK(4, 1)));
+	assert(destinations == BIT(port));
+	assert(regs[QINQ_ACL_A(slot, 0) / 4] == 0);
+	assert(!(regs[QINQ_ACL_A(slot, 2) / 4] & (7 << 6)));
+}
+
+static void test_cpu_only_steering(void)
+{
+	const u16 native_vids[] = { 3088, 3104, 3632 };
+	const u16 customer_vids[] = { 1, 35, 4094 };
+	const int cpus[] = { 0, 5 };
+
+	for (int port = 1; port <= 4; port++) {
+		for (unsigned c = 0; c < sizeof(cpus) / sizeof(cpus[0]); c++) {
+			int cpu = cpus[c];
+
+			reset();
+			ds.ports[port].cpu_dp = &ds.ports[cpu];
+			assert(qca8k_qinq_setup(&ds) == 0);
+			check_cpu_steering(89 + port, port, cpu, 3072 + port);
+			for (unsigned v = 0; v < sizeof(native_vids) / sizeof(native_vids[0]); v++) {
+				priv.qinq_native_vid[port] = native_vids[v];
+				assert(qca8k_qinq_conduit(&priv, port, cpu) == 0);
+				check_cpu_steering(89 + port, port, cpu, native_vids[v]);
+			}
+			for (unsigned v = 0; v < sizeof(customer_vids) / sizeof(customer_vids[0]); v++) {
+				u16 vid = customer_vids[v];
+
+				assert(qca8k_qinq_customer_add(&ds, port, vid, 0) == 0);
+				assert(qca8k_qinq_customer_add(&ds, cpu, vid, 0) == 0);
+				check_cpu_steering(qca8k_qinq_customer_find(&priv, port, vid)->slot,
+						   port, cpu, vid);
+			}
+		}
+	}
+	puts("PASS: native/customer steering binds only the exact CPU/SVID/CVID tuple; front-panel LAN ingress is excluded");
+}
+
+static void test_invalid_conduit(void)
+{
+	const int invalid[][2] = {
+		{ -1, 0 }, { 0, 0 }, { 5, 0 }, { 7, 0 }, { 32, 0 },
+		{ 1, -1 }, { 1, 1 }, { 1, 4 }, { 1, 6 }, { 1, 32 },
+	};
+
+	reset();
+	assert(qca8k_qinq_setup(&ds) == 0);
+	int before = write_count;
+	for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+		assert(qca8k_qinq_conduit(&priv, invalid[i][0], invalid[i][1]) == -EOPNOTSUPP);
+		assert(write_count == before && !priv.qinq_fault_map && !priv.reg_mutex);
+	}
+	puts("PASS: invalid conduit selectors are rejected before indexing ports, shifting bits or touching registers");
+}
+
 int main(void)
 {
 	int successful_writes, update_writes, before_update;
@@ -682,5 +751,7 @@ int main(void)
 	test_customer_failed_add_rollback();
 	test_bridge_vlans();
 	test_database_domains();
+	test_cpu_only_steering();
+	test_invalid_conduit();
 	return 0;
 }
