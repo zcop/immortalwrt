@@ -37,9 +37,9 @@ index 1dd3914..2738f66 100644
  
  	/* TCL Completion, REO Dest, ERR, Exception and h2rxdma rings are offloaded
  	 * to nss when its enabled, hence don't enable these interrupts
-@@ -560,6 +562,9 @@ static int ath11k_ahb_config_ext_irq(struct ath11k_base *ab)
- 		if (!irq_grp->napi_ndev)
- 			return -ENOMEM;
+@@ -590,6 +592,9 @@ static int ath11k_ahb_config_ext_irq(struct ath11k_base *ab)
+ 			goto err_request_irq;
+ 		}
  
 +		snprintf(irq_grp->napi_ndev->name, sizeof(irq_grp->napi_ndev->name), "%s%d:%d",
 +			 "ath11k_ahb", devidx, i);
@@ -47,15 +47,15 @@ index 1dd3914..2738f66 100644
  		netif_napi_add(irq_grp->napi_ndev, &irq_grp->napi,
  			       ath11k_ahb_ext_grp_napi_poll);
  
-@@ -625,6 +630,8 @@ static int ath11k_ahb_config_ext_irq(struct ath11k_base *ab)
- 		}
+@@ -658,6 +663,8 @@ static int ath11k_ahb_config_ext_irq(struct ath11k_base *ab)
+ 		irq_grp->num_irq = num_irq;
  	}
  
 +	devidx++;
 +
  	return 0;
- }
  
+ err_request_irq:
 diff --git a/drivers/net/wireless/ath/ath11k/pcic.c b/drivers/net/wireless/ath/ath11k/pcic.c
 index 3a86477..7c7be1e 100644
 --- a/drivers/net/wireless/ath/ath11k/pcic.c

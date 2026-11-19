@@ -796,9 +796,9 @@ index 62f65df..c9138cd 100644
  		.min_len = sizeof(struct wmi_p2p_noa_event) },
 +	[WMI_TAG_WDS_ADDR_EVENT] = {
 +		.min_len = sizeof(struct wmi_wds_addr_event) },
+ 	[WMI_TAG_PDEV_CSA_SWITCH_COUNT_STATUS_EVENT] = {
+ 		.min_len = sizeof(struct wmi_pdev_csa_switch_ev) },
  };
- 
- #define PRIMAP(_hw_mode_) \
 @@ -1141,6 +1143,51 @@ int ath11k_wmi_send_peer_delete_cmd(struct ath11k *ar,
  	return ret;
  }

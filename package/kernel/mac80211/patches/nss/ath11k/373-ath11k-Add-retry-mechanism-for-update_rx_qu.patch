@@ -238,7 +238,7 @@ index 0448de0..10edf23 100644
  	memset(&cmd, 0, sizeof(cmd));
  	cmd.addr_lo = lower_32_bits(rx_tid->paddr);
  	cmd.addr_hi = upper_32_bits(rx_tid->paddr);
-@@ -755,24 +805,21 @@ static void ath11k_dp_reo_cache_flush(struct ath11k_base *ab,
+@@ -755,27 +805,24 @@ static void ath11k_dp_reo_cache_flush(struct ath11k_base *ab,
  	ret = ath11k_dp_tx_send_reo_cmd(ab, rx_tid,
  					HAL_REO_CMD_FLUSH_CACHE,
  					&cmd, ath11k_dp_reo_cmd_free);
@@ -263,6 +263,9 @@ index 0448de0..10edf23 100644
 +	struct dp_rx_tid *rx_tid = ctx, *update_rx_tid;
  	struct dp_reo_cache_flush_elem *elem, *tmp;
 +	struct dp_reo_update_rx_queue_elem *qelem, *qtmp;
+ 	struct list_head flush_list;
+ 
+ 	INIT_LIST_HEAD(&flush_list);
  
  	if (status == HAL_REO_CMD_DRAIN) {
 +		ab->soc_stats.hal_reo_cmd_drain++;
@@ -299,31 +302,24 @@ index 0448de0..10edf23 100644
  	elem = kzalloc_obj(*elem, GFP_ATOMIC);
  	if (!elem)
  		goto free_desc;
-@@ -798,13 +868,20 @@ static void ath11k_dp_rx_tid_del_func(struct ath11k_dp *dp, void *ctx,
- 		if (dp->reo_cmd_cache_flush_count > DP_REO_DESC_FREE_THRESHOLD ||
- 		    time_after(jiffies, elem->ts +
- 			       msecs_to_jiffies(DP_REO_DESC_FREE_TIMEOUT_MS))) {
-+			spin_unlock_bh(&dp->reo_cmd_lock);
-+			if (ath11k_dp_reo_cache_flush(ab, &elem->data)) {
-+				ab->soc_stats.reo_cmd_cache_error++;
-+				/* In failure case, just update the timestamp
-+				 * for flush cache elem and continue
-+				 */
-+				spin_lock_bh(&dp->reo_cmd_lock);
-+				elem->ts = jiffies;
-+				break;
-+			}
+@@ -815,8 +888,16 @@ static void ath11k_dp_rx_tid_del_func(struct ath11k_dp *dp, void *ctx,
+ 
+ 	/* remove aged REO desc from HW */
+ 	list_for_each_entry_safe(elem, tmp, &flush_list, list) {
+-		ath11k_dp_reo_cache_flush(ab, &elem->data);
++		if (ath11k_dp_reo_cache_flush(ab, &elem->data)) {
++			ab->soc_stats.reo_cmd_cache_error++;
 +			spin_lock_bh(&dp->reo_cmd_lock);
- 			list_del(&elem->list);
- 			dp->reo_cmd_cache_flush_count--;
--			spin_unlock_bh(&dp->reo_cmd_lock);
--
--			ath11k_dp_reo_cache_flush(ab, &elem->data);
- 			kfree(elem);
--			spin_lock_bh(&dp->reo_cmd_lock);
- 		}
++			elem->ts = jiffies;
++			list_move_tail(&elem->list, &dp->reo_cmd_cache_flush_list);
++			dp->reo_cmd_cache_flush_count++;
++			spin_unlock_bh(&dp->reo_cmd_lock);
++			continue;
++		}
+ 		list_del(&elem->list);
+ 		kfree(elem);
  	}
- 	spin_unlock_bh(&dp->reo_cmd_lock);
+ 
 @@ -820,36 +897,50 @@ free_desc:
  void ath11k_peer_rx_tid_delete(struct ath11k *ar,
  			       struct ath11k_peer *peer, u8 tid)

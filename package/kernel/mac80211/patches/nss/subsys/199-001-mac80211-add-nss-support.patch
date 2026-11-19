@@ -87,17 +87,17 @@ index 290e47b..f1e6fc1 100644
   * enum ieee80211_key_flags - key flags
   *
 @@ -3073,6 +3100,7 @@ struct ieee80211_txq {
-  *
-  * @IEEE80211_HW_SUPPORTS_NDP_BLOCKACK: HW can transmit/receive S1G NDP
-  *	BlockAck frames.
+  *	replace one of them, the start of a link, and a channel switch or a
+  *	colour change on the channel of a link of the AP MLD, until the driver
+  *	reports the expiry with ieee80211_links_removed().
 + * @IEEE80211_HW_SUPPORTS_NSS_OFFLOAD: Hardware/driver supports NSS offload
   *
   * @NUM_IEEE80211_HW_FLAGS: number of hardware flags, used for sizing arrays
   */
 @@ -3135,6 +3163,7 @@ enum ieee80211_hw_flags {
- 	IEEE80211_HW_HANDLES_QUIET_CSA,
- 	IEEE80211_HW_STRICT,
  	IEEE80211_HW_SUPPORTS_NDP_BLOCKACK,
+ 	IEEE80211_HW_DEFERRED_AIRTIME_REPORT,
+ 	IEEE80211_HW_AP_REMOVAL_BEACON_HOLD,
 +	IEEE80211_HW_SUPPORTS_NSS_OFFLOAD,
  
  	/* keep last, obviously */
@@ -191,9 +191,9 @@ index 622d710..aaa4089 100644
 --- a/net/mac80211/debugfs.c
 +++ b/net/mac80211/debugfs.c
 @@ -483,6 +483,7 @@ static const char *hw_flag_names[] = {
- 	FLAG(HANDLES_QUIET_CSA),
- 	FLAG(STRICT),
  	FLAG(SUPPORTS_NDP_BLOCKACK),
+ 	FLAG(DEFERRED_AIRTIME_REPORT),
+ 	FLAG(AP_REMOVAL_BEACON_HOLD),
 +	FLAG(SUPPORTS_NSS_OFFLOAD),
  #undef FLAG
  };
