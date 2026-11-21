@@ -1,0 +1,49 @@
+bridge: expose port forwarding state to packet-context admission checks
+
+Keep the RTNL-only API unchanged. Provide an RCU-protected scalar accessor
+for acceleration engines, so blocked or detached bridge ports are not admitted
+from softirq context. VLAN/MST-specific state requires separate validation.
+
+--- a/include/linux/if_bridge.h
++++ b/include/linux/if_bridge.h
+@@ -217,6 +217,8 @@
+ void br_fdb_clear_offload(const struct net_device *dev, u16 vid);
+ bool br_port_flag_is_set(const struct net_device *dev, unsigned long flag);
+ u8 br_port_get_stp_state(const struct net_device *dev);
++/* Caller holds rcu_read_lock(). */
++u8 br_port_get_stp_state_rcu(const struct net_device *dev);
+ clock_t br_get_ageing_time(const struct net_device *br_dev);
+ #else
+ static inline struct net_device *
+@@ -241,6 +243,11 @@
+ br_port_flag_is_set(const struct net_device *dev, unsigned long flag)
+ {
+ 	return false;
++}
++
++static inline u8 br_port_get_stp_state_rcu(const struct net_device *dev)
++{
++	return BR_STATE_DISABLED;
+ }
+ 
+ static inline u8 br_port_get_stp_state(const struct net_device *dev)
+--- a/net/bridge/br_stp.c
++++ b/net/bridge/br_stp.c
+@@ -83,6 +83,17 @@
+ 	return p->state;
+ }
+ EXPORT_SYMBOL_GPL(br_port_get_stp_state);
++
++/* Acceleration admission runs in packet context, where RTNL cannot be taken.
++ * Only expose the scalar state; do not return an unreferenced bridge port.
++ */
++u8 br_port_get_stp_state_rcu(const struct net_device *dev)
++{
++	struct net_bridge_port *p = br_port_get_rcu(dev);
++
++	return p ? READ_ONCE(p->state) : BR_STATE_DISABLED;
++}
++EXPORT_SYMBOL_GPL(br_port_get_stp_state_rcu);
+ 
+ /* called under bridge lock */
+ struct net_bridge_port *br_get_port(struct net_bridge *br, u16 port_no)
