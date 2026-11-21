@@ -69,7 +69,7 @@ multiple sessions and maximum tagged-PPPoE throughput are not established.
 
 | Feature | CR881x / YT9215S | AX3000 / QCA8337 |
 | --- | --- | --- |
-| NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port on WAN and LAN conduits; IPv4/IPv6 TCP confirmed in both directions in one VLAN-unaware bridge |
+| NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP on WAN and LAN conduits, plus IPv4/IPv6 UDP on WAN, confirmed in both directions |
 | NSS multicast acceleration | Unvalidated | Unvalidated |
 | NSS IGS / shaper / qdiscs | Disabled; no NSS shaping acceptance | Disabled; no NSS shaping acceptance |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
@@ -89,8 +89,10 @@ the selected forwarding ports. FDB changes and bridge-port lifecycle/policy
 events invalidate rules. Customer-tagged or VLAN-aware bridging, hairpin,
 isolated/locked ports and unsupported hierarchies retain host forwarding;
 same-switch LAN traffic retains switch forwarding. Broadcast and discovery
-remain on their existing bridge paths. UDP and multi-client L2 acceptance
-remain open.
+remain on their existing bridge paths. UDP acceptance uses paced, unreliable
+WebRTC data channels with small and 1000-byte application messages under the
+default classifier policy; it does not establish raw full-MTU or peak UDP
+performance. UDP on the LAN conduit and multi-client L2 acceptance remain open.
 
 ## Switch offload and driver controls
 

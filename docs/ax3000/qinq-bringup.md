@@ -227,8 +227,15 @@ calling the RTNL-only STP API.
 This first path excludes customer-tagged/VLAN-aware bridging, hairpin,
 isolated/locked ports and unsupported encapsulations from NSS. Ordinary bridge
 forwarding remains available. Same-switch LAN traffic stays in the switch
-ASIC, and broadcast/discovery keeps the ordinary bridge path. L2 UDP,
-multiple clients, roaming and peak throughput require separate acceptance.
+ASIC, and broadcast/discovery keeps the ordinary bridge path.
+
+Single-client IPv4/IPv6 UDP bridge checks also pass through the WAN conduit
+under the normal classifier policy (`accel_delay_pkts=1`). Unreliable WebRTC
+data channels carry 128- and 1000-byte application messages in both directions,
+with exact payload/count checks, preserved endpoint MACs, `is_routed=0`, ECM
+mode2 and increasing NSS/wifili counters. These paced, below-MTU checks do not
+qualify raw full-MTU UDP, capacity or sustained-load reliability. UDP on the
+LAN conduit, multiple clients and roaming remain unvalidated.
 
 The 256 MiB AX3000 also defaults `vm.percpu_pagelist_high_fraction` to `100`,
 as CR881x does, to return cached free pages to the shared allocator sooner.
