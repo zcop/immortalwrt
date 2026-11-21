@@ -18,7 +18,7 @@ qca_header = Path(os.environ.get('QCA_QINQ_HEADER', str(root /
 
 
 def function(name, text=source):
-    match = re.search(r'(?:static\s+)?(?:inline\s+)?(?:bool|int|void|struct\s+dsa_port\s*\*)\s*' + name +
+    match = re.search(r'(?:static\s+)?(?:inline\s+)?(?:bool|int|void|struct\s+(?:dsa_port|net_device)\s*\*)\s*' + name +
                       r'\s*\([^;{}]*\)\s*\{', text)
     assert match, name
     depth = 1
@@ -63,6 +63,10 @@ struct net_device {
     bool vlans[4096];
     struct net_device *vlan_uppers[8];
     int vlan_upper_count;
+    bool running, carrier;
+    int stp_state;
+    unsigned long bridge_flags;
+    void *ieee80211_ptr;
 };
 struct dsa_nss_node {
     bool ready;
@@ -245,6 +249,20 @@ typedef uint32_t u32;
 #define NSS_MAX_PHYSICAL_INTERFACES 8
 #define ECM_INTERFACE_PPPOE_ENABLE
 #define ARPHRD_PPP 512
+#define ECM_DB_XREF_ENABLE
+#define ECM_BAND_STEERING_ENABLE
+#define ETH_ALEN 6
+#define BR_STATE_FORWARDING 3
+#define BR_ISOLATED 1
+#define BR_PORT_LOCKED 2
+#define BR_PORT_MAB 4
+#define BR_PROXYARP 8
+#define BR_PROXYARP_WIFI 16
+#define BR_NEIGH_SUPPRESS 32
+#define BR_NEIGH_VLAN_SUPPRESS 64
+#define BR_VLAN_TUNNEL 128
+#define ECM_DB_OBJ_DIR_FROM 0
+#define ECM_DB_OBJ_DIR_TO_NAT 1
 #define IFF_POINTOPOINT 0x10
 #define VLAN_VID_MASK 4095
 #define ETH_P_8021AD 0x88a8U
@@ -270,7 +288,7 @@ struct dsa_port {
     int port, bridge_num;
 };
 struct bridge_vlan_info { u16 vid; };
-struct ecm_db_connection_instance { bool routed; };
+struct ecm_db_connection_instance { bool routed; unsigned char mac[2][6]; };
 typedef int ecm_db_iface_type_t;
 enum { ECM_DB_IFACE_TYPE_ETHERNET, ECM_DB_IFACE_TYPE_BRIDGE,
        ECM_DB_IFACE_TYPE_VLAN, ECM_DB_IFACE_TYPE_PPPOE };
@@ -309,6 +327,25 @@ static void mock_unpublish_upper(struct net_device *bridge, struct net_device *u
         }
 }
 static bool netif_is_bridge_master(struct net_device *dev) { return dev->is_bridge; }
+static bool netif_is_bridge_port(struct net_device *dev) { return dev->master && dev->master->is_bridge; }
+static bool netif_running(struct net_device *dev) { return dev->running; }
+static bool netif_carrier_ok(struct net_device *dev) { return dev->carrier; }
+static int br_port_get_stp_state_rcu(struct net_device *dev) { return dev->stp_state; }
+static bool br_port_flag_is_set(struct net_device *dev, unsigned long mask) { return dev->bridge_flags & mask; }
+static bool is_valid_ether_addr(const unsigned char *mac) {
+    static const unsigned char zero[6] = {0};
+    return !(mac[0] & 1) && memcmp(mac, zero, 6);
+}
+static void ecm_db_connection_node_address_get(struct ecm_db_connection_instance *ci, int dir, unsigned char *mac) {
+    memcpy(mac, ci->mac[dir], 6);
+}
+static struct net_device *mock_fdb_from, *mock_fdb_to;
+static struct net_device *br_port_dev_get(struct net_device *bridge, unsigned char *mac, void *skb, unsigned int cookie) {
+    struct net_device *dev = mac[5] == 1 ? mock_fdb_from : mock_fdb_to;
+    if (!dev || dev->master != bridge) return NULL;
+    ++dev->refs;
+    return dev;
+}
 static struct net_device *netdev_master_upper_dev_get_rcu(struct net_device *dev) { return dev->master; }
 static struct net_device *netdev_master_upper_dev_get(struct net_device *dev) { return dev->master; }
 static struct dsa_port *dsa_port_from_netdev(struct net_device *dev) { return dev->dp; }
@@ -719,12 +756,87 @@ static void test_pppoe_hierarchy(void) {
 '''
 ecm_checks = ecm_checks.replace('int main(void) {', pppoe_checks + '\nint main(void) {')
 
+bridge_checks = r'''
+static void test_bridge_pair(void) {
+    struct net_device bridge = {.index=12, .is_bridge=true};
+    struct net_device other_bridge = {.is_bridge=true};
+    struct net_device conduit = {.phys=1};
+    struct net_device wifi = {.index=10, .master=&bridge, .running=true, .carrier=true, .stp_state=3};
+    struct net_device port = {.index=11, .is_dsa=true, .master=&bridge, .running=true, .carrier=true, .stp_state=3};
+    struct tag_ops ops = {.proto=DSA_TAG_PROTO_QCA_QINQ};
+    struct dsa_tree tree = {.tag_ops=&ops};
+    struct dsa_switch ds = {.dst=&tree, .tag_8021q_ctx=&tree};
+    struct dsa_cpu cpu = {.conduit=&conduit};
+    struct dsa_port dp = {.ds=&ds, .cpu_dp=&cpu, .bridge=&bridge, .bridge_num=1, .port=1};
+    struct ecm_db_iface_instance wi = {.index=10, .type=ECM_DB_IFACE_TYPE_ETHERNET};
+    struct ecm_db_iface_instance pi = {.index=11, .type=ECM_DB_IFACE_TYPE_ETHERNET};
+    struct ecm_db_iface_instance bi = {.index=12, .type=ECM_DB_IFACE_TYPE_BRIDGE};
+    struct ecm_db_iface_instance *from[8] = {[6]=&wi, [7]=&bi};
+    struct ecm_db_iface_instance *to[8] = {[6]=&pi, [7]=&bi};
+    struct ecm_db_connection_instance ci = {.mac={{2,0,0,0,0,1},{2,0,0,0,0,2}}};
+    struct ecm_nss_qinq_side side;
+    wifi.ieee80211_ptr=&wifi; port.dp=&dp; dp.user=&port;
+    devices[10]=&wifi; devices[11]=&port; devices[12]=&bridge;
+    mock_fdb_from=&wifi; mock_fdb_to=&port;
+    clear_nodes(); node(0,1,3073,0,100,-1); node(1,1,3073,3089,101,100);
+    for (int proto=0; proto<2; proto++) {
+        ops.proto=proto ? DSA_TAG_PROTO_YT921X_QINQ : DSA_TAG_PROTO_QCA_QINQ;
+        assert(ecm_nss_qinq_side_get(&ci,to,6,&side)==1 && side.leaf==101);
+        assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==0);
+    }
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,true)==-EOPNOTSUPP);
+    mock_fdb_from=&port; mock_fdb_to=&wifi;
+    assert(ecm_nss_qinq_bridge_validate(&ci,to,6,from,6,false)==0);
+    mock_fdb_from=&wifi; mock_fdb_to=NULL;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EAGAIN);
+    mock_fdb_to=&wifi;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EAGAIN);
+    mock_fdb_to=&port; port.stp_state=2;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EAGAIN);
+    port.stp_state=3; wifi.stp_state=2;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EAGAIN);
+    wifi.stp_state=3; port.carrier=false;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EAGAIN);
+    port.carrier=true; wifi.running=false;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EAGAIN);
+    wifi.running=true;
+    for (unsigned long flag=1; flag<=BR_VLAN_TUNNEL; flag<<=1) {
+        port.bridge_flags=flag;
+        assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EOPNOTSUPP);
+    }
+    port.bridge_flags=0; wifi.bridge_flags=BR_ISOLATED;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EOPNOTSUPP);
+    wifi.bridge_flags=0; bridge.vlan_enabled=true;
+    assert(ecm_nss_qinq_side_get(&ci,to,6,&side)==-EOPNOTSUPP);
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EOPNOTSUPP);
+    bridge.vlan_enabled=false; wifi.master=NULL;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EOPNOTSUPP);
+    wifi.master=&other_bridge;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EOPNOTSUPP);
+    wifi.master=&bridge; wifi.ieee80211_ptr=NULL;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EOPNOTSUPP);
+    wifi.ieee80211_ptr=&wifi; wi.type=ECM_DB_IFACE_TYPE_VLAN;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EOPNOTSUPP);
+    wi.type=ECM_DB_IFACE_TYPE_ETHERNET;
+    assert(ecm_nss_qinq_bridge_validate(&ci,to,6,to,6,false)==-EOPNOTSUPP);
+    ci.mac[0][0]=1;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==-EAGAIN);
+    ci.routed=true;
+    assert(ecm_nss_qinq_bridge_validate(&ci,from,6,to,6,false)==0);
+    assert(!wifi.refs && !port.refs && !bridge.refs && !other_bridge.refs);
+    puts("PASS: known-unicast Wi-Fi/QinQ bridge pair, both directions; FDB moves/misses, blocked/down ports, restricted flags, VLAN/tunnel/other-bridge/hairpin paths decline without leaking references");
+}
+'''
+ecm_checks = ecm_checks.replace('int main(void) {', bridge_checks + '\nint main(void) {\n    test_bridge_pair();')
+
 header_functions = '\n\n'.join(function(name, header) for name in (
     'dsa_yt921x_qinq_customer_vid_valid', 'dsa_yt921x_qinq_bridge_upper_valid')) + '\n\n' + '\n\n'.join(function(name, qca_header) for name in (
     'dsa_qca_qinq_customer_vid_valid', 'dsa_qca_qinq_direct_vid_valid',
     'dsa_qca_qinq_bridge_vid_valid'))
 ecm_functions = header_functions + '\n\n' + '\n\n'.join(function(name, ecm) for name in (
-    'ecm_nss_qinq_is_port', 'ecm_nss_qinq_is_upper', 'ecm_nss_qinq_side_get'))
+    'ecm_nss_qinq_is_port', 'ecm_nss_qinq_is_upper',
+    'ecm_nss_qinq_bridge_port_get', 'ecm_nss_qinq_bridge_validate',
+    'ecm_nss_qinq_side_get'))
 with tempfile.TemporaryDirectory(prefix='qosmio-ecm-') as directory:
     path = Path(directory)
     (path / 'test.c').write_text(mock + functions + ecm_mock + ecm_functions + ecm_checks)
@@ -925,7 +1037,20 @@ struct notifier_block { int unused; };
 #define NETDEV_CHANGEUPPER 6
 #define NETDEV_CHANGEADDR 7
 #define NETDEV_CHANGEMTU 8
+#define SWITCHDEV_PORT_OBJ_ADD 101
+#define SWITCHDEV_PORT_OBJ_DEL 102
+#define SWITCHDEV_PORT_ATTR_SET 103
+#define SWITCHDEV_OBJ_ID_PORT_VLAN 1
+#define SWITCHDEV_ATTR_ID_BRIDGE_VLAN_FILTERING 1
+#define SWITCHDEV_ATTR_ID_PORT_STP_STATE 2
+#define SWITCHDEV_ATTR_ID_PORT_PRE_BRIDGE_FLAGS 3
+#define SWITCHDEV_ATTR_ID_PORT_BRIDGE_FLAGS 4
 #define fallthrough __attribute__((fallthrough))
+struct netdev_notifier_changeupper_info { struct net_device *dev; struct net_device *upper_dev; };
+struct switchdev_attr { int id; };
+struct switchdev_obj { int id; };
+struct switchdev_notifier_port_attr_info { struct net_device *dev; struct switchdev_attr *attr; };
+struct switchdev_notifier_port_obj_info { struct net_device *dev; struct switchdev_obj *obj; };
 static bool is_vlan_dev(struct net_device *dev) { return dev->is_vlan; }
 static struct net_device *vlan_dev_real_dev(struct net_device *dev) { return dev->real; }
 static int mock_order, mock_destroy_count, mock_schedule_count;
@@ -952,7 +1077,16 @@ static void dsa_nss_destroy_nodes(struct net_device *dev, const char *why) {
 }
 static bool mock_is_bridge_master(struct net_device *dev) { return dev->is_bridge; }
 #define netif_is_bridge_master(dev) mock_is_bridge_master(dev)
-static struct net_device *netdev_notifier_info_to_dev(void *ptr) { return ptr; }
+static bool netif_is_bridge_port(struct net_device *dev) { return dev->master && dev->master->is_bridge; }
+static struct net_device *netdev_notifier_info_to_dev(void *ptr) {
+    return ((struct netdev_notifier_changeupper_info *)ptr)->dev;
+}
+#define switchdev_notifier_info_to_dev(ptr) netdev_notifier_info_to_dev(ptr)
+static int dsa_nss_netdev_event(struct notifier_block *, unsigned long, void *);
+static int notify(struct notifier_block *nb, unsigned long event, struct net_device *dev) {
+    struct netdev_notifier_changeupper_info info = {.dev=dev, .upper_dev=dev->master ? dev->master : dev};
+    return dsa_nss_netdev_event(nb,event,&info);
+}
 static void reset_notifier(void) {
     mock_order = mock_destroy_count = mock_schedule_count = mock_defunct_count = 0;
     mock_destroy_order = mock_schedule_order = -1;
@@ -972,36 +1106,55 @@ int main(void) {
 
     /* The VLAN core has unpublished @upper; structural release must run now. */
     reset_notifier();
-    dsa_nss_netdev_event(&nb, NETDEV_UNREGISTER, &upper);
+    notify(&nb, NETDEV_UNREGISTER, &upper);
     assert(mock_destroy_count == 1 && mock_destroy_dev == &upper);
     assert(mock_defunct_count == 1 && mock_schedule_count == 1);
     assert(mock_destroy_order == 1 && mock_schedule_order == 2);
 
     reset_notifier();
-    dsa_nss_netdev_event(&nb, NETDEV_CHANGEADDR, &upper);
+    notify(&nb, NETDEV_CHANGEADDR, &upper);
     assert(mock_schedule_count == 1 && mock_destroy_count == 0);
 
     reset_notifier();
-    dsa_nss_netdev_event(&nb, NETDEV_CHANGEUPPER, &bridge);
+    notify(&nb, NETDEV_CHANGEUPPER, &bridge);
     assert(mock_schedule_count == 1 && mock_destroy_count == 0);
 
     reset_notifier();
-    dsa_nss_netdev_event(&nb, NETDEV_UNREGISTER, &direct);
+    notify(&nb, NETDEV_UNREGISTER, &direct);
     assert(mock_destroy_count == 1 && mock_destroy_dev == &direct);
 
     reset_notifier();
-    dsa_nss_netdev_event(&nb, NETDEV_REGISTER, &stacked);
+    notify(&nb, NETDEV_REGISTER, &stacked);
     assert(mock_schedule_count == 0 && mock_destroy_count == 0);
 
     reset_notifier();
-    dsa_nss_netdev_event(&nb, NETDEV_REGISTER, &other);
+    notify(&nb, NETDEV_REGISTER, &other);
     assert(mock_schedule_count == 0 && mock_destroy_count == 0);
+    struct net_device wifi = {.master=&bridge};
+    reset_notifier();
+    notify(&nb, NETDEV_DOWN, &wifi);
+    assert(mock_schedule_count == 1 && mock_defunct_count == 1);
+    wifi.master=NULL;
+    struct netdev_notifier_changeupper_info unlink = {.dev=&wifi, .upper_dev=&bridge};
+    reset_notifier();
+    dsa_nss_netdev_event(&nb, NETDEV_CHANGEUPPER, &unlink);
+    assert(mock_schedule_count == 1 && mock_defunct_count == 1);
+    wifi.master=&bridge;
+    for (int id=1; id<=4; id++) {
+        struct switchdev_attr attr = {.id=id};
+        struct switchdev_notifier_port_attr_info info = {.dev=&wifi,.attr=&attr};
+        reset_notifier();
+        dsa_nss_switchdev_event(&nb,SWITCHDEV_PORT_ATTR_SET,&info);
+        assert(mock_schedule_count == 1 && mock_defunct_count == 1);
+    }
+    puts("PASS: Wi-Fi bridge-port down/unlink and VLAN/state/policy attribute events block new lookups and retire existing rules");
     puts("PASS: actual notifier releases bridge-upper nodes synchronously on unregister and reacts to bridge/VLAN-upper events");
     return 0;
 }
 '''
 notifier_functions = '\n\n'.join(function(name) for name in (
-    'dsa_nss_is_bridge_upper', 'dsa_nss_netdev_event'))
+    'dsa_nss_is_bridge_upper', 'dsa_nss_netdev_event',
+    'dsa_nss_switchdev_event'))
 with tempfile.TemporaryDirectory(prefix='qosmio-notify-') as directory:
     path = Path(directory)
     (path / 'test.c').write_text(mock + notifier_support + notifier_functions + notifier_checks)

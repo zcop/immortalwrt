@@ -932,9 +932,20 @@ static int dsa_nss_netdev_event(struct notifier_block *nb, unsigned long event,
 {
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	bool upper;
+	bool bridge_port = netif_is_bridge_port(dev);
+
+	/* After unlink, the Wi-Fi port no longer has a bridge master. The
+	 * event still names the old bridge and must retire its accelerated pair.
+	 */
+	if (event == NETDEV_CHANGEUPPER) {
+		struct netdev_notifier_changeupper_info *info = ptr;
+
+		bridge_port |= netif_is_bridge_master(info->upper_dev);
+	}
 
 	if (!dsa_nss_port_of(dev, &upper) &&
-	    !dsa_nss_is_bridge_upper(dev) && !netif_is_bridge_master(dev))
+	    !dsa_nss_is_bridge_upper(dev) && !netif_is_bridge_master(dev) &&
+	    !bridge_port)
 		return NOTIFY_DONE;
 
 	switch (event) {
@@ -957,6 +968,8 @@ static int dsa_nss_netdev_event(struct notifier_block *nb, unsigned long event,
 	case NETDEV_CHANGEADDR:
 	case NETDEV_CHANGEMTU:
 		dsa_nss_schedule();
+		if (bridge_port)
+			dsa_nss_defunct();
 		break;
 	default:
 		break;
@@ -993,7 +1006,10 @@ static int dsa_nss_switchdev_event(struct notifier_block *nb,
 	case SWITCHDEV_PORT_ATTR_SET: {
 		const struct switchdev_notifier_port_attr_info *info = ptr;
 
-		if (info->attr->id != SWITCHDEV_ATTR_ID_BRIDGE_VLAN_FILTERING)
+		if (info->attr->id != SWITCHDEV_ATTR_ID_BRIDGE_VLAN_FILTERING &&
+		    info->attr->id != SWITCHDEV_ATTR_ID_PORT_STP_STATE &&
+		    info->attr->id != SWITCHDEV_ATTR_ID_PORT_PRE_BRIDGE_FLAGS &&
+		    info->attr->id != SWITCHDEV_ATTR_ID_PORT_BRIDGE_FLAGS)
 			return NOTIFY_DONE;
 		break;
 	}
@@ -1001,9 +1017,14 @@ static int dsa_nss_switchdev_event(struct notifier_block *nb,
 		return NOTIFY_DONE;
 	}
 
-	/* the port itself, or a bridge (its own VLANs, vlan_filtering) */
-	if (dsa_nss_port_of(dev, &upper) || netif_is_bridge_master(dev))
+	/* Wi-Fi bridge ports also carry L2 rules. Block new lookups before
+	 * retiring existing rules, without waiting for the coalesced resync.
+	 */
+	if (dsa_nss_port_of(dev, &upper) || netif_is_bridge_master(dev) ||
+	    netif_is_bridge_port(dev)) {
 		dsa_nss_schedule();
+		dsa_nss_defunct();
+	}
 	return NOTIFY_DONE;
 }
 

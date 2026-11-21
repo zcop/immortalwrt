@@ -1,0 +1,257 @@
+Admit a known-unicast Wi-Fi/QinQ pair in one VLAN-unaware bridge.
+
+Require current FDB ownership, live forwarding ports and ordinary Ethernet
+hierarchies. Preserve host fallback for customer VLAN bridging, hairpin,
+isolation/locked-port policy and same-switch LAN forwarding. FDB misses and
+temporarily blocked ports are retryable. Existing ECM move/delete handlers
+and QinQ topology invalidation retire stale rules. Routed paths are unchanged.
+Requires the RCU bridge-port-state helper in the kernel patch set.
+
+--- a/frontends/nss/ecm_nss_common.h
++++ b/frontends/nss/ecm_nss_common.h
+@@ -67,6 +67,9 @@
+ 	u32 outer;
+ 	u32 inner;
+ };
++int ecm_nss_qinq_bridge_validate(struct ecm_db_connection_instance *ci,
++	struct ecm_db_iface_instance *from_ifaces[], int from_first,
++	struct ecm_db_iface_instance *to_ifaces[], int to_first, bool tagged);
+ bool ecm_nss_qinq_is_port(struct net_device *dev);
+ bool ecm_nss_qinq_is_upper(struct net_device *dev);
+ int ecm_nss_qinq_side_get(struct ecm_db_connection_instance *ci,
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -72,6 +72,132 @@
+ 	return is_vlan_dev(dev) && ecm_nss_qinq_is_port(vlan_dev_real_dev(dev));
+ }
+ 
++/* Caller holds RCU. Return a referenced, current bridge port, never an upper. */
++static struct net_device *ecm_nss_qinq_bridge_port_get(
++	struct ecm_db_iface_instance *ifaces[], int first)
++{
++	struct net_device *port = NULL, *bridge = NULL, *dev, *master;
++	int i;
++
++	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++		ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
++
++		if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
++		    type != ECM_DB_IFACE_TYPE_BRIDGE)
++			goto fail;
++		dev = dev_get_by_index(&init_net,
++			ecm_db_iface_interface_identifier_get(ifaces[i]));
++		if (!dev)
++			goto fail;
++		if (type == ECM_DB_IFACE_TYPE_BRIDGE) {
++			if (bridge || !netif_is_bridge_master(dev)) {
++				dev_put(dev);
++				goto fail;
++			}
++			bridge = dev;
++		} else {
++			if (port || !netif_is_bridge_port(dev)) {
++				dev_put(dev);
++				goto fail;
++			}
++			port = dev;
++		}
++	}
++	if (!port)
++		goto fail;
++	master = netdev_master_upper_dev_get_rcu(port);
++	if (!master || !netif_is_bridge_master(master) ||
++	    (bridge && bridge != master))
++		goto fail;
++	if (bridge)
++		dev_put(bridge);
++	return port;
++fail:
++	if (bridge)
++		dev_put(bridge);
++	if (port)
++		dev_put(port);
++	return NULL;
++}
++
++/*
++ * First L2 slice: one Wi-Fi port and one QinQ port in the same unaware
++ * bridge. Keep customer VLANs, hairpin and same-switch forwarding on their
++ * existing paths. FDB misses/changes are retryable, never a guessed port.
++ */
++int ecm_nss_qinq_bridge_validate(struct ecm_db_connection_instance *ci,
++	struct ecm_db_iface_instance *from_ifaces[], int from_first,
++	struct ecm_db_iface_instance *to_ifaces[], int to_first, bool tagged)
++{
++	struct net_device *from, *to, *br, *found;
++	unsigned char mac[ETH_ALEN];
++	unsigned long restricted = BR_ISOLATED | BR_PORT_LOCKED | BR_PORT_MAB |
++		BR_PROXYARP | BR_PROXYARP_WIFI | BR_NEIGH_SUPPRESS |
++		BR_NEIGH_VLAN_SUPPRESS | BR_VLAN_TUNNEL;
++	bool from_qinq, to_qinq;
++	int ret = -EOPNOTSUPP;
++
++	if (ecm_db_connection_is_routed_get(ci))
++		return 0;
++	if (tagged)
++		return -EOPNOTSUPP;
++#if !defined(ECM_DB_XREF_ENABLE) || !defined(ECM_BAND_STEERING_ENABLE)
++	/* Existing ECM FDB move/delete invalidation is mandatory for L2. */
++	return -EOPNOTSUPP;
++#endif
++	rcu_read_lock();
++	from = ecm_nss_qinq_bridge_port_get(from_ifaces, from_first);
++	to = ecm_nss_qinq_bridge_port_get(to_ifaces, to_first);
++	if (!from || !to || from == to)
++		goto out;
++	br = netdev_master_upper_dev_get_rcu(from);
++	if (!br || !netif_is_bridge_master(br) ||
++	    br != netdev_master_upper_dev_get_rcu(to) || br_vlan_enabled(br))
++		goto out;
++	from_qinq = ecm_nss_qinq_is_port(from);
++	to_qinq = ecm_nss_qinq_is_port(to);
++	if (from_qinq == to_qinq ||
++	    !(from_qinq ? to : from)->ieee80211_ptr)
++		goto out;
++	if (br_port_flag_is_set(from, restricted) ||
++	    br_port_flag_is_set(to, restricted))
++		goto out;
++	ret = -EAGAIN;
++	if (!netif_running(from) || !netif_running(to) ||
++	    !netif_carrier_ok(from) || !netif_carrier_ok(to) ||
++	    br_port_get_stp_state_rcu(from) != BR_STATE_FORWARDING ||
++	    br_port_get_stp_state_rcu(to) != BR_STATE_FORWARDING)
++		goto out;
++	ecm_db_connection_node_address_get(ci, ECM_DB_OBJ_DIR_FROM, mac);
++	if (!is_valid_ether_addr(mac))
++		goto out;
++	found = br_port_dev_get(br, mac, NULL, 0);
++	if (found) {
++		bool matches = found == from;
++
++		dev_put(found);
++		if (!matches)
++			goto out;
++	} else {
++		goto out;
++	}
++	ecm_db_connection_node_address_get(ci, ECM_DB_OBJ_DIR_TO_NAT, mac);
++	if (!is_valid_ether_addr(mac))
++		goto out;
++	found = br_port_dev_get(br, mac, NULL, 0);
++	if (found) {
++		ret = found == to ? 0 : -EAGAIN;
++		dev_put(found);
++	}
++out:
++	if (from)
++		dev_put(from);
++	if (to)
++		dev_put(to);
++	rcu_read_unlock();
++	return ret;
++}
++
+ int ecm_nss_qinq_side_get(struct ecm_db_connection_instance *ci,
+ 	struct ecm_db_iface_instance *ifaces[], int first,
+ 	struct ecm_nss_qinq_side *side)
+@@ -204,9 +330,17 @@
+ 			goto out;
+ 		}
+ 	}
++	/* Bridged admission is completed by the pair validator below. */
+ 	if (!ecm_db_connection_is_routed_get(ci)) {
+-		ret = -EOPNOTSUPP;
+-		goto out;
++		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++			ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
++
++			if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
++			    type != ECM_DB_IFACE_TYPE_BRIDGE) {
++				ret = -EOPNOTSUPP;
++				goto out;
++			}
++		}
+ 	}
+ 
+ 	rcu_read_lock();
+@@ -218,6 +352,12 @@
+ 	conduit = dp->cpu_dp->conduit;
+ 	svid = dsa_tag_8021q_standalone_vid(dp);
+ 	br = dsa_port_bridge_dev_get(dp);
++	if (!ecm_db_connection_is_routed_get(ci) &&
++	    (!br || br_vlan_enabled(br) || direct ||
++	     netdev_master_upper_dev_get_rcu(port) != br)) {
++		ret = -EOPNOTSUPP;
++		goto unlock;
++	}
+ 	if (direct) {
+ 		cvid = vlan_dev_vlan_id(direct);
+ 		if (vlan_dev_real_dev(direct) != port ||
+@@ -356,6 +496,9 @@
+ }
+ 
+ #else
++int ecm_nss_qinq_bridge_validate(struct ecm_db_connection_instance *ci,
++	struct ecm_db_iface_instance *from_ifaces[], int from_first,
++	struct ecm_db_iface_instance *to_ifaces[], int to_first, bool tagged) { return 0; }
+ bool ecm_nss_qinq_is_port(struct net_device *dev) { return false; }
+ bool ecm_nss_qinq_is_upper(struct net_device *dev) { return false; }
+ int ecm_nss_qinq_side_get(struct ecm_db_connection_instance *ci,
+--- a/frontends/nss/ecm_nss_ported_ipv4.c
++++ b/frontends/nss/ecm_nss_ported_ipv4.c
+@@ -371,7 +371,7 @@
+ 	int32_t interface_type_counts[ECM_DB_IFACE_TYPE_COUNT];
+ 	bool rule_invalid;
+ 	struct ecm_nss_qinq_side qinq_from, qinq_to;
+-	int qinq_from_status, qinq_to_status;
++	int qinq_from_status, qinq_to_status, qinq_bridge_status;
+ 	uint8_t dest_mac_xlate[ETH_ALEN];
+ 	ecm_db_direction_t ecm_dir;
+ 	ecm_front_end_acceleration_mode_t result_mode;
+@@ -454,6 +454,17 @@
+ 		from_nss_iface_id = qinq_from.physical;
+ 	if (qinq_to_status > 0)
+ 		to_nss_iface_id = qinq_to.physical;
++	if (qinq_from_status > 0 || qinq_to_status > 0) {
++		qinq_bridge_status = ecm_nss_qinq_bridge_validate(feci->ci,
++			from_ifaces, from_ifaces_first, to_ifaces, to_ifaces_first,
++			is_l2_encap || skb_vlan_tag_present(skb));
++		if (qinq_bridge_status < 0) {
++			if (qinq_from_status > 0)
++				qinq_from_status = qinq_bridge_status;
++			else
++				qinq_to_status = qinq_bridge_status;
++		}
++	}
+ 	if (ecm_nss_qinq_ipv4_rule_retry(feci, nim, from_ifaces, from_ifaces_first,
+ 					 to_ifaces, to_ifaces_first,
+ 					 qinq_from_status, qinq_to_status,
+--- a/frontends/nss/ecm_nss_ported_ipv6.c
++++ b/frontends/nss/ecm_nss_ported_ipv6.c
+@@ -376,7 +376,7 @@
+ 	int32_t interface_type_counts[ECM_DB_IFACE_TYPE_COUNT];
+ 	bool rule_invalid;
+ 	struct ecm_nss_qinq_side qinq_from, qinq_to;
+-	int qinq_from_status, qinq_to_status;
++	int qinq_from_status, qinq_to_status, qinq_bridge_status;
+ 	ip_addr_t src_ip;
+ 	ip_addr_t dest_ip;
+ 	ecm_front_end_acceleration_mode_t result_mode;
+@@ -459,6 +459,17 @@
+ 		from_nss_iface_id = qinq_from.physical;
+ 	if (qinq_to_status > 0)
+ 		to_nss_iface_id = qinq_to.physical;
++	if (qinq_from_status > 0 || qinq_to_status > 0) {
++		qinq_bridge_status = ecm_nss_qinq_bridge_validate(feci->ci,
++			from_ifaces, from_ifaces_first, to_ifaces, to_ifaces_first,
++			is_l2_encap || skb_vlan_tag_present(skb));
++		if (qinq_bridge_status < 0) {
++			if (qinq_from_status > 0)
++				qinq_from_status = qinq_bridge_status;
++			else
++				qinq_to_status = qinq_bridge_status;
++		}
++	}
+ 	if (ecm_nss_qinq_ipv6_rule_retry(feci, nim, from_ifaces, from_ifaces_first,
+ 					 to_ifaces, to_ifaces_first,
+ 					 qinq_from_status, qinq_to_status,
