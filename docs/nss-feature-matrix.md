@@ -1,6 +1,6 @@
 # NSS + DSA features: CR881x and AX3000
 
-Reviewed: 2026-11-18. Hardware evidence covers Xiaomi CR8812DX with YT9215S
+Reviewed: 2026-11-21. Hardware evidence covers Xiaomi CR8812DX with YT9215S
 and Redmi AX3000 with QCA8337. Both use IPQ5018/QCN6122, native Qosmio NSS,
 firmware 12.2, LOW NSS memory and the 256 MiB ath11k allocation profiles.
 
@@ -35,13 +35,24 @@ commit or a long-term reliability qualification.
 | PPPoE IPv4/IPv6 bidirectional UDP | Confirmed | Confirmed on native WAN and VLAN35/4094 under the default classifier policy |
 | PPPoE DHCPv6-PD, renewal and renumbering | Confirmed | Confirmed, including installed-image traffic checks |
 | MTU boundaries and IPv6 Packet Too Big | Confirmed | Confirmed |
-| 5 GHz Wi-Fi STA/client routed IPv4 | Confirmed, including cold first association/data; residual loss remains | Confirmed, including cold first association/data; peak capacity unvalidated |
+| 5 GHz Wi-Fi STA/client routed IPv4 | Confirmed, including cold first association/data and live traffic. Peak throughput and sustained-load reliability unqualified | Confirmed, including cold first association/data; peak capacity unvalidated |
 | 2.4 GHz Wi-Fi STA/client routed IPv4 | Partial: offload demonstrated; severe throughput limits in the test fixture | Partial: TCP/UDP offload demonstrated; weak-link performance remains unresolved |
-| Wi-Fi AP client traffic | Unvalidated; AP startup checked | Unvalidated |
-| Wi-Fi IPv6 | Unvalidated | Unvalidated |
+| Wi-Fi AP client traffic | Unvalidated; AP startup checked | Confirmed: 5 GHz AP client routed IPv4 NAT/TCP and IPv6 TCP in both directions; bounded single-client checks |
+| Wi-Fi IPv6 | Unvalidated | Confirmed: 5 GHz AP routed TCP; STA, 2.4 GHz and UDP coverage remain open |
 | Wi-Fi WDS | Unvalidated with firmware 12.2 | Unvalidated with firmware 12.2 |
 | Wi-Fi mesh / roaming | Unvalidated; mesh manager disabled | Unvalidated |
 | Wi-Fi AP VLAN | Unvalidated | Unvalidated |
+
+Live CR881x 5 GHz STA confirmation uses active ECM rules and increasing NSS
+IPv4 and wifili RX/TX counters during ordinary traffic. Peak throughput and
+sustained-load reliability require controlled testing. FCS/REO reception errors
+were observed, and their cause remains unisolated.
+
+AX3000 AP checks use a separate Wi-Fi subnet and an external wired peer.
+Completed payload transfers, exact ECM rules in accelerated mode and increasing
+NSS IPv4/IPv6/wifili counters establish routed offload. These paced transfers
+do not measure peak throughput or qualify AP cold boot, multiple clients or
+long-term reliability. Bridged AP traffic is covered separately below.
 
 The private outer S-tag identifies the physical DSA port. The inner tag carries
 the native forwarding domain or one customer VLAN. Customer S+C QinQ would
@@ -58,7 +69,7 @@ multiple sessions and maximum tagged-PPPoE throughput are not established.
 
 | Feature | CR881x / YT9215S | AX3000 / QCA8337 |
 | --- | --- | --- |
-| NSS L2 bridge acceleration | Excluded: resolver requires routed flows | Excluded: resolver requires routed flows |
+| NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port on WAN and LAN conduits; IPv4/IPv6 TCP confirmed in both directions in one VLAN-unaware bridge |
 | NSS multicast acceleration | Unvalidated | Unvalidated |
 | NSS IGS / shaper / qdiscs | Disabled; no NSS shaping acceptance | Disabled; no NSS shaping acceptance |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
@@ -71,6 +82,15 @@ multiple sessions and maximum tagged-PPPoE throughput are not established.
 Ordinary Linux VPN, bridge or TLS operation does not establish acceleration by
 the corresponding NSS engine. Switch ACL, mirror and multicast tests below
 also use a different engine from the NSS managers above.
+
+The initial QinQ L2 path admits known unicast between one Wi-Fi port and one
+DSA port in the same VLAN-unaware bridge. Both MACs must currently resolve to
+the selected forwarding ports. FDB changes and bridge-port lifecycle/policy
+events invalidate rules. Customer-tagged or VLAN-aware bridging, hairpin,
+isolated/locked ports and unsupported hierarchies retain host forwarding;
+same-switch LAN traffic retains switch forwarding. Broadcast and discovery
+remain on their existing bridge paths. UDP and multi-client L2 acceptance
+remain open.
 
 ## Switch offload and driver controls
 

@@ -100,7 +100,8 @@ under the default bidirectional policy. Controlled one-way IPv6 UDP tests use
 IPv6 UDP with an external bidirectional peer remains unverified. Full-MTU traffic,
 software forwarding, IPv6 neighbour rediscovery, Packet Too Big handling and
 accelerated TCP at MTU1280 pass. Automatic NSS startup passes warm and cold
-boot. This does not certify NSS L2 bridging, multicast or tunnels. Wi-Fi
+boot. Separate bounded NSS L2 checks are described below; multicast and tunnels
+remain unqualified. Wi-Fi
 validation is described below.
 
 For standalone customer traffic, configure `wan.35` through normal netifd WAN
@@ -194,9 +195,40 @@ a stream whose tracker has an unknown side can stay in software under the
 normal policy.
 The current 2.4 GHz peer has a weak link with UDP timeouts and inconsistent
 TCP downloads, so that check establishes operation rather than capacity.
-Peak throughput, AP mode, Wi-Fi IPv6, roaming and sustained simultaneous
+Single-client 5 GHz AP IPv4 NAT/TCP and routed IPv6 TCP pass in both directions
+with an external wired peer, exact ECM mode2 rules and NSS IP/wifili counters.
+The download check is paced and does not measure capacity. AP cold boot,
+2.4 GHz AP, Wi-Fi IPv6 STA, roaming and sustained simultaneous
 dual-radio load remain unvalidated. Check minimum
 memory headroom during traffic as well as the idle value afterward.
+
+## Native Wi-Fi bridge acceleration
+
+One Wi-Fi port and one QinQ DSA port may share a VLAN-unaware bridge. ECM
+validates both current bridge memberships, forwarding states and source/
+destination FDB ownership before creating an IP bridge rule. The DSA side
+uses the exact physical-port SVID and internal bridge VID; NSS preserves the
+endpoint MAC addresses and does not route the packet. IPv4/IPv6 TCP transfers
+in both directions pass through a 5 GHz AP and an external wired peer with
+`is_routed=0`, accelerated ECM rules and increasing NSS/wifili counters.
+Bounded single-client checks cover the WAN socket reassigned to the test
+bridge and LAN2 through its LAN conduit. Peer captures preserve endpoint
+MAC/IP addresses and show no routing hop. These checks establish operation,
+not peak throughput or error-free wireless delivery.
+
+The optional QinQ manager invalidates rules on bridge membership, port state
+and policy changes; existing ECM FDB move/delete notifiers handle MAC changes.
+Deleting the peer FDB entry retires its rules and permits ordinary relearning.
+Disabling the wired bridge port also retires active rules and blocks peer
+traffic; returning to forwarding restores delivery and acceleration.
+Packet-context admission reads port state through the RCU accessor rather than
+calling the RTNL-only STP API.
+
+This first path excludes customer-tagged/VLAN-aware bridging, hairpin,
+isolated/locked ports and unsupported encapsulations from NSS. Ordinary bridge
+forwarding remains available. Same-switch LAN traffic stays in the switch
+ASIC, and broadcast/discovery keeps the ordinary bridge path. L2 UDP,
+multiple clients, roaming and peak throughput require separate acceptance.
 
 The 256 MiB AX3000 also defaults `vm.percpu_pagelist_high_fraction` to `100`,
 as CR881x does, to return cached free pages to the shared allocator sooner.
