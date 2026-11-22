@@ -1,6 +1,6 @@
 # NSS + DSA features: CR881x and AX3000
 
-Reviewed: 2026-11-21. Hardware evidence covers Xiaomi CR8812DX with YT9215S
+Reviewed: 2026-11-22. Hardware evidence covers Xiaomi CR8812DX with YT9215S
 and Redmi AX3000 with QCA8337. Both use IPQ5018/QCN6122, native Qosmio NSS,
 firmware 12.2, LOW NSS memory and the 256 MiB ath11k allocation profiles.
 
@@ -69,8 +69,9 @@ multiple sessions and maximum tagged-PPPoE throughput are not established.
 
 | Feature | CR881x / YT9215S | AX3000 / QCA8337 |
 | --- | --- | --- |
-| NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP on WAN and LAN conduits, plus IPv4/IPv6 UDP on WAN, confirmed in both directions |
-| NSS multicast acceleration | Unvalidated | Unvalidated |
+| NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and UDP on WAN and LAN conduits confirmed in both directions |
+| L2 bridge policy compatibility | Unvalidated | Confirmed on LAN conduit with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated |
+| Routed IPv4 IPTV via NSS | QinQ uses software forwarding. YT9215S replication backend pending. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin with temporary one-way qualification and fast leave. Default-policy offload and automatic multi-port membership remain open. |
 | NSS IGS / shaper / qdiscs | Disabled; no NSS shaping acceptance | Disabled; no NSS shaping acceptance |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
 | MAP-T | Disabled, unvalidated | Disabled, unvalidated |
@@ -92,7 +93,25 @@ same-switch LAN traffic retains switch forwarding. Broadcast and discovery
 remain on their existing bridge paths. UDP acceptance uses paced, unreliable
 WebRTC data channels with small and 1000-byte application messages under the
 default classifier policy; it does not establish raw full-MTU or peak UDP
-performance. UDP on the LAN conduit and multi-client L2 acceptance remain open.
+performance. Multi-client L2 acceptance remains open.
+
+On AX3000, `qca8k.qinq_multicast=1` enables the experimental IPv4 routed
+path. Configure the IPTV upstream and downstream in the multicast routing
+daemon. The downstream is one VLAN-unaware wired bridge with IGMPv2
+snooping and a local querier. Linux supplies the receiver set and the
+switch driver supplies the QinQ tags for one NSS output.
+
+ECM resolves the upstream independently. It can use a native QinQ WAN
+port or a separate, registered NSS Ethernet MAC, either untagged or with
+one 802.1Q upper. The ingress and egress must use distinct NSS physical
+interfaces. The separate-MAC path awaits device validation. A tagged
+WAN upper on a DSA port, Wi-Fi bridge members and other unsupported
+configurations use software forwarding.
+
+The default ECM reply-wait keeps one-way IPTV in software. Live acceptance
+used `accel_delay_pkts=0` temporarily and bridge fast leave on the single
+receiver port. Each join installed one NSS rule and each leave withdrew it.
+Use an ECM module built against the same kernel configuration as the image.
 
 ## Switch offload and driver controls
 
@@ -101,6 +120,8 @@ performance. UDP on the LAN conduit and multi-client L2 acceptance remain open.
 | LAN-to-LAN hardware switching | Confirmed | Confirmed, including customer VLAN35 switching near 1 Gbps |
 | Customer VLAN membership, PVID and tagged/untagged egress | Confirmed in the tested matrix | Confirmed, including withdrawal/re-add and filtering transitions |
 | FDB/MDB forwarding domains | Confirmed in the tested matrix | Confirmed after the bridge-database isolation fix, including two separate bridges |
+| Same-switch bridged IPTV from WAN to TV ports | Unvalidated | Unvalidated |
+| Switch replication of CPU-injected QinQ multicast | Unvalidated | An exact ACL bitmap replicated QinQ frames from both host injection and NSS. Changing the bitmap changed the receivers under the same NSS rule. Ordinary MDB lookup did not forward the tested CPU frames. |
 | STP/MST under the QinQ profile | Confirmed in the tested matrix | Unvalidated |
 | Hardware ingress ACL/policing, mirroring and TBF shaping | Selected paths confirmed | Comparable QinQ control coverage unvalidated; transport ACLs alone do not establish it |
 | Strict-priority / weighted contention | Acceptance incomplete | Unvalidated |
