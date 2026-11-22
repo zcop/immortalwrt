@@ -46,7 +46,7 @@ link_nss_source_patches() {
 	local source_dir="$TOPDIR/tools/nss/patches/qosmio"
 	local package source target previous
 
-	for package in qca-nss-drv qca-nss-clients qca-nss-ecm; do
+	for package in qca-nss-drv qca-nss-clients qca-nss-ecm qca-mcs; do
 		set -- "$source_dir/$package/"*.patch
 		[ -f "$1" ] || {
 			echo "Missing repository NSS patches: $source_dir/$package" >&2
@@ -76,7 +76,7 @@ link_nss_source_patches() {
 		[ "$(readlink "$target" 2>/dev/null || :)" = "$source" ] || ln -sf "$source" "$target"
 	done
 	# Withdraw only obsolete symlinks owned by this installer.
-	for package in qca-nss-drv qca-nss-clients qca-nss-ecm; do
+	for package in qca-nss-drv qca-nss-clients qca-nss-ecm qca-mcs; do
 		for target in "$repo/$package/patches/"*.patch; do
 			[ -L "$target" ] || continue
 			previous="$(readlink "$target")"

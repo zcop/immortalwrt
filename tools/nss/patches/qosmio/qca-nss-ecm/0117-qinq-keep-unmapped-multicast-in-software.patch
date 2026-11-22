@@ -1,0 +1,148 @@
+Keep unsupported QinQ multicast groups on the host before marking acceleration
+pending. Check the complete ingress/replication hierarchy on create and update,
+including bridge and VLAN lower devices; an update rejection leaves the active
+state intact so the caller can destroy the entire old rule.
+
+--- a/frontends/nss/ecm_nss_common.h
++++ b/frontends/nss/ecm_nss_common.h
+@@ -72,6 +72,9 @@
+ 	struct ecm_db_iface_instance *to_ifaces[], int to_first, bool tagged);
+ bool ecm_nss_qinq_is_port(struct net_device *dev);
+ bool ecm_nss_qinq_is_upper(struct net_device *dev);
++#ifdef ECM_MULTICAST_ENABLE
++bool ecm_nss_qinq_multicast_admit(struct ecm_db_connection_instance *ci);
++#endif
+ int ecm_nss_qinq_side_get(struct ecm_db_connection_instance *ci,
+ 	struct ecm_db_iface_instance *ifaces[], int first,
+ 	struct ecm_nss_qinq_side *side);
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -582,3 +582,84 @@
+ 	return false;
+ }
+ EXPORT_SYMBOL(ecm_nss_ipv4_is_conn_limit_reached);
++
++#ifdef ECM_MULTICAST_ENABLE
++/* No per-replica QinQ encoder exists yet. Never substitute a conduit for a
++ * user port: a shared conduit could deliver the group to the wrong ports.
++ */
++static int ecm_nss_qinq_multicast_lower(struct net_device *dev,
++                                      struct netdev_nested_priv *priv)
++{
++	if (ecm_nss_qinq_is_port(dev) || ecm_nss_qinq_is_upper(dev))
++		return -EOPNOTSUPP;
++	return 0;
++}
++
++static bool ecm_nss_qinq_multicast_hierarchy(
++		struct ecm_db_iface_instance *ifaces[], int first)
++{
++	int i;
++
++	if (first < 0 || first >= ECM_DB_IFACE_HEIRARCHY_MAX)
++		return false;
++	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++		struct netdev_nested_priv priv = {};
++		struct net_device *dev;
++		bool supported;
++
++		dev = dev_get_by_index(&init_net,
++				ecm_db_iface_interface_identifier_get(ifaces[i]));
++		if (!dev)
++			return false;
++		rcu_read_lock();
++		supported = !ecm_nss_qinq_multicast_lower(dev, &priv) &&
++			!netdev_walk_all_lower_dev_rcu(dev,
++					ecm_nss_qinq_multicast_lower, &priv);
++		rcu_read_unlock();
++		dev_put(dev);
++		if (!supported)
++			return false;
++	}
++	return true;
++}
++
++/* Check the complete replication set, including bridge/VLAN lower devices.
++ * A membership update must fall back as a whole, never retain a partial NSS
++ * replica set. Call before accel_pending_set and before modifying an update's
++ * acceleration state so the existing caller can destroy a live firmware rule.
++ */
++bool ecm_nss_qinq_multicast_admit(struct ecm_db_connection_instance *ci)
++{
++	struct ecm_db_iface_instance *from[ECM_DB_IFACE_HEIRARCHY_MAX];
++	struct ecm_db_iface_instance *to[ECM_DB_IFACE_HEIRARCHY_MAX];
++	struct ecm_db_iface_instance *to_all, *hierarchy;
++	int32_t *to_first;
++	int first, vif;
++	bool supported, have_destination = false;
++
++	first = ecm_db_connection_interfaces_get_and_ref(ci, from,
++						ECM_DB_OBJ_DIR_FROM);
++	if (first == ECM_DB_IFACE_HEIRARCHY_MAX)
++		return false;
++	supported = ecm_nss_qinq_multicast_hierarchy(from, first);
++	ecm_db_connection_interfaces_deref(from, first);
++	if (!supported)
++		return false;
++	if (!ecm_db_multicast_connection_to_interfaces_get_and_ref_all(ci,
++						&to_all, &to_first))
++		return false;
++	for (vif = 0; vif < ECM_DB_MULTICAST_IF_MAX; vif++) {
++		if (to_first[vif] == ECM_DB_IFACE_HEIRARCHY_MAX)
++			continue;
++		have_destination = true;
++		hierarchy = ecm_db_multicast_if_heirarchy_get(to_all, vif);
++		ecm_db_multicast_copy_if_heirarchy(to, hierarchy);
++		if (!ecm_nss_qinq_multicast_hierarchy(to, to_first[vif])) {
++			supported = false;
++			break;
++		}
++	}
++	ecm_db_multicast_connection_to_interfaces_deref_all(to_all, to_first);
++	return supported && have_destination;
++}
++#endif
+--- a/frontends/nss/ecm_nss_multicast_ipv4.c
++++ b/frontends/nss/ecm_nss_multicast_ipv4.c
+@@ -412,6 +412,9 @@
+ 	 * changes during rule creation.
+ 	 */
+ 	regen_occurrances = ecm_db_connection_regeneration_occurrances_get(feci->ci);
++
++	if (!ecm_nss_qinq_multicast_admit(feci->ci))
++		return -EOPNOTSUPP;
+ 
+ 	nim = (struct nss_ipv4_msg *)kzalloc(sizeof(struct nss_ipv4_msg), GFP_ATOMIC | __GFP_NOWARN);
+ 	if (!nim) {
+@@ -886,6 +889,9 @@
+ 	/*
+ 	 * Can this connection be accelerated at all?
+ 	 */
++	if (!ecm_nss_qinq_multicast_admit(feci->ci))
++		return;
++
+ 	if (!ecm_nss_ipv4_accel_pending_set(feci)) {
+ 		DEBUG_TRACE("%px: Acceleration denied: %px\n", feci, feci->ci);
+ 		return;
+--- a/frontends/nss/ecm_nss_multicast_ipv6.c
++++ b/frontends/nss/ecm_nss_multicast_ipv6.c
+@@ -420,6 +420,9 @@
+ 	 */
+ 	regen_occurrances = ecm_db_connection_regeneration_occurrances_get(feci->ci);
+ 
++	if (!ecm_nss_qinq_multicast_admit(feci->ci))
++		return -EOPNOTSUPP;
++
+ 	nim = (struct nss_ipv6_msg *)kzalloc(sizeof(struct nss_ipv6_msg), GFP_ATOMIC | __GFP_NOWARN);
+ 	if (!nim) {
+ 		return -1;
+@@ -886,6 +889,9 @@
+ 	/*
+ 	 * Can this connection be accelerated at all?
+ 	 */
++	if (!ecm_nss_qinq_multicast_admit(feci->ci))
++		return;
++
+ 	if (!ecm_nss_ipv6_accel_pending_set(feci)) {
+ 		DEBUG_TRACE("%px: Acceleration denied: %px\n", feci, feci->ci);
+ 		return;

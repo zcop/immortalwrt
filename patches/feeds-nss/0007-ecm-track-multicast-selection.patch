@@ -1,0 +1,14 @@
+Subject: [PATCH] qca-nss-ecm: rebuild when multicast support changes
+
+--- a/qca-nss-ecm/Makefile
++++ b/qca-nss-ecm/Makefile
+@@ -183,6 +183,9 @@
+ EXTRA_CFLAGS+=-DNSS_FIRMWARE_VERSION_12_5
+ endif
+ 
++# Selecting qca-mcs also compiles the ECM multicast frontends.
++PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_kmod-qca-mcs
++
+ define Build/InstallDev
+ 	mkdir -p $(1)/usr/include/qca-nss-ecm
+ 	$(CP) $(PKG_BUILD_DIR)/exports/* $(1)/usr/include/qca-nss-ecm

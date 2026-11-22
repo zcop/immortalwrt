@@ -354,7 +354,7 @@ define Device/redmi_ax3000_nss
 	DEVICE_VARIANT := Native NSS QinQ experiment
 	DEVICE_DTS := ipq5000-ax3000-nss
 	DEVICE_PACKAGES += kmod-qca-nss-dp kmod-qca-nss-drv \
-		kmod-qca-nss-ecm kmod-qca-nss-drv-pppoe kmod-qca-nss-qinq \
+		kmod-qca-nss-ecm kmod-qca-mcs kmod-qca-nss-drv-pppoe kmod-qca-nss-qinq \
 		nss-firmware-ipq50xx
 endef
 TARGET_DEVICES += redmi_ax3000_nss
@@ -389,7 +389,7 @@ define Device/xiaomi_cr881x_nss
 	BOARD_NAME := xiaomi_cr881x
 	SUPPORTED_DEVICES := xiaomi,cr881x
 	DEVICE_PACKAGES += kmod-qca-nss-dp kmod-qca-nss-drv \
-		kmod-qca-nss-ecm kmod-qca-nss-drv-pppoe kmod-qca-nss-qinq \
+		kmod-qca-nss-ecm kmod-qca-mcs kmod-qca-nss-drv-pppoe kmod-qca-nss-qinq \
 		nss-firmware-ipq50xx
 endef
 TARGET_DEVICES += xiaomi_cr881x_nss

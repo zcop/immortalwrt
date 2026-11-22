@@ -1,0 +1,13 @@
+Subject: [PATCH] qca-mcs: track repository-owned compatibility patches
+
+--- a/qca-mcs/Makefile
++++ b/qca-mcs/Makefile
+@@ -2,6 +2,8 @@
+ 
+ PKG_NAME:=qca-mcs
+ PKG_RELEASE:=2
++
++PKG_FILE_DEPENDS += $(TOPDIR)/tools/nss/patches/qosmio/qca-mcs
+ 
+ PKG_SOURCE_URL:=https://git.codelinaro.org/clo/qsdk/oss/lklm/qca-mcs.git
+ PKG_SOURCE_DATE:=2024-09-04

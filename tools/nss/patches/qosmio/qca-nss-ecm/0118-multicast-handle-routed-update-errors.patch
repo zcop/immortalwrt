@@ -1,0 +1,132 @@
+Handle multicast lookup and update failures without retaining stale firmware rules.
+Keep errno-bearing counts and update results signed, retire an old rule if its
+new hierarchy cannot be allocated, and continue IPv6 group traversal after one
+connection rejects an update. This is required by whole-group QinQ fallback.
+
+--- a/frontends/nss/ecm_nss_multicast_ipv4.c
++++ b/frontends/nss/ecm_nss_multicast_ipv4.c
+@@ -1978,7 +1978,7 @@
+ 			int i;
+ 			__be32 ip_src;
+ 			__be32 ip_grp;
+-			uint32_t dst_if_cnt;
++			int32_t dst_if_cnt;
+ 			uint32_t dst_dev[ECM_DB_MULTICAST_IF_MAX];
+ 
+ 			/*
+@@ -2061,6 +2061,7 @@
+ 
+ 			to_list = (struct ecm_db_iface_instance *)kzalloc(ECM_DB_TO_MCAST_INTERFACES_SIZE, GFP_ATOMIC | __GFP_NOWARN);
+ 			if (!to_list) {
++				feci->decelerate(feci);
+ 				ecm_front_end_connection_deref(feci);
+ 				goto find_next_tuple;
+ 			}
+@@ -2379,7 +2380,8 @@
+ 		struct ecm_db_iface_instance *to_list_single;
+ 		struct ecm_db_iface_instance *to_list_temp[ECM_DB_IFACE_HEIRARCHY_MAX];
+ 		uint32_t to_list_first[ECM_DB_MULTICAST_IF_MAX];
+-		uint32_t i, ret;
++		uint32_t i;
++		int ret;
+ 		uint32_t mc_flag = 0;
+ 		bool if_update = false;
+ 		bool found_br_dev = false;
+@@ -2453,6 +2455,7 @@
+ 			if (mc_update.if_join_cnt > 0) {
+ 				to_list = (struct ecm_db_iface_instance *)kzalloc(ECM_DB_TO_MCAST_INTERFACES_SIZE, GFP_ATOMIC | __GFP_NOWARN);
+ 				if (!to_list) {
++					feci->decelerate(feci);
+ 					ecm_front_end_connection_deref(feci);
+ 					goto find_next_tuple;
+ 				}
+--- a/frontends/nss/ecm_nss_multicast_ipv6.c
++++ b/frontends/nss/ecm_nss_multicast_ipv6.c
+@@ -1933,7 +1933,7 @@
+ 			int i;
+ 			struct in6_addr ip_src;
+ 			struct in6_addr ip_grp;
+-			uint32_t dst_if_cnt;
++			int32_t dst_if_cnt;
+ 			uint32_t dst_dev[ECM_DB_MULTICAST_IF_MAX];
+ 
+ 			/*
+@@ -2012,6 +2012,7 @@
+ 
+ 			to_list = (struct ecm_db_iface_instance *)kzalloc(ECM_DB_TO_MCAST_INTERFACES_SIZE, GFP_ATOMIC | __GFP_NOWARN);
+ 			if (!to_list) {
++				feci->decelerate(feci);
+ 				ecm_front_end_connection_deref(feci);
+ 				goto find_next_tuple;
+ 			}
+@@ -2306,7 +2307,8 @@
+ 		struct ecm_db_iface_instance *to_list_single;
+ 		struct ecm_db_iface_instance *to_list_temp[ECM_DB_IFACE_HEIRARCHY_MAX];
+ 		uint32_t to_list_first[ECM_DB_MULTICAST_IF_MAX];
+-		uint32_t i, ret;
++		uint32_t i;
++		int ret;
+ 		uint32_t mc_flags = 0;
+ 		uint32_t tuple_instance_flag = 0;
+ 		bool br_present_in_dest_dev_list = false;
+@@ -2386,9 +2388,9 @@
+ 			if (mc_sync.if_join_cnt > 0) {
+ 				to_list = (struct ecm_db_iface_instance *)kzalloc(ECM_DB_TO_MCAST_INTERFACES_SIZE, GFP_ATOMIC | __GFP_NOWARN);
+ 				if (!to_list) {
++					feci->decelerate(feci);
+ 					ecm_front_end_connection_deref(feci);
+-					ecm_db_multicast_connection_deref(tuple_instance);
+-					return;
++					goto find_next_tuple;
+ 				}
+ 
+ 				/*
+@@ -2408,9 +2410,8 @@
+ 					DEBUG_WARN("Failed to obtain 'to_mcast_update' heirarchy list\n");
+ 					feci->decelerate(feci);
+ 					ecm_front_end_connection_deref(feci);
+-					ecm_db_multicast_connection_deref(tuple_instance);
+ 					kfree(to_list);
+-					return;
++					goto find_next_tuple;
+ 				}
+ 
+ 				/*
+@@ -2450,8 +2451,7 @@
+ 				DEBUG_TRACE("%px: Verification of the ovs 'to_list' has failed. Hence, defunct the connection: %px\n", feci, feci->ci);
+ 				ecm_db_connection_make_defunct(ci);
+ 				ecm_front_end_connection_deref(feci);
+-				ecm_db_multicast_connection_deref(tuple_instance);
+-				return;
++				goto find_next_tuple;
+ 			}
+ #endif
+ 			/*
+@@ -2462,8 +2462,7 @@
+ 					(feci->accel_mode != ECM_FRONT_END_ACCELERATION_MODE_ACCEL)) {
+ 				DEBUG_TRACE("%px: Ignoring wrong mode accel for conn: %px\n", feci, feci->ci);
+ 				ecm_front_end_connection_deref(feci);
+-				ecm_db_multicast_connection_deref(tuple_instance);
+-				return;
++				goto find_next_tuple;
+ 			}
+ 
+ 			/*
+@@ -2474,8 +2473,7 @@
+ 			if (ret < 0) {
+ 				feci->decelerate(feci);
+ 				ecm_front_end_connection_deref(feci);
+-				ecm_db_multicast_connection_deref(tuple_instance);
+-				return;
++				goto find_next_tuple;
+ 			}
+ 
+ 			ecm_front_end_connection_deref(feci);
+@@ -2485,6 +2483,7 @@
+ 			 */
+ 			ecm_db_multicast_connection_to_interfaces_leave(ci, &mc_sync);
+ 
++find_next_tuple:
+ 			/*
+ 			 * Move on to the next flow for the same source and group
+ 			 */

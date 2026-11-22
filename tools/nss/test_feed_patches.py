@@ -19,7 +19,7 @@ FEED = ROOT / 'feeds/nss'
 PATCHES = ROOT / 'patches/feeds-nss'
 RECIPES = ('qca-nss-drv/Makefile', 'qca-nss-drv/Config.in',
            'qca-nss-clients/Makefile', 'qca-nss-ecm/Makefile',
-           'firmware/nss-firmware/Makefile')
+           'qca-mcs/Makefile', 'firmware/nss-firmware/Makefile')
 
 
 def run(*args, **kwargs):

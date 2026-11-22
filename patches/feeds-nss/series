@@ -4,3 +4,5 @@
 0004-qca-nss-drv-ipq50xx-core-vlan.patch
 0005-ipq50xx-memory-and-firmware-defaults.patch
 0006-nss-track-local-patches-and-memory-profile.patch
+0007-ecm-track-multicast-selection.patch
+0008-qca-mcs-track-local-patches.patch
