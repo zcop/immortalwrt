@@ -1,0 +1,415 @@
+Withdraw QCA multicast offload when learned membership or bridge policy changes.
+
+Recheck live policy in RTNL context; never touch MDIO in the bridge notifier.
+Send an explicit notification when a group loses hardware admission.
+
+--- a/include/linux/if_bridge.h
++++ b/include/linux/if_bridge.h
+@@ -73,10 +73,26 @@
+ 				struct rtnl_link_stats64 *nlstats);
+ extern bool br_is_hairpin_enabled(struct net_device *dev);
+ 
++enum br_qinq_mc_event {
++	BR_QINQ_MC_POLICY,
++	BR_QINQ_MC_WITHDRAWN,
++};
++
+ #if IS_REACHABLE(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_BRIDGE_IGMP_SNOOPING)
++int br_qinq_mc_register(struct notifier_block *nb);
++void br_qinq_mc_unregister(struct notifier_block *nb);
++void br_qinq_mc_notify(enum br_qinq_mc_event event, __be32 group);
+ int br_qinq_ipv4_mc_members(struct net_device *dev, __be32 group, u32 *ports,
+ 			    unsigned int limit);
+ #else
++static inline int br_qinq_mc_register(struct notifier_block *nb)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline void br_qinq_mc_unregister(struct notifier_block *nb) { }
++static inline void br_qinq_mc_notify(enum br_qinq_mc_event event, __be32 group) { }
++
+ static inline int br_qinq_ipv4_mc_members(struct net_device *dev, __be32 group,
+ 					  u32 *ports, unsigned int limit)
+ {
+--- a/net/bridge/br_mdb.c
++++ b/net/bridge/br_mdb.c
+@@ -547,12 +547,35 @@
+ 	rtnl_set_sk_err(net, RTNLGRP_MDB, err);
+ }
+ 
++/* Atomic because membership may change from an IGMP RX or a timer. */
++static ATOMIC_NOTIFIER_HEAD(br_qinq_mc_chain);
++
++int br_qinq_mc_register(struct notifier_block *nb)
++{
++	return atomic_notifier_chain_register(&br_qinq_mc_chain, nb);
++}
++EXPORT_SYMBOL_GPL(br_qinq_mc_register);
++
++void br_qinq_mc_unregister(struct notifier_block *nb)
++{
++	atomic_notifier_chain_unregister(&br_qinq_mc_chain, nb);
++}
++EXPORT_SYMBOL_GPL(br_qinq_mc_unregister);
++
++void br_qinq_mc_notify(enum br_qinq_mc_event event, __be32 group)
++{
++	atomic_notifier_call_chain(&br_qinq_mc_chain, event, &group);
++}
++EXPORT_SYMBOL_GPL(br_qinq_mc_notify);
++
+ void br_mdb_notify(struct net_device *dev,
+ 		   struct net_bridge_mdb_entry *mp,
+ 		   struct net_bridge_port_group *pg,
+ 		   int type)
+ {
+ 	__br_mdb_notify(dev, mp, pg, type, true);
++	if (mp->addr.proto == htons(ETH_P_IP))
++		br_qinq_mc_notify(BR_QINQ_MC_POLICY, mp->addr.dst.ip4);
+ }
+ 
+ void br_mdb_flag_change_notify(struct net_device *dev,
+@@ -623,6 +646,7 @@
+ 	int ifindex;
+ 	u16 vid;
+ 
++	br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
+ 	ifindex = pmctx ? pmctx->port->dev->ifindex : 0;
+ 	vid = pmctx && br_multicast_port_ctx_is_vlan(pmctx) ? pmctx->vlan->vid :
+ 							      0;
+--- a/net/bridge/br_if.c
++++ b/net/bridge/br_if.c
+@@ -347,6 +347,7 @@
+ 	br_cfm_port_del(br, p);
+ 
+ 	br_ifinfo_notify(RTM_DELLINK, NULL, p);
++	br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
+ 
+ 	list_del_rcu(&p->list);
+ 	if (netdev_get_fwd_headroom(dev) == br->dev->needed_headroom)
+@@ -693,6 +694,7 @@
+ 	spin_unlock_bh(&br->lock);
+ 
+ 	br_ifinfo_notify(RTM_NEWLINK, NULL, p);
++	br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
+ 
+ 	if (changed_addr)
+ 		call_netdevice_notifiers(NETDEV_CHANGEADDR, br->dev);
+@@ -766,6 +768,9 @@
+ {
+ 	struct net_bridge *br = p->br;
+ 
++	if (mask & (BR_MULTICAST_TO_UNICAST | BR_ISOLATED | BR_PORT_LOCKED))
++		br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
++
+ 	if (mask & BR_AUTO_MASK)
+ 		nbp_update_port_count(br);
+ 
+--- a/net/bridge/br_multicast.c
++++ b/net/bridge/br_multicast.c
+@@ -4703,6 +4703,7 @@
+ 		goto unlock;
+ 
+ 	br_opt_toggle(br, BROPT_MULTICAST_ENABLED, !!val);
++	br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
+ 	if (!br_opt_get(br, BROPT_MULTICAST_ENABLED)) {
+ 		change_snoopers = true;
+ 		br_multicast_disable_all_ports(br);
+@@ -4773,6 +4774,7 @@
+ 		goto unlock;
+ 
+ 	WRITE_ONCE(brmctx->multicast_querier, val);
++	br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
+ 	if (!val)
+ 		goto unlock;
+ 
+@@ -4812,6 +4814,7 @@
+ 
+ 	spin_lock_bh(&brmctx->br->multicast_lock);
+ 	brmctx->multicast_igmp_version = val;
++	br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
+ 	spin_unlock_bh(&brmctx->br->multicast_lock);
+ 
+ 	return 0;
+--- a/net/bridge/br_vlan.c
++++ b/net/bridge/br_vlan.c
+@@ -901,6 +901,7 @@
+ 		return 0;
+ 
+ 	br_opt_toggle(br, BROPT_VLAN_ENABLED, !!val);
++	br_qinq_mc_notify(BR_QINQ_MC_POLICY, 0);
+ 
+ 	err = switchdev_port_attr_set(br->dev, &attr, extack);
+ 	if (err && err != -EOPNOTSUPP) {
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -9,6 +9,7 @@
+ #define __QCA8K_H
+ 
+ #include <linux/bitmap.h>
++#include <linux/workqueue.h>
+ #include <linux/if_vlan.h>
+ #include <linux/delay.h>
+ #include <linux/regmap.h>
+@@ -477,6 +478,11 @@
+ 	bool mdio_only; /* No proprietary in-band management transport */
+ 	bool qinq;
+ 	bool qinq_acl_owned;
++	bool qinq_mc_watch;
++	struct notifier_block qinq_mc_nb;
++	struct delayed_work qinq_mc_work;
++	spinlock_t qinq_mc_pending_lock;
++	__be32 qinq_mc_pending[QCA8K_QINQ_MAX_MC];
+ 	u8 qinq_fault_map;
+ 	struct qca8k_qinq_mc qinq_mc[QCA8K_QINQ_MAX_MC];
+ 	struct qca8k_qinq_vlan qinq_vlans[QCA8K_QINQ_MAX_VLANS];
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -331,6 +331,7 @@
+ 
+ 	WRITE_ONCE(mc->ready, 0);
+ 	ret = qca8k_qinq_mc_write(priv, mc, 0);
++	br_qinq_mc_notify(BR_QINQ_MC_WITHDRAWN, mc->group);
+ 	if (!ret) {
+ 		memset(mc, 0, sizeof(*mc));
+ 		return 0;
+@@ -364,6 +365,8 @@
+ 	return ((u64)ntohl(group) << 32) | ((u32)cvid << 16) | (cpu << 8) | ports;
+ }
+ 
++static void qca8k_qinq_mc_queue(struct qca8k_priv *priv, __be32 group);
++
+ bool qca8k_qinq_ipv4_mc_ready(struct dsa_switch *ds, int cpu, u16 cvid,
+ 			      __be32 group, u8 ports)
+ {
+@@ -376,6 +379,7 @@
+ 	for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++)
+ 		if (READ_ONCE(priv->qinq_mc[i].ready) == cookie)
+ 			return true;
++	qca8k_qinq_mc_queue(priv, group);
+ 	return false;
+ }
+ 
+@@ -428,7 +432,7 @@
+ 		bridge = master;
+ 	}
+ 
+-	if (entry && entry->ports == ports)
++	if (entry && entry->ports == ports && READ_ONCE(entry->ready))
+ 		return 0;
+ 	if (!entry) {
+ 		if (!free)
+@@ -501,6 +505,101 @@
+ withdraw:
+ 	qca8k_qinq_ipv4_mc_set(ds, 0, cvid, group, 0);
+ 	qca8k_qinq_ipv4_mc_set(ds, 5, cvid, group, 0);
++}
++
++static void qca8k_qinq_mc_queue(struct qca8k_priv *priv, __be32 group)
++{
++	int i;
++
++	if (!READ_ONCE(priv->qinq_mc_watch))
++		return;
++	if (group) {
++		spin_lock_bh(&priv->qinq_mc_pending_lock);
++		for (i = 0; i < ARRAY_SIZE(priv->qinq_mc_pending); i++) {
++			if (!priv->qinq_mc_pending[i] || priv->qinq_mc_pending[i] == group) {
++				priv->qinq_mc_pending[i] = group;
++				break;
++			}
++		}
++		spin_unlock_bh(&priv->qinq_mc_pending_lock);
++	}
++	mod_delayed_work(system_wq, &priv->qinq_mc_work, 0);
++}
++
++/* Changes to multicast policy can originate under the bridge spinlock. */
++static int qca8k_qinq_mc_policy_event(struct notifier_block *nb,
++				     unsigned long event, void *ptr)
++{
++	struct qca8k_priv *priv = container_of(nb, struct qca8k_priv, qinq_mc_nb);
++
++	if (event == BR_QINQ_MC_POLICY)
++		qca8k_qinq_mc_queue(priv, *(__be32 *)ptr);
++	return NOTIFY_DONE;
++}
++
++static void qca8k_qinq_mc_reconcile(struct work_struct *work)
++{
++	struct qca8k_priv *priv = container_of(to_delayed_work(work),
++					      struct qca8k_priv, qinq_mc_work);
++	struct dsa_switch *ds = priv->ds;
++	__be32 pending[QCA8K_QINQ_MAX_MC];
++	int i;
++
++	/* DSA teardown can cancel this work while it holds RTNL. */
++	if (!READ_ONCE(priv->qinq_mc_watch))
++		return;
++	if (!rtnl_trylock()) {
++		mod_delayed_work(system_wq, &priv->qinq_mc_work, 1);
++		return;
++	}
++	spin_lock_bh(&priv->qinq_mc_pending_lock);
++	memcpy(pending, priv->qinq_mc_pending, sizeof(pending));
++	memset(priv->qinq_mc_pending, 0, sizeof(priv->qinq_mc_pending));
++	spin_unlock_bh(&priv->qinq_mc_pending_lock);
++
++	for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++) {
++		struct qca8k_qinq_mc *mc = &priv->qinq_mc[i];
++		struct dsa_port *dp;
++		struct dsa_db db = { .type = DSA_DB_BRIDGE };
++
++		if (!mc->group)
++			continue;
++		dsa_switch_for_each_user_port(dp, ds) {
++			unsigned int num;
++
++			if (!dp->bridge || !dp->cpu_dp || dp->cpu_dp->index != mc->cpu)
++				continue;
++			num = dsa_port_bridge_num_get(dp);
++			if (num && dsa_tag_8021q_bridge_vid(num) == mc->cvid) {
++				db.bridge = *dp->bridge;
++				break;
++			}
++		}
++		if (!db.bridge.dev) {
++			qca8k_qinq_mc_remove(priv, mc);
++			continue;
++		}
++		qca8k_qinq_ipv4_mc_sync(ds, db, mc->group);
++	}
++	for (i = 0; i < ARRAY_SIZE(pending); i++) {
++		struct dsa_port *dp;
++		unsigned long seen = 0;
++
++		if (!pending[i])
++			continue;
++		dsa_switch_for_each_user_port(dp, ds) {
++			unsigned int num = dsa_port_bridge_num_get(dp);
++			struct dsa_db db = { .type = DSA_DB_BRIDGE };
++
++			if (!dp->bridge || !num || num > DSA_TAG_8021Q_MAX_NUM_BRIDGES ||
++			    (seen & BIT(num)))
++				continue;
++			seen |= BIT(num);
++			db.bridge = *dp->bridge;
++			qca8k_qinq_ipv4_mc_sync(ds, db, pending[i]);
++		}
++	}
++	rtnl_unlock();
+ }
+ 
+ static int qca8k_qinq_customer_rule(struct qca8k_priv *priv,
+@@ -860,6 +959,11 @@
+ 
+ 	if (!priv->qinq || !priv->qinq_acl_owned)
+ 		return;
++	if (priv->qinq_mc_watch) {
++		WRITE_ONCE(priv->qinq_mc_watch, false);
++		br_qinq_mc_unregister(&priv->qinq_mc_nb);
++		cancel_delayed_work_sync(&priv->qinq_mc_work);
++	}
+ 	dsa_switch_for_each_user_port(dp, ds)
+ 		qca8k_port_set_status(priv, dp->index, 0);
+ 	if (ds->tag_8021q_ctx) {
+@@ -999,6 +1103,15 @@
+ 	rtnl_unlock();
+ 	if (ret)
+ 		goto fail;
++	if (qca8k_qinq_multicast) {
++		spin_lock_init(&priv->qinq_mc_pending_lock);
++		INIT_DELAYED_WORK(&priv->qinq_mc_work, qca8k_qinq_mc_reconcile);
++		priv->qinq_mc_nb.notifier_call = qca8k_qinq_mc_policy_event;
++		ret = br_qinq_mc_register(&priv->qinq_mc_nb);
++		if (ret)
++			goto fail;
++		WRITE_ONCE(priv->qinq_mc_watch, true);
++	}
+ 	dev_warn(priv->dev, "experimental QinQ: native/unaware data only; MDIO management\n");
+ 	return 0;
+ fail:
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -636,6 +636,8 @@
+ 		break;
+ 	}
+ 
++	if (priv->qinq && state != BR_STATE_FORWARDING)
++		qca8k_qinq_mc_prune_port(priv, port);
+ 	qca8k_rmw(priv, QCA8K_PORT_LOOKUP_CTRL(port),
+ 		  QCA8K_PORT_LOOKUP_STATE_MASK, stp_state);
+ 
+--- a/net/ipv4/ipmr.c
++++ b/net/ipv4/ipmr.c
+@@ -433,6 +433,58 @@
+ }
+ EXPORT_SYMBOL(ipmr_find_mfc_entry);
+ 
++/* The bounded QinQ flow matches a native incoming VIF and one native output.
++ * NSS enforces the ordinary routed TTL check, so reject custom thresholds.
++ */
++int ipmr_qinq_ipv4_mc_route(struct net *net, __be32 origin, __be32 group,
++			   int input, u32 *output)
++{
++	const struct vif_device *vif;
++	struct mfc_cache *cache;
++	struct mr_table *mrt;
++	int i, parent, ret = -EOPNOTSUPP;
++	u32 found = 0;
++
++	rcu_read_lock();
++	mrt = ipmr_get_table(net, RT_TABLE_DEFAULT);
++	if (!mrt)
++		goto out;
++	spin_lock_bh(&mrt_lock);
++	cache = ipmr_cache_find(mrt, origin, group);
++	if (!cache)
++		goto unlock;
++	parent = cache->_c.mfc_parent;
++	if (parent >= MAXVIFS || !VIF_EXISTS(mrt, parent))
++		goto unlock;
++	vif = &mrt->vif_table[parent];
++	if (vif->dev->ifindex != input || (vif->flags & (VIFF_TUNNEL | VIFF_REGISTER)))
++		goto unlock;
++	for (i = 0; i < cache->_c.mfc_un.res.maxvif; i++) {
++		u8 ttl = cache->_c.mfc_un.res.ttls[i];
++
++		if (ttl == 255 || !ttl)
++			continue;
++		if (ttl != 1 || i == parent || found || !VIF_EXISTS(mrt, i))
++			goto unlock;
++		vif = &mrt->vif_table[i];
++		if (vif->flags & (VIFF_TUNNEL | VIFF_REGISTER))
++			goto unlock;
++		found = vif->dev->ifindex;
++	}
++	if (found) {
++		*output = found;
++		ret = 0;
++	}
++unlock:
++	spin_unlock_bh(&mrt_lock);
++out:
++	rcu_read_unlock();
++	return ret;
++}
++EXPORT_SYMBOL_GPL(ipmr_qinq_ipv4_mc_route);
++
++
++
+ /* ipmr_mfc_stats_update()
+  * Update the MFC/VIF statistics for offloaded flows
+  */
+--- a/include/linux/mroute.h
++++ b/include/linux/mroute.h
+@@ -121,6 +121,8 @@
+ /*
+  * Find the destination interface list, given a multicast group and source
+  */
++int ipmr_qinq_ipv4_mc_route(struct net *net, __be32 origin, __be32 group,
++			   int input, u32 *output);
+ extern int ipmr_find_mfc_entry(struct net *net, __be32 origin, __be32 group,
+ 				 u32 max_dst_cnt, u32 dest_dev[]);
+ 

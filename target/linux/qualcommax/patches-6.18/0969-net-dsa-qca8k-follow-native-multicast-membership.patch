@@ -1,0 +1,278 @@
+Drive the optional QCA QinQ multicast bitmap from the native bridge MDB.
+
+Only publish a complete, unfiltered IGMPv2 receiver set in one native
+wired bridge on one CPU conduit. Re-read membership for each deferred
+bridge event and publish hardware readiness only after verifying the ACL.
+
+--- a/include/linux/if_bridge.h
++++ b/include/linux/if_bridge.h
+@@ -73,6 +73,17 @@
+ 				struct rtnl_link_stats64 *nlstats);
+ extern bool br_is_hairpin_enabled(struct net_device *dev);
+ 
++#if IS_REACHABLE(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_BRIDGE_IGMP_SNOOPING)
++int br_qinq_ipv4_mc_members(struct net_device *dev, __be32 group, u32 *ports,
++			    unsigned int limit);
++#else
++static inline int br_qinq_ipv4_mc_members(struct net_device *dev, __be32 group,
++					  u32 *ports, unsigned int limit)
++{
++	return -EOPNOTSUPP;
++}
++#endif
++
+ #if IS_ENABLED(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_BRIDGE_IGMP_SNOOPING)
+ int br_multicast_list_adjacent(struct net_device *dev,
+ 			       struct list_head *br_ip_list);
+--- a/net/bridge/br_multicast.c
++++ b/net/bridge/br_multicast.c
+@@ -4980,6 +4980,65 @@
+ }
+ EXPORT_SYMBOL_GPL(br_multicast_has_querier_anywhere);
+ 
++/* Return the complete native bridge output set for unfiltered IGMPv2.
++ * The switch cannot emulate source lists, router ports or MAC conversion.
++ */
++int br_qinq_ipv4_mc_members(struct net_device *dev, __be32 group, u32 *ports,
++			    unsigned int limit)
++{
++	struct br_ip key = { .dst.ip4 = group, .proto = htons(ETH_P_IP) };
++	struct net_bridge_mdb_entry *entry;
++	struct net_bridge_port_group *pg;
++	struct net_bridge_mcast *ctx;
++	struct net_bridge *br;
++	unsigned int count = 0;
++	int ret = -EOPNOTSUPP;
++
++	if (!netif_is_bridge_master(dev) || !netif_running(dev) ||
++	    !ipv4_is_multicast(group) || ipv4_is_local_multicast(group))
++		return ret;
++
++	br = netdev_priv(dev);
++	ctx = &br->multicast_ctx;
++	spin_lock_bh(&br->multicast_lock);
++	if (br_vlan_enabled(dev) || !br_opt_get(br, BROPT_MULTICAST_ENABLED) ||
++	    ctx->multicast_igmp_version != 2 || !ctx->multicast_querier ||
++	    !hlist_empty(&ctx->ip4_mc_router_list) ||
++	    !__br_multicast_querier_exists(ctx, &ctx->ip4_other_query, false))
++		goto out;
++
++	entry = br_mdb_ip_get(br, &key);
++	if (!entry) {
++		ret = 0;
++		goto out;
++	}
++	if (entry->host_joined)
++		goto out;
++	for (pg = mlock_dereference(entry->ports, br); pg;
++	     pg = mlock_dereference(pg->next, br)) {
++		struct net_bridge_port *p = pg->key.port;
++
++		if (pg->filter_mode != MCAST_EXCLUDE || !hlist_empty(&pg->src_list) ||
++		    (pg->flags & MDB_PG_FLAGS_BLOCKED) ||
++		    (p->flags & (BR_MULTICAST_TO_UNICAST | BR_ISOLATED | BR_PORT_LOCKED)))
++			goto out;
++		if (p->state != BR_STATE_FORWARDING)
++			continue;
++		if (count == limit) {
++			ret = -ENOSPC;
++			goto out;
++		}
++		ports[count++] = p->dev->ifindex;
++	}
++	ret = count;
++out:
++	spin_unlock_bh(&br->multicast_lock);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(br_qinq_ipv4_mc_members);
++
++
++
+ /**
+  * br_multicast_has_querier_adjacent - Checks for a querier behind a bridge port
+  * @dev: The bridge port adjacent to which to check for a querier
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -1114,8 +1114,8 @@
+ 	 * Multicast database
+ 	 */
+ 	/* Optional QinQ transport. Caller serializes changes with RTNL. */
+-	int	(*qinq_ipv4_mc_set)(struct dsa_switch *ds, int cpu, u16 cvid,
+-				    __be32 group, u8 ports);
++	bool	(*qinq_ipv4_mc_ready)(struct dsa_switch *ds, int cpu, u16 cvid,
++				      __be32 group, u8 ports);
+ 	int	(*port_mdb_add)(struct dsa_switch *ds, int port,
+ 				const struct switchdev_obj_port_mdb *mdb,
+ 				struct dsa_db db);
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -457,6 +457,7 @@
+ 
+ #define QCA8K_QINQ_MAX_MC 16
+ struct qca8k_qinq_mc {
++	u64 ready;
+ 	__be32 group;
+ 	u16 cvid;
+ 	u8 cpu, slot, ports;
+@@ -537,8 +538,11 @@
+ bool qca8k_qinq_customer_busy(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_check_conduit(struct qca8k_priv *priv, int port, int cpu);
+ void qca8k_qinq_fault(struct qca8k_priv *priv, int port);
+-int qca8k_qinq_ipv4_mc_set(struct dsa_switch *ds, int cpu, u16 cvid,
+-			   __be32 group, u8 ports);
++bool qca8k_qinq_ipv4_mc_ready(struct dsa_switch *ds, int cpu, u16 cvid,
++			      __be32 group, u8 ports);
++void qca8k_qinq_ipv4_mc_sync(struct dsa_switch *ds, struct dsa_db db,
++			    __be32 group);
++int qca8k_qinq_mc_prune_port(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_block_native(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_vlan_add(struct dsa_switch *ds, int port, u16 vid, u16 flags);
+ int qca8k_qinq_vlan_del(struct dsa_switch *ds, int port, u16 vid);
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -8,7 +8,12 @@
+ #include <linux/if_vlan.h>
+ #include <linux/rtnetlink.h>
+ #include <linux/inetdevice.h>
++#include <linux/module.h>
+ #include "qca8k.h"
++
++static bool qca8k_qinq_multicast;
++module_param_named(qinq_multicast, qca8k_qinq_multicast, bool, 0444);
++MODULE_PARM_DESC(qinq_multicast, "Enable experimental native IPv4 QinQ multicast steering");
+ 
+ #define QINQ_ACL_FIRST 89
+ #define QINQ_ACL_LAST 95
+@@ -223,8 +228,6 @@
+ /* A native domain being removed must cease granting TX before its VTU
+  * entry is deleted. The next PVID add publishes its replacement rule.
+  */
+-static int qca8k_qinq_mc_prune_port(struct qca8k_priv *priv, int port);
+-
+ int qca8k_qinq_block_native(struct qca8k_priv *priv, int port)
+ {
+ 	u32 empty[5] = {}, action[3] = {};
+@@ -326,6 +329,7 @@
+ {
+ 	int ret, port;
+ 
++	WRITE_ONCE(mc->ready, 0);
+ 	ret = qca8k_qinq_mc_write(priv, mc, 0);
+ 	if (!ret) {
+ 		memset(mc, 0, sizeof(*mc));
+@@ -339,7 +343,7 @@
+ 	return ret;
+ }
+ 
+-static int qca8k_qinq_mc_prune_port(struct qca8k_priv *priv, int port)
++int qca8k_qinq_mc_prune_port(struct qca8k_priv *priv, int port)
+ {
+ 	int i, ret;
+ 
+@@ -355,7 +359,27 @@
+ 	return 0;
+ }
+ 
+-int qca8k_qinq_ipv4_mc_set(struct dsa_switch *ds, int cpu, u16 cvid,
++static u64 qca8k_qinq_mc_cookie(__be32 group, int cpu, u16 cvid, u8 ports)
++{
++	return ((u64)ntohl(group) << 32) | ((u32)cvid << 16) | (cpu << 8) | ports;
++}
++
++bool qca8k_qinq_ipv4_mc_ready(struct dsa_switch *ds, int cpu, u16 cvid,
++			      __be32 group, u8 ports)
++{
++	struct qca8k_priv *priv = ds->priv;
++	u64 cookie = qca8k_qinq_mc_cookie(group, cpu, cvid, ports);
++	int i;
++
++	if (!priv->qinq || !qca8k_qinq_multicast || !ports)
++		return false;
++	for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++)
++		if (READ_ONCE(priv->qinq_mc[i].ready) == cookie)
++			return true;
++	return false;
++}
++
++static int qca8k_qinq_ipv4_mc_set(struct dsa_switch *ds, int cpu, u16 cvid,
+ 			   __be32 group, u8 ports)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
+@@ -418,6 +442,7 @@
+ 		};
+ 	}
+ 
++	WRITE_ONCE(entry->ready, 0);
+ 	ret = qca8k_qinq_mc_write(priv, entry, ports);
+ 	if (ret) {
+ 		entry->ports |= ports;
+@@ -425,7 +450,57 @@
+ 		return ret;
+ 	}
+ 	entry->ports = ports;
++	WRITE_ONCE(entry->ready, qca8k_qinq_mc_cookie(group, cpu, cvid, ports));
+ 	return 0;
++}
++
++/* Rebuild from the bridge's current MDB, not the possibly stale event delta.
++ * A bridge with a software, Wi-Fi or second-conduit port stays in software.
++ */
++void qca8k_qinq_ipv4_mc_sync(struct dsa_switch *ds, struct dsa_db db,
++			    __be32 group)
++{
++	struct qca8k_priv *priv = ds->priv;
++	struct net_device *br, *lower;
++	struct list_head *iter;
++	u32 ifindices[QCA8K_NUM_PORTS];
++	int count, i, cpu = -1;
++	u8 ports = 0;
++	u16 cvid;
++
++	if (!priv->qinq || !qca8k_qinq_multicast || !group ||
++	    db.type != DSA_DB_BRIDGE || !db.bridge.num)
++		return;
++	br = db.bridge.dev;
++	cvid = dsa_tag_8021q_bridge_vid(db.bridge.num);
++	ASSERT_RTNL();
++	count = br_qinq_ipv4_mc_members(br, group, ifindices, ARRAY_SIZE(ifindices));
++	if (count <= 0)
++		goto withdraw;
++
++	netdev_for_each_lower_dev(br, lower, iter) {
++		struct dsa_port *dp;
++
++		if (!dsa_user_dev_check(lower))
++			goto withdraw;
++		dp = dsa_port_from_netdev(lower);
++		if (IS_ERR(dp) || dp->ds != ds || !dp->cpu_dp ||
++		    dsa_port_bridge_dev_get(dp) != br)
++			goto withdraw;
++		if (cpu >= 0 && cpu != dp->cpu_dp->index)
++			goto withdraw;
++		cpu = dp->cpu_dp->index;
++		for (i = 0; i < count; i++)
++			if (ifindices[i] == lower->ifindex)
++				ports |= BIT(dp->index);
++	}
++	if (hweight8(ports) != count || qca8k_qinq_ipv4_mc_set(ds, cpu, cvid, group, ports))
++		goto withdraw;
++	return;
++
++withdraw:
++	qca8k_qinq_ipv4_mc_set(ds, 0, cvid, group, 0);
++	qca8k_qinq_ipv4_mc_set(ds, 5, cvid, group, 0);
+ }
+ 
+ static int qca8k_qinq_customer_rule(struct qca8k_priv *priv,
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -2237,7 +2237,7 @@
+ 	.port_fdb_dump		= qca8k_port_fdb_dump,
+ 	.lag_fdb_add		= qca8k_lag_fdb_add,
+ 	.lag_fdb_del		= qca8k_lag_fdb_del,
+-	.qinq_ipv4_mc_set	= qca8k_qinq_ipv4_mc_set,
++	.qinq_ipv4_mc_ready	= qca8k_qinq_ipv4_mc_ready,
+ 	.port_mdb_add		= qca8k_port_mdb_add,
+ 	.port_mdb_del		= qca8k_port_mdb_del,
+ 	.port_mirror_add	= qca8k_port_mirror_add,

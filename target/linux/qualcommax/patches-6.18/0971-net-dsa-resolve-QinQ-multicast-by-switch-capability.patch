@@ -1,0 +1,269 @@
+Let DSA switch drivers supply the wire path for QinQ multicast.
+
+The consumer submits a bridge and its complete receiver set. The driver
+publishes the conduit and VLAN tags only after verifying the hardware rule.
+QCA8337 uses the same receiver resolution for programming and lookup.
+
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -472,6 +472,10 @@
+ 
+ 	void *tagger_data;
+ 
++	/* Driver publishes this after enabling its QinQ multicast path. */
++	bool qinq_ipv4_mc_enabled;
++
++
+ 	/*
+ 	 * Configuration data for this switch.
+ 	 */
+@@ -869,6 +873,12 @@
+ 
+ typedef int dsa_fdb_dump_cb_t(const unsigned char *addr, u16 vid,
+ 			      bool is_static, void *data);
++/* Wire representation supplied by the switch driver, under RCU. */
++struct dsa_qinq_ipv4_mc_path {
++	struct net_device *conduit;
++	u32 vlan[2];
++};
++
+ struct dsa_switch_ops {
+ 	/*
+ 	 * Tagging protocol helpers called for the CPU ports and DSA links.
+@@ -1113,9 +1123,12 @@
+ 	/*
+ 	 * Multicast database
+ 	 */
+-	/* Optional QinQ transport. Caller serializes changes with RTNL. */
+-	bool	(*qinq_ipv4_mc_ready)(struct dsa_switch *ds, int cpu, u16 cvid,
+-				      __be32 group, u8 ports);
++	/* Return the installed wire path for exactly these receivers.
++	 * Called under RCU; drivers must not sleep or program hardware here.
++	 */
++	bool	(*qinq_ipv4_mc_path)(struct dsa_switch *ds, struct net_device *br,
++				     __be32 group, const u32 *ifindices,
++				     unsigned int count, struct dsa_qinq_ipv4_mc_path *path);
+ 	int	(*port_mdb_add)(struct dsa_switch *ds, int port,
+ 				const struct switchdev_obj_port_mdb *mdb,
+ 				struct dsa_db db);
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -544,8 +544,9 @@
+ bool qca8k_qinq_customer_busy(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_check_conduit(struct qca8k_priv *priv, int port, int cpu);
+ void qca8k_qinq_fault(struct qca8k_priv *priv, int port);
+-bool qca8k_qinq_ipv4_mc_ready(struct dsa_switch *ds, int cpu, u16 cvid,
+-			      __be32 group, u8 ports);
++bool qca8k_qinq_ipv4_mc_path(struct dsa_switch *ds, struct net_device *br,
++			     __be32 group, const u32 *ifindices,
++			     unsigned int count, struct dsa_qinq_ipv4_mc_path *path);
+ void qca8k_qinq_ipv4_mc_sync(struct dsa_switch *ds, struct dsa_db db,
+ 			    __be32 group);
+ int qca8k_qinq_mc_prune_port(struct qca8k_priv *priv, int port);
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -2237,7 +2237,7 @@
+ 	.port_fdb_dump		= qca8k_port_fdb_dump,
+ 	.lag_fdb_add		= qca8k_lag_fdb_add,
+ 	.lag_fdb_del		= qca8k_lag_fdb_del,
+-	.qinq_ipv4_mc_ready	= qca8k_qinq_ipv4_mc_ready,
++	.qinq_ipv4_mc_path	= qca8k_qinq_ipv4_mc_path,
+ 	.port_mdb_add		= qca8k_port_mdb_add,
+ 	.port_mdb_del		= qca8k_port_mdb_del,
+ 	.port_mirror_add	= qca8k_port_mirror_add,
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -367,18 +367,73 @@
+ 
+ static void qca8k_qinq_mc_queue(struct qca8k_priv *priv, __be32 group);
+ 
+-bool qca8k_qinq_ipv4_mc_ready(struct dsa_switch *ds, int cpu, u16 cvid,
+-			      __be32 group, u8 ports)
++struct qca8k_qinq_mc_target {
++	struct dsa_port *cpu;
++	u16 cvid;
++	u8 ports;
++};
++
++/* Match the live upper link and published native VID under RCU. DSA's
++ * RTNL-owned bridge object is not an RCU lookup.
++ */
++static bool qca8k_qinq_mc_target(struct dsa_switch *ds, struct net_device *br,
++				 const u32 *ifindices, unsigned int count,
++				 struct qca8k_qinq_mc_target *target)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
+-	u64 cookie = qca8k_qinq_mc_cookie(group, cpu, cvid, ports);
++	struct net_device *lower;
++	struct list_head *iter = &br->adj_list.lower;
++	unsigned int i;
++
++	*target = (struct qca8k_qinq_mc_target){};
++	if (!count || count > QCA8K_NUM_PORTS)
++		return false;
++	while ((lower = netdev_next_lower_dev_rcu(br, &iter))) {
++		struct dsa_port *dp, *cpu;
++		u16 cvid;
++
++		if (!dsa_user_dev_check(lower) ||
++		    netdev_master_upper_dev_get_rcu(lower) != br)
++			return false;
++		dp = dsa_port_from_netdev(lower);
++		if (IS_ERR_OR_NULL(dp) || dp->ds != ds)
++			return false;
++		cpu = READ_ONCE(dp->cpu_dp);
++		cvid = READ_ONCE(priv->qinq_native_vid[dp->index]);
++		if (!cpu || !cvid || (target->cpu &&
++		    (target->cpu != cpu || target->cvid != cvid)))
++			return false;
++		target->cpu = cpu;
++		target->cvid = cvid;
++		for (i = 0; i < count; i++)
++			if (ifindices[i] == lower->ifindex)
++				target->ports |= BIT(dp->index);
++	}
++	return hweight8(target->ports) == count;
++}
++
++bool qca8k_qinq_ipv4_mc_path(struct dsa_switch *ds, struct net_device *br,
++			     __be32 group, const u32 *ifindices,
++			     unsigned int count, struct dsa_qinq_ipv4_mc_path *path)
++{
++	struct qca8k_priv *priv = ds->priv;
++	struct qca8k_qinq_mc_target target;
++	u64 cookie;
+ 	int i;
+ 
+-	if (!priv->qinq || !qca8k_qinq_multicast || !ports)
++	if (!READ_ONCE(ds->qinq_ipv4_mc_enabled) ||
++	    !qca8k_qinq_mc_target(ds, br, ifindices, count, &target))
+ 		return false;
+-	for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++)
+-		if (READ_ONCE(priv->qinq_mc[i].ready) == cookie)
+-			return true;
++	cookie = qca8k_qinq_mc_cookie(group, target.cpu->index,
++				     target.cvid, target.ports);
++	for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++) {
++		if (READ_ONCE(priv->qinq_mc[i].ready) != cookie)
++			continue;
++		path->conduit = READ_ONCE(target.cpu->conduit);
++		path->vlan[0] = (ETH_P_8021AD << 16) | dsa_qca_qinq_ipv4_mc_svid(group);
++		path->vlan[1] = (ETH_P_8021Q << 16) | target.cvid;
++		return true;
++	}
+ 	qca8k_qinq_mc_queue(priv, group);
+ 	return false;
+ }
+@@ -465,40 +520,27 @@
+ 			    __be32 group)
+ {
+ 	struct qca8k_priv *priv = ds->priv;
+-	struct net_device *br, *lower;
+-	struct list_head *iter;
++	struct qca8k_qinq_mc_target target;
++	struct net_device *br = db.bridge.dev;
+ 	u32 ifindices[QCA8K_NUM_PORTS];
+-	int count, i, cpu = -1;
+-	u8 ports = 0;
+ 	u16 cvid;
++	int count;
++	bool valid;
+ 
+ 	if (!priv->qinq || !qca8k_qinq_multicast || !group ||
+ 	    db.type != DSA_DB_BRIDGE || !db.bridge.num)
+ 		return;
+-	br = db.bridge.dev;
+ 	cvid = dsa_tag_8021q_bridge_vid(db.bridge.num);
+ 	ASSERT_RTNL();
+ 	count = br_qinq_ipv4_mc_members(br, group, ifindices, ARRAY_SIZE(ifindices));
+ 	if (count <= 0)
+ 		goto withdraw;
+ 
+-	netdev_for_each_lower_dev(br, lower, iter) {
+-		struct dsa_port *dp;
+-
+-		if (!dsa_user_dev_check(lower))
+-			goto withdraw;
+-		dp = dsa_port_from_netdev(lower);
+-		if (IS_ERR(dp) || dp->ds != ds || !dp->cpu_dp ||
+-		    dsa_port_bridge_dev_get(dp) != br)
+-			goto withdraw;
+-		if (cpu >= 0 && cpu != dp->cpu_dp->index)
+-			goto withdraw;
+-		cpu = dp->cpu_dp->index;
+-		for (i = 0; i < count; i++)
+-			if (ifindices[i] == lower->ifindex)
+-				ports |= BIT(dp->index);
+-	}
+-	if (hweight8(ports) != count || qca8k_qinq_ipv4_mc_set(ds, cpu, cvid, group, ports))
++	rcu_read_lock();
++	valid = qca8k_qinq_mc_target(ds, br, ifindices, count, &target);
++	rcu_read_unlock();
++	if (!valid || target.cvid != cvid ||
++	    qca8k_qinq_ipv4_mc_set(ds, target.cpu->index, cvid, group, target.ports))
+ 		goto withdraw;
+ 	return;
+ 
+@@ -960,6 +1002,7 @@
+ 	if (!priv->qinq || !priv->qinq_acl_owned)
+ 		return;
+ 	if (priv->qinq_mc_watch) {
++		WRITE_ONCE(ds->qinq_ipv4_mc_enabled, false);
+ 		WRITE_ONCE(priv->qinq_mc_watch, false);
+ 		br_qinq_mc_unregister(&priv->qinq_mc_nb);
+ 		cancel_delayed_work_sync(&priv->qinq_mc_work);
+@@ -1111,6 +1154,7 @@
+ 		if (ret)
+ 			goto fail;
+ 		WRITE_ONCE(priv->qinq_mc_watch, true);
++		smp_store_release(&ds->qinq_ipv4_mc_enabled, true);
+ 	}
+ 	dev_warn(priv->dev, "experimental QinQ: native/unaware data only; MDIO management\n");
+ 	return 0;
+--- /dev/null
++++ b/include/linux/dsa/qinq_mcast.h
+@@ -0,0 +1,44 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_DSA_QINQ_MCAST_H
++#define _LINUX_DSA_QINQ_MCAST_H
++
++#include <net/dsa.h>
++
++/* Both helpers are called under RCU. The backend validates the bridge and
++ * the exact receiver set when resolving a wire path.
++ */
++static inline struct dsa_switch *dsa_qinq_ipv4_mc_switch(struct net_device *dev)
++{
++#if IS_ENABLED(CONFIG_NET_DSA)
++	struct dsa_port *dp;
++
++	if (!dsa_user_dev_check(dev))
++		return NULL;
++	dp = dsa_port_from_netdev(dev);
++	if (!IS_ERR_OR_NULL(dp) && smp_load_acquire(&dp->ds->qinq_ipv4_mc_enabled) &&
++	    dp->ds->ops->qinq_ipv4_mc_path)
++		return dp->ds;
++#endif
++	return NULL;
++}
++
++static inline struct dsa_switch *dsa_qinq_ipv4_mc_bridge(struct net_device *br)
++{
++	struct net_device *lower;
++	struct dsa_switch *ds = NULL;
++	struct list_head *iter;
++
++	if (!netif_is_bridge_master(br))
++		return NULL;
++	iter = &br->adj_list.lower;
++	while ((lower = netdev_next_lower_dev_rcu(br, &iter))) {
++		struct dsa_switch *lower_ds = dsa_qinq_ipv4_mc_switch(lower);
++
++		if (!lower_ds || (ds && lower_ds != ds))
++			return NULL;
++		ds = lower_ds;
++	}
++	return ds;
++}
++
++#endif /* _LINUX_DSA_QINQ_MCAST_H */

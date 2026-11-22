@@ -1,0 +1,294 @@
+Resolve multicast WAN independently of the QinQ replication switch.
+
+Accept a registered standalone NSS Ethernet interface, optionally carrying
+one ordinary 802.1Q tag, or a native QinQ DSA port. Ask DSA for the exact
+wire representation of the LAN receiver set. Keep unsupported topologies
+in Linux rather than constructing a partial NSS replica set.
+
+--- a/ecm_interface.c
++++ b/ecm_interface.c
+@@ -64,7 +64,7 @@
+ #include <linux/netfilter_ipv4.h>
+ #include <linux/netfilter_bridge.h>
+ #include <linux/if_bridge.h>
+-#include <linux/dsa/qca_qinq.h>
++#include <linux/dsa/qinq_mcast.h>
+ #include <net/arp.h>
+ #include <net/netfilter/nf_conntrack.h>
+ #include <net/netfilter/nf_conntrack_acct.h>
+@@ -4312,35 +4312,6 @@
+ 	}
+ }
+ 
+-static bool ecm_interface_qca_qinq_bridge(struct net_device *bridge)
+-{
+-	struct net_device *lower;
+-	struct list_head *iter;
+-	bool qca = false;
+-
+-	if (!netif_is_bridge_master(bridge))
+-		return false;
+-	rcu_read_lock();
+-	iter = &bridge->adj_list.lower;
+-	while ((lower = netdev_next_lower_dev_rcu(bridge, &iter))) {
+-		struct dsa_port *dp;
+-
+-		if (!dsa_user_dev_check(lower)) {
+-			qca = false;
+-			break;
+-		}
+-		dp = dsa_port_from_netdev(lower);
+-		if (IS_ERR_OR_NULL(dp) || !dp->ds->dst->tag_ops ||
+-		    dp->ds->dst->tag_ops->proto != DSA_TAG_PROTO_QCA_QINQ) {
+-			qca = false;
+-			break;
+-		}
+-		qca = true;
+-	}
+-	rcu_read_unlock();
+-	return qca;
+-}
+-
+ /*
+  * ecm_interface_multicast_heirarchy_construct_routed()
+  *	Create destination interface heirarchy for a routed multicast connectiona
+@@ -4471,10 +4442,14 @@
+ 
+ 			if (ECM_IP_ADDR_IS_V4(packet_src_addr)) {
+ 				if_num = -EOPNOTSUPP;
+-				if (feci->accel_engine == ECM_FRONT_END_ENGINE_NSS &&
+-				    ecm_interface_qca_qinq_bridge(dest_dev))
+-					if_num = br_qinq_ipv4_mc_members(dest_dev,
+-						htonl(packet_dest_addr[0]), mc_dst_if_index, mc_max_dst);
++				if (feci->accel_engine == ECM_FRONT_END_ENGINE_NSS) {
++					rcu_read_lock();
++					if (dsa_qinq_ipv4_mc_bridge(dest_dev))
++						if_num = br_qinq_ipv4_mc_members(dest_dev,
++							htonl(packet_dest_addr[0]),
++							mc_dst_if_index, mc_max_dst);
++					rcu_read_unlock();
++				}
+ 				if (if_num <= 0)
+ 					if_num = mc_bridge_ipv4_get_if(dest_dev, htonl((packet_src_addr[0])), htonl(packet_dest_addr[0]), mc_max_dst, mc_dst_if_index);
+ 			} else {
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -28,6 +28,7 @@
+ #include <linux/dsa/8021q.h>
+ #include <linux/dsa/yt921x_qinq.h>
+ #include <linux/dsa/qca_qinq.h>
++#include <linux/dsa/qinq_mcast.h>
+ #include <net/dsa.h>
+ #endif
+ 
+@@ -590,7 +591,8 @@
+ static int ecm_nss_qinq_multicast_lower(struct net_device *dev,
+                                       struct netdev_nested_priv *priv)
+ {
+-	if (ecm_nss_qinq_is_port(dev) || ecm_nss_qinq_is_upper(dev))
++	if (ecm_nss_qinq_is_port(dev) || ecm_nss_qinq_is_upper(dev) ||
++	    dsa_qinq_ipv4_mc_switch(dev))
+ 		return -EOPNOTSUPP;
+ 	return 0;
+ }
+--- a/frontends/nss/ecm_nss_multicast_ipv4.c
++++ b/frontends/nss/ecm_nss_multicast_ipv4.c
+@@ -48,7 +48,8 @@
+ #include <linux/netfilter_ipv4.h>
+ #include <linux/netfilter_bridge.h>
+ #include <linux/if_bridge.h>
+-#include <linux/dsa/qca_qinq.h>
++#include <linux/dsa/8021q.h>
++#include <linux/dsa/qinq_mcast.h>
+ #include <net/arp.h>
+ #include <net/netfilter/nf_conntrack.h>
+ #include <net/netfilter/nf_conntrack_acct.h>
+@@ -840,7 +841,7 @@
+ static bool ecm_nss_qinq_mc_registered;
+ 
+ /* The IPv4 route passed ECM's normal classifiers. Bridge filters are a
+- * separate stage and cannot be reproduced by the QCA destination override.
++ * separate stage and cannot be reproduced by the switch replication rule.
+  */
+ static bool ecm_nss_qinq_mc_bridge_policy_supported(void)
+ {
+@@ -861,26 +862,84 @@
+ 	return !rcu_access_pointer(br_multicast_handle_hook);
+ }
+ 
+-/* The whole Linux multicast route must terminate at one native wired bridge.
+- * The bridge MDB supplies the complete receiver set. The driver publishes this
+- * exact bitmap only after the QCA8337 ACL has been read back successfully.
++static int ecm_nss_qinq_mc_physical_if(struct net_device *dev)
++{
++	int if_num;
++
++	if (!dev || !netif_running(dev) || !netif_carrier_ok(dev))
++		return -ENODEV;
++	if_num = nss_cmn_get_interface_number_by_dev(dev);
++	if (if_num < NSS_PHYSICAL_IF_START || if_num >= NSS_VIRTUAL_IF_START)
++		return -ENODEV;
++	return if_num;
++}
++
++/* Resolve the multicast route's input device, independently of the LAN
++ * switch. Only the transport link facing a DSA switch needs private tags.
++ * The caller holds RCU.
+  */
++static int ecm_nss_qinq_mc_ingress(struct net_device *dev, u32 tags[2])
++{
++	struct net_device *lower = dev;
++	u16 vid = 0;
++
++	tags[0] = ECM_FRONT_END_VLAN_ID_NOT_CONFIGURED;
++	tags[1] = ECM_FRONT_END_VLAN_ID_NOT_CONFIGURED;
++	if (!dev || dev->type != ARPHRD_ETHER || !netif_running(dev) ||
++	    !netif_carrier_ok(dev) || netdev_master_upper_dev_get_rcu(dev))
++		return -EOPNOTSUPP;
++
++	if (is_vlan_dev(dev)) {
++		lower = vlan_dev_real_dev(dev);
++		vid = vlan_dev_vlan_id(dev);
++		if (vlan_dev_vlan_proto(dev) != htons(ETH_P_8021Q) ||
++		    !vid || vid >= VLAN_VID_MASK || is_vlan_dev(lower) ||
++		    netdev_master_upper_dev_get_rcu(lower) ||
++		    __vlan_find_dev_deep_rcu(lower, htons(ETH_P_8021Q), vid) != dev)
++			return -EOPNOTSUPP;
++	}
++
++#if IS_ENABLED(CONFIG_NET_DSA)
++	if (dsa_user_dev_check(lower)) {
++		struct dsa_port *dp, *cpu;
++		u16 svid;
++
++		if (vid || !ecm_nss_qinq_is_port(lower))
++			return -EOPNOTSUPP;
++		dp = dsa_port_from_netdev(lower);
++		if (IS_ERR_OR_NULL(dp))
++			return -ENODEV;
++		cpu = READ_ONCE(dp->cpu_dp);
++		if (!cpu)
++			return -ENODEV;
++		svid = dsa_tag_8021q_standalone_vid(dp);
++		tags[0] = (ETH_P_8021AD << 16) | svid;
++		tags[1] = (ETH_P_8021Q << 16) | svid;
++		return ecm_nss_qinq_mc_physical_if(READ_ONCE(cpu->conduit));
++	}
++#endif
++
++	if (netdev_uses_dsa(lower))
++		return -EOPNOTSUPP;
++	if (vid)
++		tags[0] = (ETH_P_8021Q << 16) | vid;
++	return ecm_nss_qinq_mc_physical_if(lower);
++}
++
++/* Use one switch replica only for the complete Linux multicast route. */
+ static bool ecm_nss_qinq_ipv4_mc_rule(struct ecm_front_end_connection_instance *feci,
+ 				     struct sk_buff *skb, struct nf_conn *ct,
+ 				     struct nss_ipv4_mc_rule_create_msg *rule)
+ {
+ 	struct ecm_db_connection_instance *ci = feci->ci;
+-	struct dsa_switch *ds = NULL;
+-	struct dsa_port *src_dp, *dp;
+ 	struct nss_ipv4_mc_if_rule *out = &rule->if_rule[0];
+-	struct net_device *src, *br, *lower, *conduit = NULL;
+-	struct list_head *iter;
+-	u32 dst[4], br_index;
+-	u8 ports = 0;
++	struct dsa_qinq_ipv4_mc_path path = {};
++	u32 dst[ECM_DB_MULTICAST_IF_MAX], br_index, ingress_vlan[2];
++	struct net_device *src, *br;
++	struct dsa_switch *ds;
+ 	__be32 origin, group;
+ 	ip_addr_t ip;
+-	u16 svid, cvid = 0;
+-	int count, i, src_if, dst_if, cpu = -1;
++	int count, src_if, dst_if;
+ 	bool ok = false;
+ 
+ 	if (!ecm_nss_mc_mfc_registered || !ecm_nss_qinq_mc_registered ||
+@@ -900,58 +959,27 @@
+ 		goto out_unlock;
+ 	src = dev_get_by_index_rcu(&init_net, skb->skb_iif);
+ 	br = dev_get_by_index_rcu(&init_net, br_index);
+-	if (!src || !br || netdev_master_upper_dev_get_rcu(src) ||
+-	    !dsa_user_dev_check(src) || !netif_carrier_ok(src) || !netif_running(src))
++	if (!br)
+ 		goto out_unlock;
+-	src_dp = dsa_port_from_netdev(src);
+-	if (IS_ERR_OR_NULL(src_dp) || !src_dp->cpu_dp || !src_dp->ds->dst->tag_ops ||
+-	    src_dp->ds->dst->tag_ops->proto != DSA_TAG_PROTO_QCA_QINQ)
++	src_if = ecm_nss_qinq_mc_ingress(src, ingress_vlan);
++	if (src_if < 0)
+ 		goto out_unlock;
+-
++	ds = dsa_qinq_ipv4_mc_bridge(br);
++	if (!ds)
++		goto out_unlock;
+ 	count = br_qinq_ipv4_mc_members(br, group, dst, ARRAY_SIZE(dst));
+-	if (count <= 0)
++	if (count <= 0 || !ds->ops->qinq_ipv4_mc_path(ds, br, group, dst, count, &path))
+ 		goto out_unlock;
+-
+-	iter = &br->adj_list.lower;
+-	while ((lower = netdev_next_lower_dev_rcu(br, &iter))) {
+-		int bridge_num;
+-
+-		if (!dsa_user_dev_check(lower))
+-			goto out_unlock;
+-		dp = dsa_port_from_netdev(lower);
+-		if (IS_ERR_OR_NULL(dp) || dp->ds != src_dp->ds || !dp->cpu_dp ||
+-		    dsa_port_bridge_dev_get(dp) != br)
+-			goto out_unlock;
+-		bridge_num = dsa_port_bridge_num_get(dp);
+-		if (bridge_num <= 0 || bridge_num > DSA_TAG_8021Q_MAX_NUM_BRIDGES)
+-			goto out_unlock;
+-		if (ds && (dp->cpu_dp->index != cpu ||
+-		           dsa_tag_8021q_bridge_vid(bridge_num) != cvid))
+-			goto out_unlock;
+-		ds = dp->ds;
+-		cpu = dp->cpu_dp->index;
+-		conduit = dp->cpu_dp->conduit;
+-		cvid = dsa_tag_8021q_bridge_vid(bridge_num);
+-		for (i = 0; i < count; i++)
+-			if (dst[i] == lower->ifindex)
+-				ports |= BIT(dp->index);
+-	}
+-
+-	if (!ds || hweight8(ports) != count || !conduit || !netif_carrier_ok(conduit) ||
+-	    !ds->ops->qinq_ipv4_mc_ready ||
+-	    !ds->ops->qinq_ipv4_mc_ready(ds, cpu, cvid, group, ports))
++	dst_if = ecm_nss_qinq_mc_physical_if(path.conduit);
++	if (dst_if < 0 || src_if == dst_if)
+ 		goto out_unlock;
+ 
+-	src_if = nss_cmn_get_interface_number_by_dev(src_dp->cpu_dp->conduit);
+-	dst_if = nss_cmn_get_interface_number_by_dev(conduit);
+-	if (src_if < 0 || dst_if < 0 || src_if == dst_if)
+-		goto out_unlock;
+-
+-	svid = dsa_tag_8021q_standalone_vid(src_dp);
+ 	rule->src_interface_num = src_if;
+-	rule->ingress_vlan_tag[0] = (ETH_P_8021AD << 16) | svid;
+-	rule->ingress_vlan_tag[1] = (ETH_P_8021Q << 16) | svid;
+-	rule->valid_flags |= NSS_IPV4_MC_RULE_CREATE_FLAG_INGRESS_VLAN_VALID;
++	rule->ingress_vlan_tag[0] = ingress_vlan[0];
++	rule->ingress_vlan_tag[1] = ingress_vlan[1];
++	rule->valid_flags &= ~NSS_IPV4_MC_RULE_CREATE_FLAG_INGRESS_VLAN_VALID;
++	if (ingress_vlan[0] != ECM_FRONT_END_VLAN_ID_NOT_CONFIGURED)
++		rule->valid_flags |= NSS_IPV4_MC_RULE_CREATE_FLAG_INGRESS_VLAN_VALID;
+ 	rule->if_count = 1;
+ 	out->if_num = dst_if;
+ 	out->if_mtu = READ_ONCE(br->mtu);
+@@ -960,8 +988,8 @@
+ 	out->rule_flags = NSS_IPV4_MC_RULE_CREATE_IF_FLAG_ROUTED_FLOW |
+ 			  NSS_IPV4_MC_RULE_CREATE_IF_FLAG_JOIN;
+ 	out->valid_flags = NSS_IPV4_MC_RULE_CREATE_IF_FLAG_VLAN_VALID;
+-	out->egress_vlan_tag[0] = (ETH_P_8021AD << 16) | dsa_qca_qinq_ipv4_mc_svid(group);
+-	out->egress_vlan_tag[1] = (ETH_P_8021Q << 16) | cvid;
++	out->egress_vlan_tag[0] = path.vlan[0];
++	out->egress_vlan_tag[1] = path.vlan[1];
+ 	ether_addr_copy((u8 *)out->if_mac, br->dev_addr);
+ 	ok = true;
+ out_unlock:

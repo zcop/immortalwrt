@@ -1,0 +1,281 @@
+Add a QinQ transport action for IPv4 multicast replication.
+
+Match the switch CPU ingress, both tags and the group MAC. Map the upper
+multicast address bits into the S-VID to distinguish aliased MACs. The caller
+owns the receiver policy. Share the existing ACL allocator and withdraw
+multicast rules with their native steering domains.
+
+--- a/include/linux/dsa/qca_qinq.h
++++ b/include/linux/dsa/qca_qinq.h
+@@ -5,6 +5,7 @@
+ #include <linux/if_bridge.h>
+ #include <linux/if_ether.h>
+ #include <linux/if_vlan.h>
++#include <linux/in.h>
+ #include <linux/netdevice.h>
+ #include <linux/dsa/8021q.h>
+ #include <net/dsa.h>
+@@ -79,4 +80,12 @@
+ 	       dsa_qca_qinq_bridge_vid_valid(dp, *vid);
+ }
+ 
++/* Group Ethernet aliases differ in the upper five IPv4 multicast bits.
++ * Keep them in the private outer tag. The stream's VLAN stays in C-VID.
++ */
++static inline u16 dsa_qca_qinq_ipv4_mc_svid(__be32 group)
++{
++	return 4000 + ((((ntohl(group) >> 23) & 0x1f) + 2) & 0x1f);
++}
++
+ #endif /* _LINUX_DSA_QCA_QINQ_H */
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -1113,6 +1113,9 @@
+ 	/*
+ 	 * Multicast database
+ 	 */
++	/* Optional QinQ transport. Caller serializes changes with RTNL. */
++	int	(*qinq_ipv4_mc_set)(struct dsa_switch *ds, int cpu, u16 cvid,
++				    __be32 group, u8 ports);
+ 	int	(*port_mdb_add)(struct dsa_switch *ds, int port,
+ 				const struct switchdev_obj_port_mdb *mdb,
+ 				struct dsa_db db);
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -455,6 +455,13 @@
+ 	bool used, bridge, installed;
+ };
+ 
++#define QCA8K_QINQ_MAX_MC 16
++struct qca8k_qinq_mc {
++	__be32 group;
++	u16 cvid;
++	u8 cpu, slot, ports;
++};
++
+ struct qca8k_priv {
+ 	u8 switch_id;
+ 	u8 switch_revision;
+@@ -470,6 +477,7 @@
+ 	bool qinq;
+ 	bool qinq_acl_owned;
+ 	u8 qinq_fault_map;
++	struct qca8k_qinq_mc qinq_mc[QCA8K_QINQ_MAX_MC];
+ 	struct qca8k_qinq_vlan qinq_vlans[QCA8K_QINQ_MAX_VLANS];
+ 	unsigned long qinq_host_vlans[2][BITS_TO_LONGS(VLAN_N_VID)];
+ 	u16 qinq_native_vid[QCA8K_NUM_PORTS];
+@@ -529,6 +537,8 @@
+ bool qca8k_qinq_customer_busy(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_check_conduit(struct qca8k_priv *priv, int port, int cpu);
+ void qca8k_qinq_fault(struct qca8k_priv *priv, int port);
++int qca8k_qinq_ipv4_mc_set(struct dsa_switch *ds, int cpu, u16 cvid,
++			   __be32 group, u8 ports);
+ int qca8k_qinq_block_native(struct qca8k_priv *priv, int port);
+ int qca8k_qinq_vlan_add(struct dsa_switch *ds, int port, u16 vid, u16 flags);
+ int qca8k_qinq_vlan_del(struct dsa_switch *ds, int port, u16 vid);
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -2237,6 +2237,7 @@
+ 	.port_fdb_dump		= qca8k_port_fdb_dump,
+ 	.lag_fdb_add		= qca8k_lag_fdb_add,
+ 	.lag_fdb_del		= qca8k_lag_fdb_del,
++	.qinq_ipv4_mc_set	= qca8k_qinq_ipv4_mc_set,
+ 	.port_mdb_add		= qca8k_port_mdb_add,
+ 	.port_mdb_del		= qca8k_port_mdb_del,
+ 	.port_mirror_add	= qca8k_port_mirror_add,
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -7,6 +7,7 @@
+ #include <linux/if_bridge.h>
+ #include <linux/if_vlan.h>
+ #include <linux/rtnetlink.h>
++#include <linux/inetdevice.h>
+ #include "qca8k.h"
+ 
+ #define QINQ_ACL_FIRST 89
+@@ -222,6 +223,8 @@
+ /* A native domain being removed must cease granting TX before its VTU
+  * entry is deleted. The next PVID add publishes its replacement rule.
+  */
++static int qca8k_qinq_mc_prune_port(struct qca8k_priv *priv, int port);
++
+ int qca8k_qinq_block_native(struct qca8k_priv *priv, int port)
+ {
+ 	u32 empty[5] = {}, action[3] = {};
+@@ -229,6 +232,9 @@
+ 
+ 	if (port < 1 || port > 4)
+ 		return 0;
++	ret = qca8k_qinq_mc_prune_port(priv, port);
++	if (ret)
++		return ret;
+ 	ret = qca8k_qinq_rule(priv, 89 + port, empty, empty, action);
+ 	if (ret)
+ 		qca8k_qinq_fault(priv, port);
+@@ -269,6 +275,9 @@
+ 			if (priv->qinq_vlans[i].used &&
+ 			    priv->qinq_vlans[i].slot == slot)
+ 				owned = true;
++		for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++)
++			if (priv->qinq_mc[i].group && priv->qinq_mc[i].slot == slot)
++				owned = true;
+ 		if (owned)
+ 			continue;
+ 		mutex_lock(&priv->reg_mutex);
+@@ -280,6 +289,143 @@
+ 			return slot;
+ 	}
+ 	return -ENOSPC;
++}
++
++/* CPU QinQ IPv4 multicast steering. The caller owns the receiver policy. */
++static int qca8k_qinq_mc_write(struct qca8k_priv *priv,
++			       const struct qca8k_qinq_mc *mc, u8 ports)
++{
++	u32 action[3] = {}, value[5] = {}, mask[5] = {};
++	u32 group = ntohl(mc->group);
++	u16 svid = dsa_qca_qinq_ipv4_mc_svid(mc->group);
++
++	if (!ports)
++		return qca8k_qinq_rule(priv, mc->slot, value, mask, action);
++
++	/* The multicast MAC carries the low 23 group bits. The SVID carries
++	 * the other five, so aliased multicast MACs still get separate rules.
++	 */
++	value[0] = 0x5e000000 | (group & 0x7fffff);
++	value[1] = 0x0100;
++	value[2] = (svid << 8) | ((u32)(mc->cvid & 0xff) << 24);
++	value[3] = 0xc3000000 | (mc->cvid >> 8);
++	value[4] = BIT(mc->cpu);
++	mask[0] = U32_MAX;
++	mask[1] = 0xffff;
++	mask[2] = 0xff0fff00;
++	mask[3] = 0xf;
++	mask[4] = 0xff;
++	action[1] = (ports & 7) << 29;
++	action[2] = BIT(4) | (ports >> 3);
++
++	return qca8k_qinq_rule(priv, mc->slot, value, mask, action);
++}
++
++static int qca8k_qinq_mc_remove(struct qca8k_priv *priv,
++				struct qca8k_qinq_mc *mc)
++{
++	int ret, port;
++
++	ret = qca8k_qinq_mc_write(priv, mc, 0);
++	if (!ret) {
++		memset(mc, 0, sizeof(*mc));
++		return 0;
++	}
++
++	/* Keep ownership of the slot if the hardware state is unknown. */
++	for (port = 1; port <= 4; port++)
++		if (mc->ports & BIT(port))
++			qca8k_qinq_fault(priv, port);
++	return ret;
++}
++
++static int qca8k_qinq_mc_prune_port(struct qca8k_priv *priv, int port)
++{
++	int i, ret;
++
++	for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++) {
++		struct qca8k_qinq_mc *mc = &priv->qinq_mc[i];
++
++		if (!mc->group || !(mc->ports & BIT(port)))
++			continue;
++		ret = qca8k_qinq_mc_remove(priv, mc);
++		if (ret)
++			return ret;
++	}
++	return 0;
++}
++
++int qca8k_qinq_ipv4_mc_set(struct dsa_switch *ds, int cpu, u16 cvid,
++			   __be32 group, u8 ports)
++{
++	struct qca8k_priv *priv = ds->priv;
++	struct qca8k_qinq_mc *entry = NULL, *free = NULL;
++	struct net_device *bridge = NULL;
++	int i, slot, ret;
++
++	ASSERT_RTNL();
++	if (!priv->qinq || !priv->qinq_acl_owned ||
++	    (cpu != 0 && cpu != 5) || (ports & ~GENMASK(4, 1)) ||
++	    !ipv4_is_multicast(group) || ipv4_is_local_multicast(group))
++		return -EOPNOTSUPP;
++
++	for (i = 0; i < ARRAY_SIZE(priv->qinq_mc); i++) {
++		struct qca8k_qinq_mc *mc = &priv->qinq_mc[i];
++
++		if (mc->group == group && mc->cvid == cvid && mc->cpu == cpu) {
++			entry = mc;
++			break;
++		}
++		if (!mc->group && !free)
++			free = mc;
++	}
++
++	if (!ports)
++		return entry ? qca8k_qinq_mc_remove(priv, entry) : 0;
++
++	/* Destination overrides bypass VTU egress checks. Recheck that the
++	 * requested ports belong to one native bridge and the owning CPU.
++	 */
++	for (i = 1; i <= 4; i++) {
++		struct dsa_port *dp;
++		struct net_device *master;
++
++		if (!(ports & BIT(i)))
++			continue;
++		dp = dsa_to_port(ds, i);
++		master = dsa_port_bridge_dev_get(dp);
++		if (!master || !dp->cpu_dp || dp->cpu_dp->index != cpu ||
++		    dsa_port_bridge_num_get(dp) < 1 ||
++		    cvid != dsa_tag_8021q_bridge_vid(dsa_port_bridge_num_get(dp)) ||
++		    priv->qinq_native_vid[i] != cvid || br_vlan_enabled(master) ||
++		    (priv->qinq_fault_map & BIT(i)) || dp->stp_state != BR_STATE_FORWARDING ||
++		    (bridge && bridge != master))
++			return -EOPNOTSUPP;
++		bridge = master;
++	}
++
++	if (entry && entry->ports == ports)
++		return 0;
++	if (!entry) {
++		if (!free)
++			return -ENOSPC;
++		slot = qca8k_qinq_customer_slot(priv);
++		if (slot < 0)
++			return slot;
++		entry = free;
++		*entry = (struct qca8k_qinq_mc) {
++			.group = group, .cvid = cvid, .cpu = cpu, .slot = slot,
++		};
++	}
++
++	ret = qca8k_qinq_mc_write(priv, entry, ports);
++	if (ret) {
++		entry->ports |= ports;
++		qca8k_qinq_mc_remove(priv, entry);
++		return ret;
++	}
++	entry->ports = ports;
++	return 0;
+ }
+ 
+ static int qca8k_qinq_customer_rule(struct qca8k_priv *priv,
+@@ -655,7 +801,12 @@
+ 		if (v->used && v->slot < QINQ_ACL_FIRST)
+ 			qca8k_qinq_acl_write(priv, v->slot, QINQ_ACL_MASKS, disabled, 5);
+ 	}
++	for (slot = 0; slot < ARRAY_SIZE(priv->qinq_mc); slot++)
++		if (priv->qinq_mc[slot].group && priv->qinq_mc[slot].slot < QINQ_ACL_FIRST)
++			qca8k_qinq_acl_write(priv, priv->qinq_mc[slot].slot,
++					    QINQ_ACL_MASKS, disabled, 5);
+ 	mutex_unlock(&priv->reg_mutex);
++	memset(priv->qinq_mc, 0, sizeof(priv->qinq_mc));
+ 	priv->qinq_vlan_filtering = 0;
+ 	memset(priv->qinq_pvid, 0, sizeof(priv->qinq_pvid));
+ 	memset(priv->qinq_vlans, 0, sizeof(priv->qinq_vlans));

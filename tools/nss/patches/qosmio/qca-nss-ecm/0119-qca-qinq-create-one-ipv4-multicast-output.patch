@@ -1,0 +1,390 @@
+Admit the QCA QinQ IPv4 multicast path only with a verified receiver bitmap.
+
+Use the physical ingress/egress interface IDs with explicit VLAN stacks.
+Build one output for the native wired bridge and keep the regular ECM
+classifier, asynchronous firmware create/destroy and statistics path.
+
+--- a/ecm_interface.c
++++ b/ecm_interface.c
+@@ -64,6 +64,7 @@
+ #include <linux/netfilter_ipv4.h>
+ #include <linux/netfilter_bridge.h>
+ #include <linux/if_bridge.h>
++#include <linux/dsa/qca_qinq.h>
+ #include <net/arp.h>
+ #include <net/netfilter/nf_conntrack.h>
+ #include <net/netfilter/nf_conntrack_acct.h>
+@@ -4311,6 +4312,35 @@
+ 	}
+ }
+ 
++static bool ecm_interface_qca_qinq_bridge(struct net_device *bridge)
++{
++	struct net_device *lower;
++	struct list_head *iter;
++	bool qca = false;
++
++	if (!netif_is_bridge_master(bridge))
++		return false;
++	rcu_read_lock();
++	iter = &bridge->adj_list.lower;
++	while ((lower = netdev_next_lower_dev_rcu(bridge, &iter))) {
++		struct dsa_port *dp;
++
++		if (!dsa_user_dev_check(lower)) {
++			qca = false;
++			break;
++		}
++		dp = dsa_port_from_netdev(lower);
++		if (IS_ERR_OR_NULL(dp) || !dp->ds->dst->tag_ops ||
++		    dp->ds->dst->tag_ops->proto != DSA_TAG_PROTO_QCA_QINQ) {
++			qca = false;
++			break;
++		}
++		qca = true;
++	}
++	rcu_read_unlock();
++	return qca;
++}
++
+ /*
+  * ecm_interface_multicast_heirarchy_construct_routed()
+  *	Create destination interface heirarchy for a routed multicast connectiona
+@@ -4440,7 +4470,13 @@
+ 			uint32_t mc_dst_if_index[ECM_DB_MULTICAST_IF_MAX];
+ 
+ 			if (ECM_IP_ADDR_IS_V4(packet_src_addr)) {
+-				if_num = mc_bridge_ipv4_get_if(dest_dev, htonl((packet_src_addr[0])), htonl(packet_dest_addr[0]), mc_max_dst, mc_dst_if_index);
++				if_num = -EOPNOTSUPP;
++				if (feci->accel_engine == ECM_FRONT_END_ENGINE_NSS &&
++				    ecm_interface_qca_qinq_bridge(dest_dev))
++					if_num = br_qinq_ipv4_mc_members(dest_dev,
++						htonl(packet_dest_addr[0]), mc_dst_if_index, mc_max_dst);
++				if (if_num <= 0)
++					if_num = mc_bridge_ipv4_get_if(dest_dev, htonl((packet_src_addr[0])), htonl(packet_dest_addr[0]), mc_max_dst, mc_dst_if_index);
+ 			} else {
+ #ifdef ECM_IPV6_ENABLE
+ 				struct in6_addr origin6;
+--- a/frontends/nss/ecm_nss_multicast_ipv4.c
++++ b/frontends/nss/ecm_nss_multicast_ipv4.c
+@@ -48,6 +48,7 @@
+ #include <linux/netfilter_ipv4.h>
+ #include <linux/netfilter_bridge.h>
+ #include <linux/if_bridge.h>
++#include <linux/dsa/qca_qinq.h>
+ #include <net/arp.h>
+ #include <net/netfilter/nf_conntrack.h>
+ #include <net/netfilter/nf_conntrack_acct.h>
+@@ -833,6 +834,139 @@
+ 	}
+ 	spin_unlock_bh(&feci->lock);
+ 	return -1;
++}
++
++static bool ecm_nss_mc_mfc_registered;
++static bool ecm_nss_qinq_mc_registered;
++
++/* The IPv4 route passed ECM's normal classifiers. Bridge filters are a
++ * separate stage and cannot be reproduced by the QCA destination override.
++ */
++static bool ecm_nss_qinq_mc_bridge_policy_supported(void)
++{
++#ifdef CONFIG_NETFILTER_FAMILY_BRIDGE
++	struct module *owner = THIS_MODULE;
++	const struct nf_hook_entries *entries;
++	unsigned int i;
++
++	if (rcu_access_pointer(init_net.nf.hooks_bridge[NF_BR_LOCAL_OUT]))
++		return false;
++	entries = rcu_dereference(init_net.nf.hooks_bridge[NF_BR_POST_ROUTING]);
++	if (entries)
++		for (i = 0; i < entries->num_hook_entries; i++)
++			if (!owner ||
++			    !within_module((unsigned long)entries->hooks[i].hook, owner))
++				return false;
++#endif
++	return !rcu_access_pointer(br_multicast_handle_hook);
++}
++
++/* The whole Linux multicast route must terminate at one native wired bridge.
++ * The bridge MDB supplies the complete receiver set. The driver publishes this
++ * exact bitmap only after the QCA8337 ACL has been read back successfully.
++ */
++static bool ecm_nss_qinq_ipv4_mc_rule(struct ecm_front_end_connection_instance *feci,
++				     struct sk_buff *skb, struct nf_conn *ct,
++				     struct nss_ipv4_mc_rule_create_msg *rule)
++{
++	struct ecm_db_connection_instance *ci = feci->ci;
++	struct dsa_switch *ds = NULL;
++	struct dsa_port *src_dp, *dp;
++	struct nss_ipv4_mc_if_rule *out = &rule->if_rule[0];
++	struct net_device *src, *br, *lower, *conduit = NULL;
++	struct list_head *iter;
++	u32 dst[4], br_index;
++	u8 ports = 0;
++	__be32 origin, group;
++	ip_addr_t ip;
++	u16 svid, cvid = 0;
++	int count, i, src_if, dst_if, cpu = -1;
++	bool ok = false;
++
++	if (!ecm_nss_mc_mfc_registered || !ecm_nss_qinq_mc_registered ||
++	    !ecm_db_connection_is_routed_get(ci) || !skb || !skb->skb_iif ||
++	    skb_vlan_tag_present(skb) || (ct && (READ_ONCE(ct->status) & IPS_NAT_MASK)))
++		return false;
++
++	ecm_db_connection_address_get(ci, ECM_DB_OBJ_DIR_FROM, ip);
++	origin = htonl(ip[0]);
++	ecm_db_connection_address_get(ci, ECM_DB_OBJ_DIR_TO, ip);
++	group = htonl(ip[0]);
++	if (ipmr_qinq_ipv4_mc_route(&init_net, origin, group, skb->skb_iif, &br_index))
++		return false;
++
++	rcu_read_lock();
++	if (!ecm_nss_qinq_mc_bridge_policy_supported())
++		goto out_unlock;
++	src = dev_get_by_index_rcu(&init_net, skb->skb_iif);
++	br = dev_get_by_index_rcu(&init_net, br_index);
++	if (!src || !br || netdev_master_upper_dev_get_rcu(src) ||
++	    !dsa_user_dev_check(src) || !netif_carrier_ok(src) || !netif_running(src))
++		goto out_unlock;
++	src_dp = dsa_port_from_netdev(src);
++	if (IS_ERR_OR_NULL(src_dp) || !src_dp->cpu_dp || !src_dp->ds->dst->tag_ops ||
++	    src_dp->ds->dst->tag_ops->proto != DSA_TAG_PROTO_QCA_QINQ)
++		goto out_unlock;
++
++	count = br_qinq_ipv4_mc_members(br, group, dst, ARRAY_SIZE(dst));
++	if (count <= 0)
++		goto out_unlock;
++
++	iter = &br->adj_list.lower;
++	while ((lower = netdev_next_lower_dev_rcu(br, &iter))) {
++		int bridge_num;
++
++		if (!dsa_user_dev_check(lower))
++			goto out_unlock;
++		dp = dsa_port_from_netdev(lower);
++		if (IS_ERR_OR_NULL(dp) || dp->ds != src_dp->ds || !dp->cpu_dp ||
++		    dsa_port_bridge_dev_get(dp) != br)
++			goto out_unlock;
++		bridge_num = dsa_port_bridge_num_get(dp);
++		if (bridge_num <= 0 || bridge_num > DSA_TAG_8021Q_MAX_NUM_BRIDGES)
++			goto out_unlock;
++		if (ds && (dp->cpu_dp->index != cpu ||
++		           dsa_tag_8021q_bridge_vid(bridge_num) != cvid))
++			goto out_unlock;
++		ds = dp->ds;
++		cpu = dp->cpu_dp->index;
++		conduit = dp->cpu_dp->conduit;
++		cvid = dsa_tag_8021q_bridge_vid(bridge_num);
++		for (i = 0; i < count; i++)
++			if (dst[i] == lower->ifindex)
++				ports |= BIT(dp->index);
++	}
++
++	if (!ds || hweight8(ports) != count || !conduit || !netif_carrier_ok(conduit) ||
++	    !ds->ops->qinq_ipv4_mc_ready ||
++	    !ds->ops->qinq_ipv4_mc_ready(ds, cpu, cvid, group, ports))
++		goto out_unlock;
++
++	src_if = nss_cmn_get_interface_number_by_dev(src_dp->cpu_dp->conduit);
++	dst_if = nss_cmn_get_interface_number_by_dev(conduit);
++	if (src_if < 0 || dst_if < 0 || src_if == dst_if)
++		goto out_unlock;
++
++	svid = dsa_tag_8021q_standalone_vid(src_dp);
++	rule->src_interface_num = src_if;
++	rule->ingress_vlan_tag[0] = (ETH_P_8021AD << 16) | svid;
++	rule->ingress_vlan_tag[1] = (ETH_P_8021Q << 16) | svid;
++	rule->valid_flags |= NSS_IPV4_MC_RULE_CREATE_FLAG_INGRESS_VLAN_VALID;
++	rule->if_count = 1;
++	out->if_num = dst_if;
++	out->if_mtu = READ_ONCE(br->mtu);
++	out->xlate_src_ip = ntohl(origin);
++	out->xlate_src_ident = ecm_db_connection_port_get(ci, ECM_DB_OBJ_DIR_FROM);
++	out->rule_flags = NSS_IPV4_MC_RULE_CREATE_IF_FLAG_ROUTED_FLOW |
++			  NSS_IPV4_MC_RULE_CREATE_IF_FLAG_JOIN;
++	out->valid_flags = NSS_IPV4_MC_RULE_CREATE_IF_FLAG_VLAN_VALID;
++	out->egress_vlan_tag[0] = (ETH_P_8021AD << 16) | dsa_qca_qinq_ipv4_mc_svid(group);
++	out->egress_vlan_tag[1] = (ETH_P_8021Q << 16) | cvid;
++	ether_addr_copy((u8 *)out->if_mac, br->dev_addr);
++	ok = true;
++out_unlock:
++	rcu_read_unlock();
++	return ok;
+ }
+ 
+ /*
+@@ -875,6 +1009,7 @@
+ 	int32_t interface_type_counts[ECM_DB_IFACE_TYPE_COUNT];
+ 	uint8_t dest_mac[ETH_ALEN];
+ 	bool rule_invalid;
++	bool qinq;
+ 	ecm_front_end_acceleration_mode_t result_mode;
+ 
+ 	DEBUG_CHECK_MAGIC(feci, ECM_FRONT_END_CONNECTION_INSTANCE_MAGIC, "%px: magic failed", feci);
+@@ -889,13 +1024,11 @@
+ 	/*
+ 	 * Can this connection be accelerated at all?
+ 	 */
+-	if (!ecm_nss_qinq_multicast_admit(feci->ci))
++	qinq = !ecm_nss_qinq_multicast_admit(feci->ci);
++#ifdef ECM_CLASSIFIER_OVS_ENABLE
++	if (qinq && (pr->process_actions & ECM_CLASSIFIER_PROCESS_ACTION_OVS_VLAN_TAG))
+ 		return;
+-
+-	if (!ecm_nss_ipv4_accel_pending_set(feci)) {
+-		DEBUG_TRACE("%px: Acceleration denied: %px\n", feci, feci->ci);
+-		return;
+-	}
++#endif
+ 
+ 	/*
+ 	 * Construct an accel command.
+@@ -914,6 +1047,20 @@
+ 			(void *)(ecm_ptr_t)ecm_db_connection_serial_get(feci->ci));
+ 
+ 	create = &nim->msg.mc_rule_create;
++	if (qinq && !ecm_nss_qinq_ipv4_mc_rule(feci, skb, ct, create)) {
++		kfree(nim);
++		return;
++	}
++	if (!ecm_nss_ipv4_accel_pending_set(feci)) {
++		kfree(nim);
++		return;
++	}
++	WRITE_ONCE(feci->qinq_ipv4_mc, qinq);
++	if (qinq) {
++		valid_vif_idx = 1;
++		goto rule_outputs_ready;
++	}
++
+ 
+ 	/*
+ 	 * Populate the multicast creation structure
+@@ -1264,6 +1411,8 @@
+ 	create->if_count = valid_vif_idx;
+ 	create->src_interface_num = from_nss_iface_id;
+ 
++rule_outputs_ready:
++
+ 	/*
+ 	 * Set up the flow qos tags
+ 	 */
+@@ -1314,6 +1463,10 @@
+ #endif
+ 
+ 	ecm_db_connection_node_address_get(feci->ci, ECM_DB_OBJ_DIR_TO, dest_mac);
++	if (qinq) {
++		ecm_db_connection_address_get(feci->ci, ECM_DB_OBJ_DIR_TO, addr);
++		ecm_translate_multicast_mac(addr, dest_mac);
++	}
+ 	memcpy(create->dest_mac, dest_mac, ETH_ALEN);
+ 
+ 	/*
+@@ -1364,7 +1517,8 @@
+ 	/*
+ 	 * Release the interface lists
+ 	 */
+-	ecm_db_multicast_connection_to_interfaces_deref_all(to_ifaces, to_ifaces_first);
++	if (!qinq)
++		ecm_db_multicast_connection_to_interfaces_deref_all(to_ifaces, to_ifaces_first);
+ 
+ 	for (vif = 0; vif < valid_vif_idx ; vif++) {
+ 		DEBUG_TRACE("%px: UDP Accelerate connection %px\n"
+@@ -1406,7 +1560,8 @@
+ 	 * Remember that the connection is marked as "accel pending state" so if a regen is flagged immediately
+ 	 * after this check passes, the connection will be decelerated and refreshed very quickly.
+ 	 */
+-	if (regen_occurrances != ecm_db_connection_regeneration_occurrances_get(feci->ci)) {
++	if ((qinq && !ecm_nss_qinq_ipv4_mc_rule(feci, skb, ct, create)) ||
++	    regen_occurrances != ecm_db_connection_regeneration_occurrances_get(feci->ci)) {
+ 		DEBUG_INFO("%px: connection:%px regen occurred - aborting accel rule.\n", feci, feci->ci);
+ 		ecm_nss_ipv4_accel_pending_clear(feci, ECM_FRONT_END_ACCELERATION_MODE_DECEL);
+ 		kfree(nim);
+@@ -2412,6 +2567,13 @@
+ 			 * has been already taken by ecm_db_multicast_connection_find_and_ref()
+ 			 */
+ 			ci = ecm_db_multicast_connection_get_from_tuple(tuple_instance);
++			feci = ecm_db_connection_front_end_get_and_ref(ci);
++			if (READ_ONCE(feci->qinq_ipv4_mc)) {
++				ecm_db_connection_make_defunct(ci);
++				ecm_front_end_connection_deref(feci);
++				goto find_next_tuple;
++			}
++			ecm_front_end_connection_deref(feci);
+ 			DEBUG_TRACE("%px: update the multicast flow: %px\n", ci, tuple_instance);
+ 
+ 			/*
+@@ -2640,6 +2802,40 @@
+ 	ecm_front_end_ipv4_mc_stopped = num;
+ }
+ 
++/* Invalidate the whole firmware rule after the switch withdraws admission.
++ * Ordinary listener changes within a still eligible bridge update only ACLs.
++ */
++static int ecm_nss_qinq_mc_withdrawn(struct notifier_block *nb,
++				     unsigned long event, void *data)
++{
++	struct ecm_db_multicast_tuple_instance *ti, *next;
++	ip_addr_t group, entry_group;
++
++	if (event != BR_QINQ_MC_WITHDRAWN)
++		return NOTIFY_DONE;
++	ECM_HIN4_ADDR_TO_IP_ADDR(group, ntohl(*(__be32 *)data));
++	for (ti = ecm_db_multicast_connection_get_and_ref_first(group); ti; ti = next) {
++		struct ecm_front_end_connection_instance *feci;
++		struct ecm_db_connection_instance *ci;
++
++		next = ecm_db_multicast_connection_get_and_ref_next(ti);
++		ecm_db_multicast_tuple_instance_group_ip_get(ti, entry_group);
++		if (ECM_IP_ADDR_MATCH(group, entry_group)) {
++			ci = ecm_db_multicast_connection_get_from_tuple(ti);
++			feci = ecm_db_connection_front_end_get_and_ref(ci);
++			if (READ_ONCE(feci->qinq_ipv4_mc))
++				ecm_db_connection_make_defunct(ci);
++			ecm_front_end_connection_deref(feci);
++		}
++		ecm_db_multicast_connection_deref(ti);
++	}
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block ecm_nss_qinq_mc_nb = {
++	.notifier_call = ecm_nss_qinq_mc_withdrawn,
++};
++
+ /*
+  * ecm_nss_multicast_ipv4_init()
+  * 	Register the callbacks for MCS snooper and MFC update
+@@ -2660,7 +2856,8 @@
+ 	/*
+ 	 * Register multicast update callbacks to MFC
+ 	 */
+-	ipmr_register_mfc_event_offload_callback(ecm_mfc_update_event_callback);
++	ecm_nss_mc_mfc_registered = ipmr_register_mfc_event_offload_callback(ecm_mfc_update_event_callback);
++	ecm_nss_qinq_mc_registered = !br_qinq_mc_register(&ecm_nss_qinq_mc_nb);
+ 	return 0;
+ }
+ 
+@@ -2674,6 +2871,9 @@
+ 	 * De-register multicast update callbacks to
+ 	 * MFC and MCS snooper
+ 	 */
+-	ipmr_unregister_mfc_event_offload_callback();
++	if (ecm_nss_qinq_mc_registered)
++		br_qinq_mc_unregister(&ecm_nss_qinq_mc_nb);
++	if (ecm_nss_mc_mfc_registered)
++		ipmr_unregister_mfc_event_offload_callback();
+ 	mc_bridge_ipv4_update_callback_deregister();
+ }
+--- a/frontends/include/ecm_front_end_types.h
++++ b/frontends/include/ecm_front_end_types.h
+@@ -288,6 +288,7 @@
+ 	ecm_front_end_connection_get_stats_bitmap_t get_stats_bitmap;		/* Get bitmap of interface types to be updated during sync */
+ 	ecm_front_end_connection_update_rule_t update_rule;			/* Updates the frontend specific data */
+ 
++	bool qinq_ipv4_mc;
+ 	enum ecm_front_end_engine accel_engine;					/* Acceleration engine type */
+ 	enum ecm_front_end_engine next_accel_engine;					/* Acceleration engine type */
+ 	uint8_t ported_accelerated_count_index;                 		/* Index value of accelerated count array (UDP or TCP) */
