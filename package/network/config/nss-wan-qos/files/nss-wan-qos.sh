@@ -73,13 +73,15 @@ clear_queues() {
 	rmdir "$state"
 }
 
-fair_queue() {
-	tc qdisc add dev "$1" parent "$2:1" handle "$3:" nssfq_codel \
-		target 5ms interval 100ms flows 256 limit 256 set_default
+shaper_queue() {
+	local dev="$1" parent="$2" handle="$3" kind="$4"
+	shift 4
+	tc qdisc add dev "$dev" parent "$parent:1" handle "$handle:" "$kind" \
+		target 5ms interval 100ms limit 256 set_default "$@"
 }
 
 install_queues() {
-	local dev="$1" up="$2" down="$3" mtu="$4"
+	local dev="$1" up="$2" down="$3" mtu="$4" down_queue="$5"
 
 	modprobe qca-nss-qdisc || return 1
 	if [ "$down" -gt 0 ]; then
@@ -94,17 +96,21 @@ install_queues() {
 			u32 match u32 0 0 action nssmirred redirect dev "$ifb" fromdev "$dev" || return 1
 		tc qdisc add dev "$ifb" root handle 7076: nsstbl rate "${down}kbit" \
 			burst 128kb mtu "$mtu" || return 1
-		fair_queue "$ifb" 7076 7077 || return 1
+		if [ "$down_queue" = nsscodel ]; then
+			shaper_queue "$ifb" 7076 7077 nsscodel || return 1
+		else
+			shaper_queue "$ifb" 7076 7077 nssfq_codel flows 256 || return 1
+		fi
 	fi
 	[ "$up" -gt 0 ] || return 0
 	tc qdisc add dev "$dev" root handle 7072: nsstbl rate "${up}kbit" \
 		burst 128kb mtu "$mtu" || return 1
 	touch "$state/egress"
-	fair_queue "$dev" 7072 7073
+	shaper_queue "$dev" 7072 7073 nssfq_codel flows 256
 }
 
 apply() {
-	local up down dev queues mtu settings
+	local up down dev queues mtu down_queue=nssfq_codel settings
 
 	if [ "$(uci -q get nss_wan_qos.wan.enabled)" != 1 ]; then
 		clear_queues
@@ -124,7 +130,11 @@ apply() {
 	}
 	mtu="$(cat "$sys/$dev/mtu")" || return 1
 	mtu=$((mtu + 64))
-	settings="$dev $up $down $mtu"
+	# NSS FQ-CoDel charges accelerated PPPoE download traffic twice.
+	if [ "$down" -gt 0 ] && [ "$(uci -q get network.wan.proto)" = pppoe ]; then
+		down_queue=nsscodel
+	fi
+	settings="$dev $up $down $mtu $down_queue"
 	if [ -r "$state/settings" ] && [ "$(cat "$state/settings")" = "$settings" ]; then
 		queues="$(tc qdisc show dev "$dev")" || return 1
 		if { [ "$up" -eq 0 ] || echo "$queues" | grep -q '^qdisc nssfq_codel 7073:'; } &&
@@ -146,7 +156,7 @@ apply() {
 	fi
 	mkdir -m 700 "$state" || return 1
 	echo "$dev" > "$state/conduit"
-	if ! install_queues "$dev" "$up" "$down" "$mtu"; then
+	if ! install_queues "$dev" "$up" "$down" "$mtu" "$down_queue"; then
 		clear_queues
 		error "Failed to configure NSS WAN queues on $dev"
 		return 1

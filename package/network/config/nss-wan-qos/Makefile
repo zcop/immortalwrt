@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nss-wan-qos
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_LICENSE:=GPL-2.0-only
 PKG_FLAGS:=nonshared
 
@@ -15,8 +15,8 @@ define Package/nss-wan-qos
 endef
 
 define Package/nss-wan-qos/description
-Configure NSS token-bucket shapers and FQ-CoDel for a routed WAN
-port with a dedicated QinQ DSA conduit.
+Configure NSS token-bucket shapers and active queue management for a
+routed WAN port with a dedicated QinQ DSA conduit.
 endef
 
 define Build/Compile

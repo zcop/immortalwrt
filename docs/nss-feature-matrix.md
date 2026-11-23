@@ -80,7 +80,7 @@ concurrent tagged PPPoE and maximum tagged-PPPoE throughput remain unvalidated.
 | NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and UDP on WAN and LAN conduits confirmed in both directions |
 | L2 bridge policy compatibility | Unvalidated | Confirmed on LAN conduit with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated |
 | Routed IPv4 IPTV via NSS | QinQ uses software forwarding. YT9215S replication backend pending. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin under the default ECM policy. Automatic multi-port membership remains open. |
-| NSS WAN QoS | NSS shaper unvalidated; the YT9215S switch shaper is separate | Confirmed simultaneous upload and download shaping for native routed IPv4 TCP. NSS FQ-CoDel is opt-in on a dedicated QinQ WAN conduit. |
+| NSS WAN QoS | NSS shaper unvalidated; the YT9215S switch shaper is separate | Confirmed simultaneous upload and download shaping for IPv4 TCP on native WAN, WAN VLAN 35, and single-session PPPoE over VLAN 35. Untagged PPPoE download also passed with NSS CoDel. |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
 | MAP-T | Disabled, unvalidated | Disabled, unvalidated |
 | NSS MATCH / MIRROR managers | Disabled, unvalidated | Disabled, unvalidated |
@@ -123,13 +123,15 @@ fast leave disabled, NSS retained the rule while Linux retained the
 multicast route and withdrew it when Linux removed the route. Use an ECM
 module built against the same kernel configuration as the image.
 
-### AX3000 WAN QoS
+### Wired WAN QoS
 
-The AX3000 NSS profile includes `nss-wan-qos`. It reserves 1 MiB for the
-firmware shaper pool and leaves rate limits disabled by default. The service
-shapes upload at the WAN conduit and download on an NSS IFB. It requires a
-dedicated QinQ conduit and leaves custom queues in place. Stop any other
-shaper on that conduit before enabling it.
+The AX3000 NSS profile includes `nss-wan-qos`. Shaper builds
+reserve 1 MiB for the firmware pool at boot. Rate limits are disabled by
+default. The service shapes upload at the WAN conduit and download on an NSS
+IFB. The service uses NSS FQ-CoDel for upload and for downloads on non-PPPoE
+WANs. When `network.wan.proto` is `pppoe`, download uses NSS CoDel. It
+requires a routed wired WAN on a dedicated QinQ conduit and rejects existing
+custom queues on the conduit.
 
 Set rates in kbit/s, with zero for an uncapped direction.
 
@@ -143,8 +145,17 @@ uci commit nss_wan_qos
 
 Use `tc -s qdisc show dev eth0` and `tc -s qdisc show dev ifb-nss-wan`
 to inspect shaping on the default WAN conduit. Disable rate limits and
-reload the service to remove its queues. Tagged WAN, PPPoE and CR881x
-shaper operation need separate hardware validation.
+reload the service to remove its queues. AX3000 WAN VLAN 35 kept both
+IPv4 TCP flows accelerated under simultaneous caps and returned to uncapped
+rates after the queues were removed.
+
+On AX3000 with firmware 12.2, NSS FQ-CoDel on the download IFB counted
+roughly twice the packets reported by the NSS IGS node for accelerated
+PPPoE. At a 300 Mbps cap, routed IPv4 TCP download reached about 142 Mbps
+with FQ-CoDel and 284 Mbps with CoDel on untagged PPPoE. The service selected
+CoDel for PPPoE on VLAN 35, where simultaneous 100 Mbps upload and 300 Mbps
+download caps yielded 90 and 257 Mbps with both flows still accelerated.
+Concurrent PPPoE sessions under shaping remain unvalidated.
 
 ## Switch offload and driver controls
 
