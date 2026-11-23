@@ -76,6 +76,10 @@ is shared by VID and conduit, independently of user-port membership. Bridge
 VLAN objects are cached while filtering is disabled and replayed when enabled;
 customer grants are withdrawn before returning to native mode.
 
+The QCA8337 address table uses MAC and VID for independent VLAN learning.
+Separate bridges or a standalone port that reuse a customer VID share that
+learning domain. Use distinct VIDs when the same MAC can appear on both.
+
 Hardware checks cover access/tagged VLAN35 switching between LAN1 and LAN2,
 multiple VIDs on a port, full-MTU traffic, customer membership withdrawal and
 re-add, and filtering disable/re-enable. Known-unicast VLAN35 TCP reaches

@@ -121,7 +121,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
  }
 --- a/net/bridge/br_vlan.c
 +++ b/net/bridge/br_vlan.c
-@@ -937,8 +937,179 @@ int br_vlan_get_proto(const struct net_d
+@@ -937,8 +937,180 @@ int br_vlan_get_proto(const struct net_d
  }
  EXPORT_SYMBOL_GPL(br_vlan_get_proto);
  
@@ -196,6 +196,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 +	struct net_bridge_fdb_entry *f;
 +	struct net_device *netdev = NULL;
 +
++	*vid = 0;
 +	if (!mac) {
 +		return NULL;
 +	}
@@ -265,7 +266,7 @@ Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
 +	if (p) {
 +		vg = nbp_vlan_group_rcu(p);
 +	} else if (netif_is_bridge_master(dev)) {
-+		vg = br_vlan_group(netdev_priv(dev));
++		vg = br_vlan_group_rcu(netdev_priv(dev));
 +	} else {
 +		rcu_read_unlock();
 +		return -EINVAL;

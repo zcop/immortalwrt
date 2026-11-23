@@ -17,7 +17,7 @@ code = '\n'.join(line for line in code.splitlines() if not line.startswith('#inc
 
 
 def function(source, name):
-    match = re.search(r'^(?:static )?(?:int|u16)\s+' + name + r'\(', source, re.M)
+    match = re.search(r'^(?:static )?(?:int|u16|void)\s+' + name + r'\(', source, re.M)
     if not match:
         raise ValueError(f'Function not found: {name}')
     opening = source.index('{', match.start())
@@ -42,6 +42,11 @@ database = '\n'.join(macros) + '\n' + '\n'.join([
 ])
 with tempfile.TemporaryDirectory(prefix='qca8k-qinq-') as directory:
     out = Path(directory)
+    mac = (args.source / 'qca8k-8xxx.c').read_text()
+    status = [line for line in (args.source / 'qca8k.h').read_text().splitlines()
+              if re.match(r'#define\s+QCA8K_(REG_PORT_STATUS|PORT_STATUS_)', line)]
+    (out / 'driver-link.h').write_text('\n'.join(status) + '\n' +
+                                       function(mac, 'qca8k_phylink_mac_link_up'))
     (out / 'driver-setup.h').write_text(code)
     (out / 'driver-database.h').write_text(database)
     subprocess.run(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Werror',

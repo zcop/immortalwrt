@@ -89,7 +89,8 @@ int main(void) {
  check(&p,db,0,3073);             /* standalone private VID preserved */
  db=(struct dsa_db){.type=DSA_DB_BRIDGE,.bridge={.dev=&a,.num=0}};
  check(&p,db,0,3104);             /* member bridge num2, not zeroed db num */
- db.bridge.dev=&other; check(&p,db,0,0); /* absent bridge mapping unchanged */
+ db.bridge.num=2; p.ds.ports[0].bridge=NULL; check(&p,db,0,3104);
+ db.bridge.num=0; db.bridge.dev=&other; check(&p,db,0,0); /* absent bridge mapping unchanged */
  for(int tag=0;tag<2;tag++) {
   p.tag_8021q=tag; db=(struct dsa_db){.type=DSA_DB_LAG}; check(&p,db,0,0);
  }

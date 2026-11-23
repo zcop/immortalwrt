@@ -725,8 +725,11 @@ int yt921x_8021q_filtering(struct yt921x_priv *priv, int port, bool enable,
 	res = yt921x_qinq_svid_sync(priv);
 	if (!res)
 		res = yt921x_8021q_pvid_apply(priv, port);
-	if (res)
+	if (res) {
 		priv->bridge_vlan_filtering[port] = old;
+		if (res == -EBUSY)
+			yt921x_8021q_fault(priv, port);
+	}
 	/* On an I/O failure ingress stays blocked, rather than leaking VLANs. */
 	return res;
 }

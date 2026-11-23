@@ -708,9 +708,11 @@ static void yt921x_fdb_sync_workfn(struct work_struct *work)
 	for (i = 0; i < count && READ_ONCE(priv->fdb_sync_active); i++)
 		moves += yt921x_fdb_sync_entry(priv, rows[i].addr, rows[i].fid,
 					    rows[i].pmask, rows[i].status);
-	mutex_lock(&priv->reg_lock);
-	priv->fdb_sync_moves += moves;
-	mutex_unlock(&priv->reg_lock);
+	if (moves) {
+		mutex_lock(&priv->reg_lock);
+		priv->fdb_sync_moves += moves;
+		mutex_unlock(&priv->reg_lock);
+	}
 	rtnl_unlock();
 again:
 	if (READ_ONCE(priv->fdb_sync_active))
@@ -1024,6 +1026,8 @@ static u16 yt921x_db_vid(struct yt921x_priv *priv, struct dsa_db db, u16 vid)
 
 	switch (db.type) {
 	case DSA_DB_BRIDGE:
+		if (db.bridge.num)
+			return dsa_tag_8021q_bridge_vid(db.bridge.num);
 		dsa_switch_for_each_user_port(dp, ds)
 			if (dsa_port_offloads_bridge_dev(dp, db.bridge.dev))
 				return dsa_tag_8021q_bridge_vid(dp->bridge->num);

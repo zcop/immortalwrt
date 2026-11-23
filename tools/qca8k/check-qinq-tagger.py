@@ -38,13 +38,16 @@ typedef uint8_t u8; typedef uint16_t u16; typedef u16 __be16;
 #define NETIF_F_HW_VLAN_CTAG_FILTER 1
 #define DSA_TAG_PROTO_QCA_QINQ 39
 #define DSA_TAG_8021Q_MAX_NUM_BRIDGES 7
+#define BR_STATE_LEARNING 2
+#define BR_STATE_FORWARDING 3
+#define READ_ONCE(x) (x)
 #define unlikely(x) (x)
 #define rcu_read_lock() ((void)0)
 #define rcu_read_unlock() ((void)0)
 struct net_device;
 struct tag_ops { int proto; };
 struct dsa_tree { struct tag_ops *tag_ops; };
-struct dsa_port { int index; struct dsa_switch *ds; struct net_device *user, *bridge; };
+struct dsa_port { int index, stp_state; struct dsa_switch *ds; struct net_device *user, *bridge; };
 struct dsa_switch { struct dsa_tree *dst; unsigned max_num_bridges; struct dsa_port *port; };
 struct bridge_vlan_info { u16 flags; };
 struct net_device { int features; bool aware, published, member; u16 vid, pvid; struct net_device *real, *master, *upper; struct dsa_port *dp; };
@@ -94,7 +97,7 @@ static struct sk_buff skb;
 static void setup(u16 vid) {
  memset(&skb,0,sizeof(skb)); memset(&port,0,sizeof(port)); memset(&upper,0,sizeof(upper)); memset(&bridge,0,sizeof(bridge));
  ds=(struct dsa_switch){.dst=&tree,.max_num_bridges=7,.port=&dp};
- dp=(struct dsa_port){.index=4,.ds=&ds,.user=&port};
+ dp=(struct dsa_port){.index=4,.stp_state=BR_STATE_FORWARDING,.ds=&ds,.user=&port};
  port=(struct net_device){.dp=&dp,.features=1,.upper=&upper,.published=true};
  upper=(struct net_device){.real=&port,.vid=vid};
  skb.data=skb.buffer+128; skb.len=34;
@@ -147,13 +150,16 @@ int main(void) {
   assert(!qca_qinq_xmit(&skb,&port));
  }
  setup(35);dp.bridge=&bridge;bridge.aware=true;port.master=&bridge;port.member=true;port.vid=35;
- assert(qca_qinq_rx_vlan(&dp,&bridge,35)==0 && qca_qinq_rx_vlan(&dp,&bridge,36)<0);
- port.member=false;assert(qca_qinq_rx_vlan(&dp,&bridge,35)<0);
- setup(35); assert(qca_qinq_rx_vlan(&dp,NULL,3076)==1 && qca_qinq_rx_vlan(&dp,NULL,35)==0);
- assert(qca_qinq_rx_vlan(&dp,NULL,36)<0 && qca_qinq_rx_vlan(&dp,NULL,4095)<0);
- port.published=false;assert(qca_qinq_rx_vlan(&dp,NULL,35)<0);
- setup(35);dp.bridge=&bridge;assert(qca_qinq_rx_vlan(&dp,&bridge,3088)==1 && qca_qinq_rx_vlan(&dp,&bridge,35)<0);
- bridge.aware=true;assert(qca_qinq_rx_vlan(&dp,&bridge,3088)<0);
+ assert(qca_qinq_rx_vlan(&dp,&bridge,35,false)==0 && qca_qinq_rx_vlan(&dp,&bridge,36,false)<0);
+ port.pvid=35;dp.stp_state=0;
+ assert(qca_qinq_rx_vlan(&dp,&bridge,35,true)==1);
+ assert(qca_qinq_rx_vlan(&dp,&bridge,35,false)<0);
+ port.member=false;assert(qca_qinq_rx_vlan(&dp,&bridge,35,false)<0);
+ setup(35); assert(qca_qinq_rx_vlan(&dp,NULL,3076,false)==1 && qca_qinq_rx_vlan(&dp,NULL,35,false)==0);
+ assert(qca_qinq_rx_vlan(&dp,NULL,36,false)<0 && qca_qinq_rx_vlan(&dp,NULL,4095,false)<0);
+ port.published=false;assert(qca_qinq_rx_vlan(&dp,NULL,35,false)<0);
+ setup(35);dp.bridge=&bridge;assert(qca_qinq_rx_vlan(&dp,&bridge,3088,false)==1 && qca_qinq_rx_vlan(&dp,&bridge,35,false)<0);
+ bridge.aware=true;assert(qca_qinq_rx_vlan(&dp,&bridge,3088,false)<0);
  setup(35);assert(!dsa_qca_qinq_customer_vid_valid(&ds,0) && !dsa_qca_qinq_customer_vid_valid(&ds,3076));
  assert(dsa_qca_qinq_customer_vid_valid(&ds,4094) && !dsa_qca_qinq_customer_vid_valid(&ds,4095));
  puts("POLICY_OK");return 0;

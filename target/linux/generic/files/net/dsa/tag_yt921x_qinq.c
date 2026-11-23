@@ -421,6 +421,7 @@ static struct sk_buff *yt921x_qinq_xmit(struct sk_buff *skb,
 	if (yt921x_qinq_is_control_frame(skb))
 		return yt921x_qinq_xmit_control_port(skb, dp);
 
+	guard(rcu)();
 	br = dsa_port_bridge_dev_get(dp);
 	vlan_aware = br && br_vlan_enabled(br);
 

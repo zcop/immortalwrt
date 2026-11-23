@@ -621,6 +621,9 @@ int main(void) {
   bridges[1].num=2;writes=0;
   assert(yt921x_qinq_svid_sync(&priv)==-EBUSY);
   assert(writes==0&&!priv.bridge_vlan_fault[0]);
+  priv.bridge_vlan_filtering[3]=true;
+  assert(yt921x_8021q_filtering(&priv,3,false,NULL)==-EBUSY);
+  assert(priv.bridge_vlan_fault[3] && priv.bridge_vlan_filtering[3]);
   bridges[1].num=3;
   puts("PASS: separate bridges keep distinct FIDs and a shared FID is rejected before writes");
 

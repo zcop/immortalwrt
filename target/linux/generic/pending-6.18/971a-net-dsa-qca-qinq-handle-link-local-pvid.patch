@@ -1,0 +1,37 @@
+--- a/net/dsa/tag_qca_qinq.c
++++ b/net/dsa/tag_qca_qinq.c
+@@ -92,10 +92,20 @@
+ }
+ 
+ static int qca_qinq_rx_vlan(struct dsa_port *dp, struct net_device *br,
+-			    u16 vid)
+-{
+-	if (br && br_vlan_enabled(br))
+-		return dsa_qca_qinq_bridge_vid_valid(dp, vid) ? 0 : -EINVAL;
++			    u16 vid, bool link_local)
++{
++	if (br && br_vlan_enabled(br)) {
++		u16 pvid;
++
++		if (!dsa_qca_qinq_bridge_vid_valid(dp, vid))
++			return -EINVAL;
++		if (link_local)
++			return !br_vlan_get_pvid_rcu(dp->user, &pvid) && pvid == vid;
++		if (READ_ONCE(dp->stp_state) != BR_STATE_FORWARDING &&
++		    READ_ONCE(dp->stp_state) != BR_STATE_LEARNING)
++			return -EINVAL;
++		return 0;
++	}
+ 	if (qca_qinq_internal_vid(dp, br, vid))
+ 		return 1;
+ 	if (!br && dsa_qca_qinq_direct_vid_valid(dp, vid))
+@@ -154,7 +164,8 @@
+ 		return NULL;
+ 
+ 	br = dsa_port_bridge_dev_get(dp);
+-	strip = qca_qinq_rx_vlan(dp, br, inner_vid);
++	strip = qca_qinq_rx_vlan(dp, br, inner_vid,
++				 is_link_local_ether_addr(eth_hdr(skb)->h_dest));
+ 	if (strip < 0 || (strip && qca_qinq_pop_inner(skb)))
+ 		return NULL;
+ 

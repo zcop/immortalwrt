@@ -57,7 +57,7 @@ struct dsa_switch {
 struct qca8k_qinq_vlan { u16 vid, flags; u8 port, cpu, slot; bool used, bridge, installed; };
 struct qca8k_priv {
 	struct dsa_switch *ds;
-	int dev, reg_mutex;
+	int dev, reg_mutex, qinq_status_lock;
 	bool qinq, qinq_acl_owned;
 	u8 switch_id, qinq_fault_map;
 	u16 qinq_native_vid[7], qinq_pvid[7];
@@ -188,6 +188,14 @@ static int qca8k_vlan_del(struct qca8k_priv *p, int port, u16 vid)
 	return ret;
 }
 
+struct phylink_config { struct dsa_port *dp; };
+struct phy_device;
+typedef int phy_interface_t;
+#define dsa_phylink_to_port(config) ((config)->dp)
+#define phylink_autoneg_inband(mode) (mode)
+#define dsa_port_is_cpu(dp) ((dp)->ds->cpu_mask & BIT((dp)->index))
+enum { SPEED_10 = 10, SPEED_100 = 100, SPEED_1000 = 1000, DUPLEX_FULL = 1 };
+#include "driver-link.h"
 #include "driver-setup.h"
 
 enum { DSA_DB_BRIDGE, DSA_DB_PORT };
@@ -735,6 +743,13 @@ int main(void)
 		fail_write = write_count + fault;
 		assert(qca8k_qinq_conduit(&priv, 2, 5) == -EIO);
 		assert(priv.qinq_fault_map == BIT(2));
+		struct phylink_config config = { &ds.ports[2] };
+		int before = write_count;
+		qca8k_phylink_mac_link_up(&config, NULL, 1, 0, 1000, 1, true, true);
+		assert(write_count == before && !priv.qinq_status_lock);
+		config.dp = &ds.ports[1];
+		qca8k_phylink_mac_link_up(&config, NULL, 1, 0, 1000, 1, true, true);
+		assert(write_count == before + 1);
 		assert(!(enabled_ports & BIT(2)) && !priv.reg_mutex);
 		assert(regs[QINQ_ACL_M(91, 4) / 4] == 0);
 		qca8k_qinq_teardown(&ds);

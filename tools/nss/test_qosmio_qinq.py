@@ -83,6 +83,9 @@ struct dsa_nss_want {
 struct work_struct { int unused; };
 struct delayed_work { int unused; };
 static struct dsa_nss_node dsa_nss_nodes[DSA_NSS_MAX_NODES];
+#define is_vlan_dev(d) ((d)->is_vlan)
+#define vlan_dev_real_dev(d) ((d)->real)
+#define netif_is_bridge_master(d) ((d)->is_bridge)
 static bool dsa_nss_waiting_phys, dsa_nss_reconfiguring, mock_waiting;
 static bool dsa_nss_stopping, dsa_nss_retry_exhausted;
 static unsigned int dsa_nss_retries, port_id_tpid = 0x88a8, dsa_nss_generation;
@@ -96,7 +99,9 @@ static int schedule_delayed_work(struct delayed_work *work, unsigned long delay)
 static int nss_cmn_get_interface_number_by_dev(struct net_device *dev) { return dev->phys; }
 static void dsa_nss_defunct(void) { ++mock_defunct_count; }
 static bool dsa_nss_is_root(const struct dsa_nss_node *n) { return !n->vid; }
+static void (*during_collect)(void);
 static int dsa_nss_collect(struct dsa_nss_want *w, int max) {
+    if (during_collect) during_collect();
     dsa_nss_waiting_phys = mock_waiting;
     return 0;
 }
@@ -107,7 +112,7 @@ static bool dsa_nss_root_wanted(const struct dsa_nss_node *n,
 static struct dsa_nss_node *dsa_nss_find_root(u16 svid, int phys) { return NULL; }
 static void dsa_nss_node_destroy(struct dsa_nss_node *n, const char *reason) { n->if_num = -1; }
 static int dsa_nss_node_create(struct dsa_nss_node *n,
-                              const struct dsa_nss_want *w, int parent) { return -EAGAIN; }
+                              const struct dsa_nss_want *w, int parent, struct net_device *binding) { return -EAGAIN; }
 '''
 
 checks = r'''
@@ -166,6 +171,8 @@ int main(void) {
     assert(qca_nss_qinq_lookup(&lan, 3073, 10) == -1);
     dsa_nss_retry_exhausted = false;
     dsa_nss_stopping = true;
+    dsa_nss_reconfiguring = false;
+    assert(dsa_nss_lookup(1, 3073, 10) == -1);
     vid = 10; assert(qca_nss_qinq_resolve(&lan, 3073, &vid) == -1);
     dsa_nss_stopping = false;
     dsa_nss_reconfiguring = false;
@@ -177,10 +184,12 @@ int main(void) {
     dsa_nss_schedule();
     assert(dsa_nss_reconfiguring && !dsa_nss_retry_exhausted &&
            dsa_nss_retries == 0 && dsa_nss_generation == 1);
-    dsa_nss_mark_exhausted(dsa_nss_generation - 1);
-    assert(!dsa_nss_retry_exhausted);
-    dsa_nss_mark_exhausted(dsa_nss_generation);
-    assert(dsa_nss_retry_exhausted);
+    during_collect = dsa_nss_schedule;
+    dsa_nss_work_fn(NULL);
+    during_collect = NULL;
+    assert(dsa_nss_generation == 2 && dsa_nss_retries == 0);
+    assert(dsa_nss_reconfiguring && !dsa_nss_retry_exhausted);
+    mock_defunct_count = 0;
     dsa_nss_schedule();
     assert(!dsa_nss_retry_exhausted);
     puts("PASS: schedule opens a fresh retry window and stale give-up is ignored");
@@ -199,10 +208,10 @@ int main(void) {
     puts("PASS: terminal give-up is hard until a real resync is scheduled");
 
     clear_nodes(); mock_waiting = true; dsa_nss_changed = 1;
-    assert(dsa_nss_resync());
+    assert(dsa_nss_resync(dsa_nss_generation));
     assert(dsa_nss_reconfiguring && mock_defunct_count == 1);
     mock_waiting = false;
-    assert(!dsa_nss_resync());
+    assert(!dsa_nss_resync(dsa_nss_generation));
     assert(!dsa_nss_reconfiguring && mock_defunct_count == 1);
     puts("PASS: empty desired set retries while NSS physical interfaces are unavailable");
     return 0;
@@ -213,7 +222,7 @@ functions = '\n\n'.join(function(name) for name in (
     'dsa_nss_parent_ready', 'dsa_nss_lookup',
     'qca_nss_qinq_root_if_num', 'qca_nss_qinq_lookup',
     'qca_nss_qinq_resolve', 'dsa_nss_resync',
-    'dsa_nss_mark_exhausted', 'dsa_nss_work_fn', 'dsa_nss_schedule'))
+    'dsa_nss_work_fn', 'dsa_nss_schedule'))
 with tempfile.TemporaryDirectory(prefix='qosmio-qinq-') as directory:
     path = Path(directory)
     (path / 'test.c').write_text(mock + functions + checks)
@@ -240,6 +249,9 @@ assert 'side->leaf == -EAGAIN' in ecm, 'Apply 0107-retry-transient-qinq-resoluti
 assert 'ecm_nss_qinq_ipv4_rule_retry' in ecm_ipv4, 'Apply 0107-retry-transient-qinq-resolution.patch first'
 assert 'ecm_nss_qinq_ipv6_rule_retry' in ecm_ipv6, 'Apply 0107-retry-transient-qinq-resolution.patch first'
 ecm_mock = r'''
+#undef is_vlan_dev
+#undef vlan_dev_real_dev
+#undef netif_is_bridge_master
 typedef uint32_t u32;
 #define IS_ERR_OR_NULL(p) (!(p))
 #define DSA_TAG_PROTO_YT921X_QINQ 35
@@ -895,7 +907,7 @@ int main(void) {
     assert(n == 3 && !owner(want,n,35));
     upper35.proto = 0x8100;
     n = dsa_nss_collect_port_id(want, 2);
-    assert(n == 2);
+    assert(n == 2 && owner(want,n,3072) == &base);
     dp.bridge = &bridge;
     n = dsa_nss_collect_port_id(want, 64);
     assert(n == 2 && owner(want,n,3089) == &base && !owner(want,n,35));
@@ -928,7 +940,7 @@ int main(void) {
 '''
 collection_functions = header_functions + '\n\n' + '\n\n'.join(function(name) for name in (
     'dsa_nss_port_is_qca', 'dsa_nss_port_is_8021q', 'dsa_nss_port_of', 'dsa_nss_want_add',
-    'dsa_nss_collect_bridge_uppers', 'dsa_nss_collect_port_id'))
+    'dsa_nss_collect_bridge_uppers', 'dsa_nss_collect_port_pass', 'dsa_nss_collect_port_id'))
 with tempfile.TemporaryDirectory(prefix='qosmio-collect-') as directory:
     path = Path(directory)
     (path / 'test.c').write_text(mock + ecm_mock + collection_support + collection_functions + collection_checks)
@@ -1031,6 +1043,10 @@ with tempfile.TemporaryDirectory(prefix='qosmio-bridge-collect-') as directory:
 
 # Actual notifier classification: unregister releases held refs synchronously.
 notifier_support = r'''
+#undef is_vlan_dev
+#undef vlan_dev_real_dev
+#undef netif_is_bridge_master
+#define netdev_uses_dsa(d) false
 struct notifier_block { int unused; };
 #define NOTIFY_DONE 0
 #define NETDEV_UNREGISTER 1
@@ -1113,7 +1129,7 @@ int main(void) {
     notify(&nb, NETDEV_UNREGISTER, &upper);
     assert(mock_destroy_count == 1 && mock_destroy_dev == &upper);
     assert(mock_defunct_count == 1 && mock_schedule_count == 1);
-    assert(mock_destroy_order == 1 && mock_schedule_order == 2);
+    assert(mock_schedule_order == 1 && mock_destroy_order == 2);
 
     reset_notifier();
     notify(&nb, NETDEV_CHANGEADDR, &upper);

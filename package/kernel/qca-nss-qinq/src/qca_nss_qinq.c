@@ -136,6 +136,8 @@ static void dsa_nss_defunct(void)
 	void (*fn)(void) = symbol_get(ecm_nss_qinq_defunct_all);
 
 	if (fn) {
+		/* Drain packet handlers that resolved a leaf before admission closed. */
+		synchronize_net();
 		fn();
 		symbol_put(ecm_nss_qinq_defunct_all);
 	}
@@ -230,7 +232,8 @@ static void dsa_nss_destroy_nodes(struct net_device *dev, const char *why)
 
 /* -EAGAIN: no interface number right now, worth a retry; -EIO: hard fail */
 static int dsa_nss_node_create(struct dsa_nss_node *n,
-			       const struct dsa_nss_want *w, int parent_if_num)
+			       const struct dsa_nss_want *w, int parent_if_num,
+			       struct net_device *binding)
 {
 	struct net_device *ndev = w->ndev;
 	u32 tag;
@@ -259,7 +262,7 @@ static int dsa_nss_node_create(struct dsa_nss_node *n,
 	ether_addr_copy(n->mac, ndev->dev_addr);
 	n->mtu = ndev->mtu;
 
-	if (!nss_register_vlan_if(if_num, NULL, ndev, 0, n)) {
+	if (!nss_register_vlan_if(if_num, NULL, binding, 0, n)) {
 		pr_warn("qca-nss-qinq: %s: register of if_num %d failed\n",
 			netdev_name(ndev), if_num);
 		nss_dynamic_interface_dealloc_node(if_num,
@@ -271,6 +274,7 @@ static int dsa_nss_node_create(struct dsa_nss_node *n,
 	}
 	spin_lock_bh(&dsa_nss_table_lock);
 	n->if_num = if_num;
+	atomic_inc(&dsa_nss_creates);
 	spin_unlock_bh(&dsa_nss_table_lock);
 
 	if (nss_vlan_tx_set_mac_addr_msg(if_num, n->mac) != NSS_TX_SUCCESS ||
@@ -294,7 +298,6 @@ static int dsa_nss_node_create(struct dsa_nss_node *n,
 	else
 		pr_info("qca-nss-qinq: %s: vlan node if_num %d vid %u phys_if %d\n",
 			netdev_name(ndev), if_num, w->vid, w->phys_if);
-	atomic_inc(&dsa_nss_creates);
 	return 0;
 }
 
@@ -393,10 +396,10 @@ static bool dsa_nss_collect_bridge_uppers(struct dsa_nss_want *want, int *n,
  * tagger puts inside. A registered standalone 802.1Q upper adds its own
  * customer leaf, alongside the base port's untagged standalone leaf.
  */
-static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
+static int dsa_nss_collect_port_pass(struct dsa_nss_want *want, int n, int max,
+				     bool customers)
 {
 	struct net_device *dev;
-	int n = 0;
 
 	for_each_netdev(&init_net, dev) {
 		struct net_device *conduit;
@@ -406,7 +409,7 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 		u16 svid;
 
 		dp = dsa_nss_port_of(dev, &upper);
-		if (!dp)
+		if (!dp || (upper && !customers))
 			continue;
 		/* QCA customer uppers require the live standalone switch policy. */
 		if (dsa_nss_port_is_qca(dp) &&
@@ -434,7 +437,7 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 		}	/* conduit not armed as a firmware port */
 
 		svid = dsa_tag_8021q_standalone_vid(dp);
-		if (!dsa_nss_want_add(want, &n, max, svid, 0, phys_if, dp->user))
+		if (!customers && !dsa_nss_want_add(want, &n, max, svid, 0, phys_if, dp->user))
 			return n;
 		if (upper) {
 			if (!dsa_nss_want_add(want, &n, max, svid,
@@ -449,12 +452,14 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 			struct bridge_vlan_info vinfo;
 			u16 vid;
 
+			if (!customers)
+				continue;
 			for (vid = 1; vid < VLAN_N_VID; vid++) {
+				if (br_vlan_get_info(dev, vid, &vinfo))
+					continue;
 				if (!(dsa_nss_port_is_qca(dp) ?
 				      dsa_qca_qinq_customer_vid_valid(dp->ds, vid) :
 				      dsa_yt921x_qinq_customer_vid_valid(dp->ds, vid)))
-					continue;
-				if (br_vlan_get_info(dev, vid, &vinfo))
 					continue;
 				if (!dsa_nss_want_add(want, &n, max, svid, vid,
 						      phys_if, dev))
@@ -464,16 +469,16 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 			unsigned int vbid = dsa_port_bridge_num_get(dp);
 
 			/* the QinQ tagger keys the inner tag on bridge_num */
-			if (vbid &&
+			if (!customers && vbid &&
 			    !dsa_nss_want_add(want, &n, max, svid,
 					      dsa_tag_8021q_bridge_vid(vbid),
 					      phys_if, dev))
 				return n;
 			/* customer VLANs routed above the unaware bridge */
-			if (!dsa_nss_collect_bridge_uppers(want, &n, max, dp,
+			if (customers && !dsa_nss_collect_bridge_uppers(want, &n, max, dp,
 							   svid, phys_if))
 				return n;
-		} else {
+		} else if (!customers) {
 			/* the tagger's inner tag is the port's own VID */
 			if (!dsa_nss_want_add(want, &n, max, svid, svid,
 					      phys_if, dev))
@@ -481,6 +486,13 @@ static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
 		}
 	}
 	return n;
+}
+
+static int dsa_nss_collect_port_id(struct dsa_nss_want *want, int max)
+{
+	int n = dsa_nss_collect_port_pass(want, 0, max, false);
+
+	return dsa_nss_collect_port_pass(want, n, max, true);
 }
 
 /*
@@ -583,7 +595,7 @@ static int dsa_nss_lookup(int phys_if, u16 svid, u16 vid)
 	int i, if_num = -1;
 
 	spin_lock_bh(&dsa_nss_table_lock);
-	if (dsa_nss_reconfiguring) {
+	if (READ_ONCE(dsa_nss_stopping) || dsa_nss_reconfiguring) {
 		spin_unlock_bh(&dsa_nss_table_lock);
 		return -1;
 	}
@@ -662,8 +674,10 @@ int qca_nss_qinq_resolve(struct net_device *conduit, u16 svid, u16 *vid)
 	if (phys_if < 0)
 		return -1;
 	spin_lock_bh(&dsa_nss_table_lock);
+	if (READ_ONCE(dsa_nss_stopping))
+		goto out;
 	if (dsa_nss_reconfiguring) {
-		if (!dsa_nss_retry_exhausted && !READ_ONCE(dsa_nss_stopping))
+		if (!dsa_nss_retry_exhausted)
 			result = -EAGAIN;
 		goto out;
 	}
@@ -734,7 +748,7 @@ static bool dsa_nss_root_wanted(const struct dsa_nss_node *root,
 }
 
 /* returns true when something could not be allocated and a retry is due */
-static bool dsa_nss_resync(void)
+static bool dsa_nss_resync(unsigned int generation)
 {
 	struct dsa_nss_want want[DSA_NSS_MAX_NODES];
 	bool again = false;
@@ -811,13 +825,14 @@ static bool dsa_nss_resync(void)
 			continue;	/* already there */
 		if (!free)
 			break;
-		ret = dsa_nss_node_create(free, &want[j], -1);
+		ret = dsa_nss_node_create(free, &want[j], -1, want[j].ndev);
 		if (ret)
 			again = true;
 	}
 
 	for (j = 0; j < nwant; j++) {
 		struct dsa_nss_node *free = NULL, *root = NULL;
+		struct net_device *binding = want[j].ndev;
 		int parent = -1, ret;
 
 		if (!want[j].vid)
@@ -846,55 +861,52 @@ static bool dsa_nss_resync(void)
 			continue;	/* already there */
 		if (!free)
 			break;
-		ret = dsa_nss_node_create(free, &want[j], parent);
+		/* A bridge upper supplies MAC and MTU to multiple leaves.
+		 * Register each such leaf against its owning DSA port.
+		 */
+		if (root && is_vlan_dev(binding) &&
+		    netif_is_bridge_master(vlan_dev_real_dev(binding)))
+			binding = root->ndev;
+		ret = dsa_nss_node_create(free, &want[j], parent, binding);
 		if (ret)
 			again = true;
 	}
 
 	spin_lock_bh(&dsa_nss_table_lock);
-	dsa_nss_reconfiguring = again;
+	if (generation == dsa_nss_generation)
+		dsa_nss_reconfiguring = again;
 	spin_unlock_bh(&dsa_nss_table_lock);
 	mutex_unlock(&dsa_nss_lock);
 	rtnl_unlock();
 	return again;
 }
 
-static void dsa_nss_mark_exhausted(unsigned int generation)
-{
-	spin_lock_bh(&dsa_nss_table_lock);
-	if (dsa_nss_generation == generation)
-		dsa_nss_retry_exhausted = true;
-	spin_unlock_bh(&dsa_nss_table_lock);
-}
-
 static void dsa_nss_work_fn(struct work_struct *work)
 {
 	unsigned int generation;
+	bool again;
 
 	if (READ_ONCE(dsa_nss_stopping))
 		return;
 	spin_lock_bh(&dsa_nss_table_lock);
 	generation = dsa_nss_generation;
 	spin_unlock_bh(&dsa_nss_table_lock);
-	if (dsa_nss_resync()) {
-		if (!READ_ONCE(dsa_nss_stopping) &&
-		    dsa_nss_retries++ < DSA_NSS_MAX_RETRIES) {
-			pr_info("qca-nss-qinq: no free firmware interface number, retry %u in %d ms\n",
-				dsa_nss_retries, DSA_NSS_RETRY_MS);
+	again = dsa_nss_resync(generation);
+
+	spin_lock_bh(&dsa_nss_table_lock);
+	if (generation == dsa_nss_generation && !READ_ONCE(dsa_nss_stopping)) {
+		if (!again) {
+			dsa_nss_retries = 0;
+		} else if (dsa_nss_retries < DSA_NSS_MAX_RETRIES) {
+			dsa_nss_retries++;
 			schedule_delayed_work(&dsa_nss_work,
 					      msecs_to_jiffies(DSA_NSS_RETRY_MS));
 		} else {
-			/*
-			 * A topology event may have started a fresh retry
-			 * window while this resync was running.
-			 */
-			dsa_nss_mark_exhausted(generation);
-			pr_warn("qca-nss-qinq: giving up after %u retries; write 1 to debugfs 'resync' to try again\n",
-				dsa_nss_retries);
+			dsa_nss_retry_exhausted = true;
+			pr_warn("qca-nss-qinq: retry limit reached; write 1 to debugfs 'resync' to try again\n");
 		}
-		return;
 	}
-	dsa_nss_retries = 0;
+	spin_unlock_bh(&dsa_nss_table_lock);
 }
 
 static void dsa_nss_schedule(void)
@@ -905,10 +917,10 @@ static void dsa_nss_schedule(void)
 	spin_lock_bh(&dsa_nss_table_lock);
 	dsa_nss_reconfiguring = true;
 	dsa_nss_retry_exhausted = false;
+	dsa_nss_retries = 0;
 	dsa_nss_generation++;
-	spin_unlock_bh(&dsa_nss_table_lock);
 	atomic_set(&dsa_nss_changed, 1);
-	WRITE_ONCE(dsa_nss_retries, 0);
+	spin_unlock_bh(&dsa_nss_table_lock);
 	mod_delayed_work(system_wq, &dsa_nss_work,
 			 msecs_to_jiffies(DSA_NSS_COALESCE_MS));
 }
@@ -945,7 +957,7 @@ static int dsa_nss_netdev_event(struct notifier_block *nb, unsigned long event,
 
 	if (!dsa_nss_port_of(dev, &upper) &&
 	    !dsa_nss_is_bridge_upper(dev) && !netif_is_bridge_master(dev) &&
-	    !bridge_port)
+	    !bridge_port && !netdev_uses_dsa(dev))
 		return NOTIFY_DONE;
 
 	switch (event) {
@@ -955,11 +967,12 @@ static int dsa_nss_netdev_event(struct notifier_block *nb, unsigned long event,
 		 * rtnl held, rather than from the work item, so the netdev
 		 * is not kept alive by our reference.
 		 */
+		dsa_nss_schedule();
 		mutex_lock(&dsa_nss_lock);
 		dsa_nss_defunct();
 		dsa_nss_destroy_nodes(dev, "device unregistered");
 		mutex_unlock(&dsa_nss_lock);
-		fallthrough;
+		break;
 	case NETDEV_REGISTER:
 	case NETDEV_UP:
 	case NETDEV_DOWN:
@@ -1056,7 +1069,7 @@ static int dsa_nss_status_show(struct seq_file *m, void *v)
 		   port_id_tpid ? "port-id" : "single-tag", port_id_tpid, nodes,
 		   atomic_read(&dsa_nss_resyncs),
 		   atomic_read(&dsa_nss_creates), atomic_read(&dsa_nss_destroys),
-		   atomic_read(&dsa_nss_alloc_failures), dsa_nss_retries);
+		   atomic_read(&dsa_nss_alloc_failures), READ_ONCE(dsa_nss_retries));
 	return 0;
 }
 DEFINE_SHOW_ATTRIBUTE(dsa_nss_status);
@@ -1124,8 +1137,8 @@ static void __exit qca_nss_qinq_exit(void)
 	WRITE_ONCE(dsa_nss_stopping, true);
 	unregister_switchdev_blocking_notifier(&dsa_nss_switchdev_nb);
 	unregister_netdevice_notifier(&dsa_nss_netdev_nb);
-	cancel_delayed_work_sync(&dsa_nss_work);
 	debugfs_remove_recursive(dsa_nss_dentry);
+	cancel_delayed_work_sync(&dsa_nss_work);
 
 	mutex_lock(&dsa_nss_lock);
 	dsa_nss_defunct();

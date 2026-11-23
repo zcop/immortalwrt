@@ -1,0 +1,81 @@
+--- a/drivers/net/dsa/qca/qca8k.h
++++ b/drivers/net/dsa/qca/qca8k.h
+@@ -483,6 +483,7 @@
+ 	struct delayed_work qinq_mc_work;
+ 	spinlock_t qinq_mc_pending_lock;
+ 	__be32 qinq_mc_pending[QCA8K_QINQ_MAX_MC];
++	struct mutex qinq_status_lock;
+ 	u8 qinq_fault_map;
+ 	struct qca8k_qinq_mc qinq_mc[QCA8K_QINQ_MAX_MC];
+ 	struct qca8k_qinq_vlan qinq_vlans[QCA8K_QINQ_MAX_VLANS];
+--- a/drivers/net/dsa/qca/qca8k-8xxx.c
++++ b/drivers/net/dsa/qca/qca8k-8xxx.c
+@@ -1499,7 +1499,12 @@
+ 
+ 	reg |= QCA8K_PORT_STATUS_TXMAC | QCA8K_PORT_STATUS_RXMAC;
+ 
+-	qca8k_write(priv, QCA8K_REG_PORT_STATUS(port), reg);
++	if (priv->qinq)
++		mutex_lock(&priv->qinq_status_lock);
++	if (!priv->qinq || !(priv->qinq_fault_map & BIT(port)))
++		qca8k_write(priv, QCA8K_REG_PORT_STATUS(port), reg);
++	if (priv->qinq)
++		mutex_unlock(&priv->qinq_status_lock);
+ }
+ 
+ static struct qca8k_pcs *pcs_to_qca8k_pcs(struct phylink_pcs *pcs)
+@@ -2318,6 +2323,7 @@
+ 	priv->ds->ops = &qca8k_switch_ops;
+ 	priv->ds->phylink_mac_ops = &qca8k_phylink_mac_ops;
+ 	mutex_init(&priv->reg_mutex);
++	mutex_init(&priv->qinq_status_lock);
+ 	dev_set_drvdata(&mdiodev->dev, priv);
+ 
+ 	return dsa_register_switch(priv->ds);
+--- a/drivers/net/dsa/qca/qca8k-common.c
++++ b/drivers/net/dsa/qca/qca8k-common.c
+@@ -506,10 +506,14 @@
+ 	if (port > 0 && port < 6)
+ 		mask |= QCA8K_PORT_STATUS_LINK_AUTO;
+ 
+-	if (enable)
++	if (priv->qinq && enable)
++		mutex_lock(&priv->qinq_status_lock);
++	if (enable && (!priv->qinq || !(priv->qinq_fault_map & BIT(port))))
+ 		regmap_set_bits(priv->regmap, QCA8K_REG_PORT_STATUS(port), mask);
+ 	else
+ 		regmap_clear_bits(priv->regmap, QCA8K_REG_PORT_STATUS(port), mask);
++	if (priv->qinq && enable)
++		mutex_unlock(&priv->qinq_status_lock);
+ }
+ 
+ void qca8k_get_strings(struct dsa_switch *ds, int port, u32 stringset,
+@@ -738,6 +742,7 @@
+ {
+ 	struct qca8k_priv *priv = ds->priv;
+ 	u16 old_native = priv->qinq_native_vid[port];
++	bool was_filtering = priv->qinq_vlan_filtering & BIT(port);
+ 	int ret;
+ 
+ 	if (priv->qinq) {
+@@ -768,6 +773,8 @@
+ 	ret = qca8k_update_port_member(priv, port, bridge.dev, true);
+ 	if (ret && priv->qinq) {
+ 		dsa_tag_8021q_bridge_leave(ds, port, bridge);
++		if (!was_filtering && (priv->qinq_vlan_filtering & BIT(port)))
++			qca8k_qinq_port_vlan_filtering(ds, port, false);
+ 		qca8k_qinq_fault(priv, port);
+ 	}
+ 	return ret;
+--- a/drivers/net/dsa/qca/qca8k-qinq.c
++++ b/drivers/net/dsa/qca/qca8k-qinq.c
+@@ -147,7 +147,9 @@
+ 
+ void qca8k_qinq_fault(struct qca8k_priv *priv, int port)
+ {
++	mutex_lock(&priv->qinq_status_lock);
+ 	priv->qinq_fault_map |= BIT(port);
++	mutex_unlock(&priv->qinq_status_lock);
+ 	qca8k_port_set_status(priv, port, 0);
+ 	dev_err(priv->dev, "QinQ configuration failed; port %d held down\n", port);
+ }

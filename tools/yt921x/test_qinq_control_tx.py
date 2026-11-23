@@ -141,6 +141,8 @@ typedef uint16_t __be16;
 #define GENMASK(h, l) (((~0U) << (l)) & (~0U >> (31 - (h))))
 #define FIELD_PREP(mask, val) \
 	(((val) << __builtin_ctz((unsigned int)(mask))) & (mask))
+#define guard(name) mock_guard
+static inline void mock_guard(void) {}
 #define unlikely(x) (x)
 
 #define GFP_ATOMIC 0

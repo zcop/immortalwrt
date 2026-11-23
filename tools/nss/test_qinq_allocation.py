@@ -66,11 +66,17 @@ typedef uint32_t u32;
 #define netdev_name(d) ((d) ? (d)->name : "(null)")
 
 struct net_device {
+	struct net_device *real;
+	bool bridge;
 	const char *name;
 	int refs, puts, holds;
 	unsigned char dev_addr[ETH_ALEN];
 	unsigned int mtu;
 };
+
+#define is_vlan_dev(d) ((d)->real != NULL)
+#define vlan_dev_real_dev(d) ((d)->real)
+#define netif_is_bridge_master(d) ((d)->bridge)
 
 typedef struct { int v; } fake_atomic_t;
 typedef int fake_spinlock_t;
@@ -101,6 +107,7 @@ TABLE = r"""
 static struct dsa_nss_node dsa_nss_nodes[DSA_NSS_MAX_NODES];
 static fake_mutex_t dsa_nss_lock;
 static fake_spinlock_t dsa_nss_table_lock;
+static unsigned int dsa_nss_generation;
 static bool dsa_nss_reconfiguring, dsa_nss_waiting_phys;
 static fake_atomic_t dsa_nss_changed = { .v = 1 };
 static fake_atomic_t dsa_nss_resyncs, dsa_nss_alloc_failures;
@@ -296,7 +303,11 @@ int nss_register_vlan_if(int if_num, void *arg, struct net_device *ndev,
 
 	(void)arg;
 	(void)flags;
-	if (!n || n->ndev != ndev) {
+	struct dsa_nss_node *root = n ? node_by_ifnum(n->parent_if_num) : NULL;
+	struct net_device *expected = n ? n->ndev : NULL;
+	if (root && expected && expected->real && expected->real->bridge)
+		expected = root->ndev;
+	if (!n || expected != ndev) {
 		fail("register if_num %d: bad node/netdev", if_num);
 		return 0;
 	}
@@ -349,13 +360,16 @@ int nss_vlan_tx_add_tag_msg(int if_num, u32 tag, int parent, int phys_if)
 	struct dsa_nss_node *n = node_by_ifnum(if_num);
 	if (n) {
 		/* Fixture's independent root/leaf wire values, not a copied encoder. */
-		if (tag != (n->vid ? 0x81000064U : 0x88a80c00U))
+		u32 expected = n->vid == 35 ? 0x81000023U : 0x81000064U;
+		if (!n->vid)
+			expected = n->svid == 3073 ? 0x88a80c01U : 0x88a80c00U;
+		if (tag != expected)
 			fail("unexpected firmware tag %#x", tag);
 		if (phys_if != 3 || parent != (n->vid ? n->parent_if_num : 3))
 			fail("wrong physical interface/next hop");
 		if (n->vid) {
 			struct dsa_nss_node *root = node_by_ifnum(parent);
-			if (!root || !root->ready || root->vid || root->svid != 3072)
+			if (!root || !root->ready || root->vid || root->svid != n->svid)
 				fail("leaf configured before ready root");
 		}
 	}
@@ -548,7 +562,7 @@ static void test_alloc_failure(void)
 
 	fixtures_reset();
 	alloc_limit = 0;
-	if (dsa_nss_node_create(&dsa_nss_nodes[0], &w, -1) != -EAGAIN)
+	if (dsa_nss_node_create(&dsa_nss_nodes[0], &w, -1, w.ndev) != -EAGAIN)
 		fail("alloc failure: create did not return -EAGAIN");
 	expect_free("alloc failure", 0);
 	expect_dev("alloc failure", &lan1, 0);
@@ -566,7 +580,7 @@ static void test_register_failure(void)
 
 	fixtures_reset();
 	register_ok = false;
-	if (dsa_nss_node_create(&dsa_nss_nodes[0], &w, -1) != -EIO)
+	if (dsa_nss_node_create(&dsa_nss_nodes[0], &w, -1, w.ndev) != -EIO)
 		fail("register failure: create did not return -EIO");
 	expect_free("register failure", 0);
 	expect_dev("register failure", &lan1, 0);
@@ -593,7 +607,7 @@ static void test_stage_failures(void)
 		fixtures_reset();
 		node_set(5, true, 3073, 0, -1, 900, 4, &lan2);
 		fail_stage = stage;
-		if (dsa_nss_node_create(&dsa_nss_nodes[0], &w, -1) != -EIO)
+		if (dsa_nss_node_create(&dsa_nss_nodes[0], &w, -1, w.ndev) != -EIO)
 			fail("%s failure: create did not return -EIO", name);
 		expect_free(name, 0);
 		expect_node("unrelated", 5, true, 3073, 0, -1, 4, &lan2);
@@ -623,7 +637,7 @@ static void test_shortage_recovery(void)
 	want_add(3072, 0, 3, &lan1);
 	want_add(3072, 100, 3, &lan1);
 	alloc_limit = 1;
-	if (!dsa_nss_resync())
+	if (!dsa_nss_resync(dsa_nss_generation))
 		fail("shortage: resync did not request a retry");
 	if (dsa_nss_nodes[0].if_num < 0 || !dsa_nss_nodes[0].ready)
 		fail("shortage: root was not created first");
@@ -636,7 +650,7 @@ static void test_shortage_recovery(void)
 	check_ledger("shortage");
 
 	alloc_limit = 2;
-	if (dsa_nss_resync())
+	if (dsa_nss_resync(dsa_nss_generation))
 		fail("recovery: resync still wants a retry");
 	if (dsa_nss_nodes[1].if_num < 0 || !dsa_nss_nodes[1].ready)
 		fail("recovery: leaf was not created");
@@ -677,7 +691,7 @@ static void test_idempotent_resync(void)
 	want_add(3072, 0, 3, &lan1);
 	want_add(3072, 100, 3, &lan1);
 	alloc_limit = 8;
-	if (dsa_nss_resync())
+	if (dsa_nss_resync(dsa_nss_generation))
 		fail("idempotence: first resync failed");
 	root_if = dsa_nss_nodes[0].if_num;
 	leaf_if = dsa_nss_nodes[1].if_num;
@@ -687,7 +701,7 @@ static void test_idempotent_resync(void)
 	creates = dsa_nss_creates.v;
 	destroys = dsa_nss_destroys.v;
 
-	if (dsa_nss_resync())
+	if (dsa_nss_resync(dsa_nss_generation))
 		fail("idempotence: second resync requested work");
 	if (dsa_nss_nodes[0].if_num != root_if ||
 	    dsa_nss_nodes[1].if_num != leaf_if)
@@ -713,6 +727,22 @@ int main(void)
 	test_stage_failures();
 	test_shortage_recovery();
 	test_idempotent_resync();
+	struct net_device bridge = { .name = "bridge", .bridge = true };
+	struct net_device upper = { .name = "upper", .real = &bridge };
+	fixtures_reset();
+	want_add(3072, 0, 3, &lan1);
+	want_add(3073, 0, 3, &lan2);
+	want_add(3072, 35, 3, &upper);
+	want_add(3073, 35, 3, &upper);
+	alloc_limit = 4;
+	if (dsa_nss_resync(dsa_nss_generation))
+		fail("bridge upper leaves failed to register against their own ports");
+	expect_dev("bridge upper lifetime", &upper, 2);
+	dsa_nss_destroy_nodes(&upper, "upper unregister");
+	expect_dev("bridge upper cleanup", &upper, 0);
+	if (fake_if_live_count() != 2)
+		fail("upper unregister must preserve both roots");
+	dsa_nss_destroy_nodes(NULL, "cleanup");
 	if (failures) {
 		fprintf(stderr, "%d check(s) failed\n", failures);
 		return 1;
