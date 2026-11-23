@@ -1,0 +1,27 @@
+Publish native GMAC offload features before registering the NSS-DP netdev.
+
+DSA copies vlan_features when it creates user ports, which can happen
+before the conduit is opened. Publishing the features only at open leaves
+those ports without scatter-gather and prevents Linux from enabling their
+software GSO.
+
+For the native IPQ5018 phylink path, publish the host dataplane features at
+probe. NSS supports the same checksum, scatter-gather and fraglist features,
+so the initial DSA capabilities are valid across takeover and host restore.
+
+--- a/nss_dp_main.c
++++ b/nss_dp_main.c
+@@ -1004,7 +1004,12 @@ static int nss_dp_probe(struct platform_
+ 	}
+ #endif
+ 
+-	/* TODO: Features: CSUM, tx/rx offload... configure */
++	/*
++	 * DSA user ports inherit the conduit's VLAN features before it opens.
++	 * Publish the native IPQ5018 features shared by the NSS dataplane.
++	 */
++	if (dp_priv->ipq5018)
++		dp_priv->data_plane_ops->set_features(dp_priv->dpc);
+ 
+ 	/* Register the network interface */
+ 	ret = register_netdev(netdev);
