@@ -1,0 +1,74 @@
+nss: ipq50xx: synchronize firmware with the boot clock
+
+The firmware can start with an 850 MHz shaper timebase when the host
+starts the NSS core at 1 GHz. This inflates the accounted traffic rate
+until the firmware sees a frequency notification.
+
+After the existing boot wait, report the measured core clock using the
+same start/end messages as a runtime frequency change. Serialize the
+notifications with frequency work and preserve statistics reporting.
+
+--- a/nss_hal/include/nss_hal.h
++++ b/nss_hal/include/nss_hal.h
+@@ -48,6 +48,7 @@
+ #endif
+ #if defined(NSS_HAL_IPQ50XX_SUPPORT)
+ extern struct nss_hal_ops nss_hal_ipq50xx_ops;
++void nss_hal_ipq50xx_sync_clock(struct nss_ctx_instance *nss_ctx);
+ #endif
+ #if defined(NSS_HAL_FSM9010_SUPPORT)
+ extern struct nss_hal_ops nss_hal_fsm9010_ops;
+--- a/nss_hal/nss_hal.c
++++ b/nss_hal/nss_hal.c
+@@ -862,6 +862,10 @@
+ 
+ 	nss_info("%px: All resources initialized and nss core%d has been brought out of reset", nss_ctx, nss_dev->id);
+ 	nss_bootwait();
++#ifdef NSS_HAL_IPQ50XX_SUPPORT
++	if (READ_ONCE(nss_ctx->state) == NSS_CORE_STATE_INITIALIZED)
++		nss_hal_ipq50xx_sync_clock(nss_ctx);
++#endif
+ 	goto out;
+ 
+ err_register_irq:
+--- a/nss_hal/ipq50xx/nss_hal_pvt.c
++++ b/nss_hal/ipq50xx/nss_hal_pvt.c
+@@ -96,6 +96,38 @@
+ 				(1 << (NSS0_H2N_INTR_BASE + NSS_H2N_INTR_TRIGGER_COREDUMP)),
+ 				(1 << (NSS0_H2N_INTR_BASE + NSS_H2N_INTR_EMPTY_PAGED_BUFFER_QUEUE))}
+ };
++
++/*
++ * Inform the running firmware of the clock selected before reset release.
++ * The firmware's initial shaper timebase may differ from the actual rate.
++ */
++void nss_hal_ipq50xx_sync_clock(struct nss_ctx_instance *nss_ctx)
++{
++	nss_tx_status_t status;
++	bool stats_enable;
++	u32 rate;
++
++	mutex_lock(&nss_top_main.wq_lock);
++	rate = IS_ERR_OR_NULL(nss_core0_clk) ? 0 : clk_get_rate(nss_core0_clk);
++	if (!rate) {
++		dev_warn(nss_ctx->dev, "Cannot read the NSS boot clock rate\n");
++		goto unlock;
++	}
++
++	/* Keep the initial statistics enabled until autoscaling is initialized. */
++	stats_enable = !READ_ONCE(nss_runtime_samples.initialized) ||
++		       READ_ONCE(nss_cmd_buf.auto_scale) == 1;
++	WRITE_ONCE(nss_cmd_buf.current_freq, rate);
++	status = nss_freq_change(nss_ctx, rate, stats_enable, 0);
++	if (status == NSS_TX_SUCCESS)
++		status = nss_freq_change(nss_ctx, rate, stats_enable, 1);
++	if (status != NSS_TX_SUCCESS)
++		dev_warn(nss_ctx->dev, "Failed to synchronize NSS clock at %u Hz: %d\n",
++			 rate, status);
++
++unlock:
++	mutex_unlock(&nss_top_main.wq_lock);
++}
+ 
+ /*
+  * nss_hal_wq_function()
