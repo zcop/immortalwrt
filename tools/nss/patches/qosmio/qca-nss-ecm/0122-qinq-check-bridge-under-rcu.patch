@@ -1,0 +1,136 @@
+--- a/frontends/nss/ecm_nss_common.c
++++ b/frontends/nss/ecm_nss_common.c
+@@ -242,53 +242,6 @@
+ 		goto out;
+ 	}
+ 
+-	/* QCA8337 admits native/aware bridge routing and a standalone
+-	 * customer VLAN, optionally terminating in one live PPPoE session.
+-	 */
+-	if (dsa_port_from_netdev(port)->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ) {
+-		struct dsa_port *qdp = dsa_port_from_netdev(port);
+-#ifdef ECM_INTERFACE_PPPOE_ENABLE
+-		bool pppoe = ecm_db_iface_type_get(ifaces[ECM_DB_IFACE_HEIRARCHY_MAX - 1]) ==
+-			     ECM_DB_IFACE_TYPE_PPPOE;
+-#endif
+-
+-		rcu_read_lock();
+-		br = dsa_port_bridge_dev_get(qdp);
+-		ret = (direct && br) ||
+-		      netdev_master_upper_dev_get_rcu(port) != br ? -EOPNOTSUPP : 0;
+-		rcu_read_unlock();
+-		if (ret)
+-			goto out;
+-#ifdef ECM_INTERFACE_PPPOE_ENABLE
+-		if (pppoe && br) {
+-			ret = -EOPNOTSUPP;
+-			goto out;
+-		}
+-#endif
+-		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+-			ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
+-
+-#ifdef ECM_INTERFACE_PPPOE_ENABLE
+-			if (pppoe) {
+-				/* Shared checks below validate the one live PPP session. */
+-				if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
+-				    type != ECM_DB_IFACE_TYPE_PPPOE &&
+-				    !(direct && type == ECM_DB_IFACE_TYPE_VLAN)) {
+-					ret = -EOPNOTSUPP;
+-					goto out;
+-				}
+-				continue;
+-			}
+-#endif
+-			if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
+-			    type != (direct ? ECM_DB_IFACE_TYPE_VLAN : ECM_DB_IFACE_TYPE_BRIDGE) &&
+-			    !(br && br_vlan_enabled(br) && type == ECM_DB_IFACE_TYPE_VLAN)) {
+-				ret = -EOPNOTSUPP;
+-				goto out;
+-			}
+-		}
+-	}
+-
+ 	/* Routed Ethernet/bridge/one-customer-VLAN, optionally terminating
+ 	 * in one live PPPoE session. PPPoE rule fields remain owned by the
+ 	 * ordinary frontend; this resolver supplies only its QinQ underlay.
+@@ -359,6 +312,49 @@
+ 		ret = -EOPNOTSUPP;
+ 		goto unlock;
+ 	}
++	/* QCA8337 admits native/aware bridge routing and a standalone
++	 * customer VLAN, optionally terminating in one live PPPoE session.
++	 */
++	if (dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ) {
++#ifdef ECM_INTERFACE_PPPOE_ENABLE
++		bool pppoe = ecm_db_iface_type_get(ifaces[ECM_DB_IFACE_HEIRARCHY_MAX - 1]) ==
++			     ECM_DB_IFACE_TYPE_PPPOE;
++#endif
++
++		ret = (direct && br) ||
++		      netdev_master_upper_dev_get_rcu(port) != br ? -EOPNOTSUPP : 0;
++		if (ret)
++			goto unlock;
++#ifdef ECM_INTERFACE_PPPOE_ENABLE
++		if (pppoe && br) {
++			ret = -EOPNOTSUPP;
++			goto unlock;
++		}
++#endif
++		for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
++			ecm_db_iface_type_t type = ecm_db_iface_type_get(ifaces[i]);
++
++#ifdef ECM_INTERFACE_PPPOE_ENABLE
++			if (pppoe) {
++				/* Shared checks below validate the one live PPP session. */
++				if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
++				    type != ECM_DB_IFACE_TYPE_PPPOE &&
++				    !(direct && type == ECM_DB_IFACE_TYPE_VLAN)) {
++					ret = -EOPNOTSUPP;
++					goto unlock;
++				}
++				continue;
++			}
++#endif
++			if (type != ECM_DB_IFACE_TYPE_ETHERNET &&
++			    type != (direct ? ECM_DB_IFACE_TYPE_VLAN : ECM_DB_IFACE_TYPE_BRIDGE) &&
++			    !(br && br_vlan_enabled(br) && type == ECM_DB_IFACE_TYPE_VLAN)) {
++				ret = -EOPNOTSUPP;
++				goto unlock;
++			}
++		}
++	}
++
+ 	if (direct) {
+ 		cvid = vlan_dev_vlan_id(direct);
+ 		if (vlan_dev_real_dev(direct) != port ||
+@@ -392,6 +388,11 @@
+ 	for (i = first; i < ECM_DB_IFACE_HEIRARCHY_MAX; i++) {
+ 		bool ok;
+ 
++		if (ecm_db_iface_type_get(ifaces[i]) == ECM_DB_IFACE_TYPE_BRIDGE &&
++		    (!br || ecm_db_iface_interface_identifier_get(ifaces[i]) != br->ifindex)) {
++			ret = -EOPNOTSUPP;
++			goto unlock;
++		}
+ 		if (ecm_db_iface_type_get(ifaces[i]) != ECM_DB_IFACE_TYPE_VLAN)
+ 			continue;
+ 		dev = dev_get_by_index(&init_net, ecm_db_iface_interface_identifier_get(ifaces[i]));
+@@ -408,12 +409,12 @@
+ 			ok = is_vlan_dev(dev) &&
+ 			     vlan_dev_vlan_proto(dev) == htons(ETH_P_8021Q) &&
+ 			     br && br_vlan_enabled(br) &&
+-			     vlan_dev_real_dev(dev) == br;
++			     vlan_dev_real_dev(dev) == br &&
++			     !netdev_master_upper_dev_get_rcu(dev) &&
++			     __vlan_find_dev_deep_rcu(br, htons(ETH_P_8021Q),
++						    vlan_dev_vlan_id(dev)) == dev;
+ 			if (ok && dp->ds->dst->tag_ops->proto == DSA_TAG_PROTO_QCA_QINQ)
+-				ok = !netdev_master_upper_dev_get_rcu(dev) &&
+-				     __vlan_find_dev_deep_rcu(br, htons(ETH_P_8021Q),
+-							    vlan_dev_vlan_id(dev)) == dev &&
+-				     dsa_qca_qinq_bridge_vid_valid(dp, vlan_dev_vlan_id(dev));
++				ok = dsa_qca_qinq_bridge_vid_valid(dp, vlan_dev_vlan_id(dev));
+ 		}
+ 		if (!ok) {
+ 			dev_put(dev);

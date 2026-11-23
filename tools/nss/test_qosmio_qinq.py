@@ -55,7 +55,8 @@ typedef uint16_t u16;
 #define rtnl_lock() ((void)0)
 #define rtnl_unlock() ((void)0)
 struct net_device {
-    int phys, index, refs, features, type, flags;
+    int phys, refs, features, type, flags;
+    union { int index; int ifindex; };
     bool is_vlan, is_dsa, vlan_enabled, is_bridge;
     u16 vid, proto;
     struct net_device *real, *master;
@@ -515,6 +516,8 @@ int main(void) {
     port.vlans[20] = true;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 7, &side) < 0); /* node cache still only VID10 */
     ifaces[6] = &port_ii; ifaces[7] = &upper_ii;
+    assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    mock_publish_upper(&bridge, &upper);
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == 1 && side.inner == 0x8100000aU);
     upper.vid = 20;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
@@ -522,6 +525,7 @@ int main(void) {
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) == 1 && side.leaf == 102 && side.inner == 0x81000014U);
     port.vlans[20] = false;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0);
+    mock_unpublish_upper(&bridge, &upper);
     upper.real = &port;
     assert(ecm_nss_qinq_side_get(&ci, ifaces, 6, &side) < 0); /* unsupported direct VLAN upper */
     upper.real = &bridge; upper.vid = 10; upper_ii.type = ECM_DB_IFACE_TYPE_PPPOE;

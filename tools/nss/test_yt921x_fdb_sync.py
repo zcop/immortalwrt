@@ -157,7 +157,8 @@ reset(&p);rt=true;assert(yt921x_fdb_sync_entry(&p,mac,3088,1,5)&&last_dev==&user
 updates=0;assert(!yt921x_fdb_sync_entry(&p,mac,3072,1,5)&&!updates);
 br_dev.filtering=true;assert(yt921x_fdb_sync_entry(&p,mac,35,1,5)&&last_vid==35);
 p.vlan_fid_mode=YT921X_VLAN_FID_MODE_SVL;updates=0;assert(!yt921x_fdb_sync_entry(&p,mac,1,1,5)&&!updates);
-br_dev.filtering=false;p.vlan_svl_fid=7;assert(yt921x_fdb_sync_entry(&p,mac,7,1,5)&&last_vid==0);
+br_dev.filtering=false;p.vlan_svl_fid=7;assert(!yt921x_fdb_sync_entry(&p,mac,7,1,5));
+assert(yt921x_fdb_sync_entry(&p,mac,3088,1,5)&&last_vid==0);
 p.vlan_fid_mode=YT921X_VLAN_FID_MODE_IVL;updates=0;assert(!yt921x_fdb_sync_entry(&p,mac,3088,5,5));assert(!yt921x_fdb_sync_entry(&p,mac,3088,BIT(8),5));
 for(u8 s=0;s<8;s++){bool want=s==1||s==3||s==5;unsigned before=updates;assert(yt921x_fdb_sync_entry(&p,mac,3088,1,s)==want);assert(updates==before+(unsigned)want);}
 p.ds.ports[0].lag=&bond_dev;assert(yt921x_fdb_sync_entry(&p,mac,3088,1,5)&&last_dev==&bond_dev);p.ds.ports[0].bridge=NULL;assert(!yt921x_fdb_sync_entry(&p,mac,3088,1,5));rt=false;

@@ -1,0 +1,62 @@
+Subject: [PATCH] net: dsa: keep the bridge alive for packet readers
+
+Taggers and NSS resolution can read the DSA bridge while a port leaves.
+Publish the initialized bridge and take a single pointer snapshot in the
+device and number accessors. Wait for networking readers before freeing
+the last bridge reference and returning its number to the allocator.
+
+--- a/include/net/dsa.h
++++ b/include/net/dsa.h
+@@ -779,15 +779,20 @@
+ 	return dp->user;
+ }
+ 
++/* Callers must hold RTNL or be in a networking RCU read-side section. */
+ static inline struct net_device *
+ dsa_port_bridge_dev_get(const struct dsa_port *dp)
+ {
+-	return dp->bridge ? dp->bridge->dev : NULL;
++	const struct dsa_bridge *bridge = smp_load_acquire(&dp->bridge);
++
++	return bridge ? bridge->dev : NULL;
+ }
+ 
+ static inline unsigned int dsa_port_bridge_num_get(struct dsa_port *dp)
+ {
+-	return dp->bridge ? dp->bridge->num : 0;
++	const struct dsa_bridge *bridge = smp_load_acquire(&dp->bridge);
++
++	return bridge ? bridge->num : 0;
+ }
+ 
+ static inline bool dsa_port_bridge_same(const struct dsa_port *a,
+--- a/net/dsa/port.c
++++ b/net/dsa/port.c
+@@ -427,7 +427,7 @@
+ 	bridge = dsa_tree_bridge_find(ds->dst, br);
+ 	if (bridge) {
+ 		refcount_inc(&bridge->refcount);
+-		dp->bridge = bridge;
++		smp_store_release(&dp->bridge, bridge);
+ 		return 0;
+ 	}
+ 
+@@ -447,7 +447,7 @@
+ 		return -EOPNOTSUPP;
+ 	}
+ 
+-	dp->bridge = bridge;
++	smp_store_release(&dp->bridge, bridge);
+ 
+ 	return 0;
+ }
+@@ -467,6 +467,9 @@
+ 
+ 	if (!refcount_dec_and_test(&bridge->refcount))
+ 		return;
++
++	/* Let packet readers finish before freeing the bridge or reusing its ID. */
++	synchronize_net();
+ 
+ 	if (bridge->num)
+ 		dsa_bridge_num_put(br, bridge->num);

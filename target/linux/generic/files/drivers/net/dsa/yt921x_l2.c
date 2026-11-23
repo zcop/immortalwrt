@@ -579,10 +579,15 @@ static bool yt921x_fdb_sync_entry(struct yt921x_priv *priv, const u8 *addr,
 		return false;
 
 	if (!br_vlan_enabled(br)) {
-		u16 bridge_vid = dsa_tag_8021q_bridge_vid(
-						dsa_port_bridge_num_get(dp));
+		unsigned int num = dsa_port_bridge_num_get(dp);
+		u16 bridge_vid;
 
-		if (fid != yt921x_vlan_fid_for_vid(priv, bridge_vid))
+		if (!num)
+			return false;
+		bridge_vid = dsa_tag_8021q_bridge_vid(num);
+
+		if (fid != (priv->qinq ? bridge_vid :
+			    yt921x_vlan_fid_for_vid(priv, bridge_vid)))
 			return false;
 		vid = 0;
 	} else if (priv->vlan_fid_mode == YT921X_VLAN_FID_MODE_SVL) {

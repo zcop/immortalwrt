@@ -24,11 +24,14 @@ assert join
 functions = []
 for name in ['yt921x_vlan_fid_for_vid', 'yt921x_vlan_aware_set',
              'yt921x_port_set_pvid', 'yt921x_vlan_add', 'yt921x_vlan_del',
-             'yt921x_direct_vlan_join_check',
+             'yt921x_direct_vlan_join_check', 'yt921x_isolate',
              'yt921x_dsa_port_bridge_leave']:
     match = re.search(r'^(?:static )?(?:int|u16|void)\s+' + name + r'\(.*?^\}', common, re.M | re.S)
     assert match, name
     functions.append(match.group(0))
+debugfs = (DRIVER / 'yt921x_debugfs.c').read_text()
+fid_mode = re.search(r'^static int yt921x_proc_apply_vlan_fid_mode\(.*?^\}', debugfs, re.M | re.S)
+assert fid_mode
 transport = (DRIVER / 'yt921x_8021q.c').read_text().replace('#include "yt921x_internal.h"', '').replace('#include <linux/dsa/yt921x_qinq.h>', '')
 namespace = (ROOT / 'target/linux/generic/files/include/linux/dsa/yt921x_qinq.h').read_text()
 namespace = re.search(r'static inline bool.*?^}', namespace, re.M | re.S).group(0)
@@ -666,6 +669,34 @@ int main(void) {
  }
 
  {
+  /* The global debugfs mode applies to C-lookup rows, including standalone. */
+  svid_setup();
+  assert(!yt921x_qinq_svid_sync(&priv));
+  assert(!yt921x_vlan_add(&priv,2,35,false));
+  u64 native0 = vlan(3072), native1 = vlan(3073), native3 = vlan(3075);
+  u64 flags = YT921X_VLAN_CTRL_FID_M | YT921X_VLAN_CTRL_SVL_EN;
+  u64 customer = vlan(35), standalone_root = vlan(3074);
+  priv.vlan_fid_mode = YT921X_VLAN_FID_MODE_SVL;
+  priv.vlan_svl_fid = 7;
+  assert(!yt921x_proc_apply_vlan_fid_mode(&priv));
+  assert(vlan(3072)==native0 && vlan(3073)==native1 && vlan(3075)==native3);
+  assert(vlan(3074)==((standalone_root & ~flags) | YT921X_VLAN_CTRL_FID(7) | YT921X_VLAN_CTRL_SVL_EN));
+  assert(vlan(35)==((customer & ~flags) | YT921X_VLAN_CTRL_FID(7) | YT921X_VLAN_CTRL_SVL_EN));
+  priv.vlan_fid_mode = 0;
+  assert(!yt921x_proc_apply_vlan_fid_mode(&priv));
+  assert(vlan(3072)==native0 && vlan(3073)==native1 && vlan(3075)==native3);
+  assert(vlan(3074)==standalone_root && vlan(35)==customer);
+
+  reset();
+  assert(!yt921x_vlan_add(&priv,2,35,false));
+  priv.vlan_fid_mode = YT921X_VLAN_FID_MODE_SVL;
+  priv.vlan_svl_fid = 7;
+  assert(!yt921x_proc_apply_vlan_fid_mode(&priv));
+  assert(root_fid(35)==7 && (vlan(35)&YT921X_VLAN_CTRL_SVL_EN));
+  puts("PASS: debugfs SVL/IVL transitions preserve native QinQ bridge FIDs");
+ }
+
+ {
   /* Fault injection over every read, write and flush of the shared transaction. */
   svid_setup();reads=0;writes=0;
   assert(!yt921x_qinq_svid_sync(&priv));
@@ -706,7 +737,7 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix='yt921x-transport-') as temporary:
     directory=Path(temporary)
     source=directory/'transport.c'
-    source.write_text(preamble+'\n'+''.join(defines)+'\n'+namespace+'\n'+'\n'.join(functions)+'\n'+acl+'\n'+transport+'\n'+join_stubs+'\n'+join.group(0)+'\n'+tests)
+    source.write_text(preamble+'\n'+''.join(defines)+'\n'+namespace+'\n'+'\n'.join(functions)+'\n'+acl+'\n'+transport+'\n'+join_stubs+'\n'+join.group(0)+'\n'+fid_mode.group(0)+'\n'+tests)
     executable=directory/'transport-test'
     subprocess.run(['cc','-std=gnu11','-O1','-g','-fsanitize=address,undefined',str(source),'-o',str(executable)],check=True)
     # LeakSanitizer cannot run under the traced execution sandbox. This

@@ -639,12 +639,35 @@ static int yt921x_proc_reply_vlan_mode(struct yt921x_priv *priv)
 static int yt921x_proc_apply_vlan_fid_mode(struct yt921x_priv *priv)
 {
 	u16 svl_fid = priv->vlan_svl_fid ? : 1;
+	u16 native_svids[YT921X_PORT_NUM];
+	unsigned int num_native_svids = 0, i;
 	u16 vid;
+	int res;
+
+	if (priv->qinq) {
+		struct dsa_port *dp;
+		u32 svid_ports;
+
+		res = yt921x_reg_read(priv, YT921X_LOOK_UP_VLAN_SEL, &svid_ports);
+		if (res)
+			return res;
+
+		/* Native QinQ ports learn in a per-bridge FID through their SVID. */
+		dsa_switch_for_each_user_port(dp, &priv->ds)
+			if (svid_ports & YT921X_LOOK_UP_VLAN_SEL_PORTn(dp->index))
+				native_svids[num_native_svids++] =
+					dsa_tag_8021q_standalone_vid(dp);
+	}
 
 	for (vid = 1; vid < YT921X_VID_UNAWARE; vid++) {
 		u64 ctrl64;
 		u16 fid;
-		int res;
+
+		for (i = 0; i < num_native_svids; i++)
+			if (vid == native_svids[i])
+				break;
+		if (i < num_native_svids)
+			continue;
 
 		res = yt921x_reg64_read(priv, YT921X_VLANn_CTRL(vid), &ctrl64);
 		if (res)
