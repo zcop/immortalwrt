@@ -39,7 +39,7 @@ commit or a long-term reliability qualification.
 | MTU boundaries and IPv6 Packet Too Big | Confirmed | Confirmed |
 | 5 GHz Wi-Fi STA/client routed IPv4 | Confirmed, including cold first association/data and live traffic. Peak throughput and sustained-load reliability unqualified | Confirmed, including cold first association/data; peak capacity unvalidated |
 | 2.4 GHz Wi-Fi STA/client routed IPv4 | Partial: offload demonstrated; severe throughput limits in the test fixture | Partial: TCP/UDP offload demonstrated; weak-link performance remains unresolved |
-| Wi-Fi AP client traffic | Unvalidated; AP startup checked | Confirmed: 5 GHz AP client routed IPv4 NAT/TCP and IPv6 TCP in both directions; bounded single-client checks |
+| Wi-Fi AP client traffic | Confirmed: bounded 2.4 GHz single-client routed IPv4 TCP with DNAT. 5 GHz and sustained or multi-client AP load remain open. | Confirmed: 5 GHz AP client routed IPv4 NAT/TCP and IPv6 TCP in both directions; bounded single-client checks |
 | Wi-Fi IPv6 | Unvalidated | Confirmed: 5 GHz AP routed TCP; STA, 2.4 GHz and UDP coverage remain open |
 | Wi-Fi WDS | Unvalidated with firmware 12.2 | Unvalidated with firmware 12.2 |
 | Wi-Fi mesh / roaming | Unvalidated; mesh manager disabled | Unvalidated |
@@ -55,6 +55,12 @@ Completed payload transfers, exact ECM rules in accelerated mode and increasing
 NSS IPv4/IPv6/wifili counters establish routed offload. These paced transfers
 do not measure peak throughput or qualify AP cold boot, multiple clients or
 long-term reliability. Bridged AP traffic is covered separately below.
+
+The CR881x 2.4 GHz AP check used a separate Wi-Fi subnet with one WPA2
+station. A paced TCP echo crossed the wired LAN and AP via a scoped
+destination NAT rule. The exact ECM rule and IPv4/internal-radio counters
+confirmed offload with the existing 5 GHz STA uplink active.
+See [CR881x Wi-Fi validation](cr881x/nss-qosmio-wifi.md#24-ghz-ap-routed-traffic).
 
 The private outer S-tag identifies the physical DSA port. The inner tag carries
 the native forwarding domain or one customer VLAN. Customer S+C QinQ would

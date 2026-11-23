@@ -10,8 +10,9 @@ through the QCN6122 5GHz STA path pass both warm and user-confirmed cold-boot
 checks. A subsequent Build42 internal2.4GHz STA test confirms routed IPv4
 acceleration but fails performance acceptance at roughly0.5–0.9Mbps TCP in
 the current fixture. A same-image Wi-Fi-NSS-disabled control is also poor at
-0.13–0.49Mbps; interference is not independently established. AP mode, Wi-Fi
-IPv6 and broader reliability remain open.
+0.13–0.49Mbps; interference is not independently established. A later bounded
+[2.4 GHz AP check](#24-ghz-ap-routed-traffic) confirms routed IPv4 TCP offload.
+5 GHz AP traffic, Wi-Fi IPv6 and broader reliability remain open.
 
 ## Source and integration
 
@@ -143,6 +144,19 @@ LAN→WAN run received936.60Mbps with98.66%CPU idle and no new driver errors.
 The final cold-run result is saved separately in the evidence directory.
 Temporary router settings, workstation routes and peer servers were restored.
 No Wi-Fi client is left configured by the tests.
+
+## 2.4 GHz AP routed traffic
+
+A temporary WPA2 AP on the internal radio served one station on a separate
+IPv4 subnet while the existing 5 GHz STA uplink remained active. A wired LAN
+peer sent paced TCP echo traffic through a scoped destination NAT rule to
+that station. The client verified the returned payload, the matching ECM
+rule named the AP and reported acceleration, and the NSS IPv4 fast-path
+and internal radio TX/RX counters increased. Both routers returned to their
+original configuration after the check.
+
+The check covers a single routed IPv4 TCP flow. Multiple stations, sustained
+load, peak throughput, 5 GHz AP operation and AP-side IPv6 remain open.
 
 ## Remaining acceptance
 
