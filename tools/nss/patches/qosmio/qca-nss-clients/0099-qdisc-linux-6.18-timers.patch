@@ -1,0 +1,20 @@
+--- a/nss_qdisc/nss_qdisc_stats.c
++++ b/nss_qdisc/nss_qdisc_stats.c
+@@ -82,7 +82,7 @@
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
+ 	struct nss_qdisc *nq = (struct nss_qdisc *)data;
+ #else
+-	struct nss_qdisc_stats_wq *nqsw = from_timer(nqsw, tm, stats_get_timer);
++	struct nss_qdisc_stats_wq *nqsw = timer_container_of(nqsw, tm, stats_get_timer);
+ 	struct nss_qdisc *nq = nqsw->nq;
+ #endif
+ 
+@@ -490,7 +490,7 @@
+ 	 * We will have to wait until we have received the pending response.
+ 	 */
+ cleanup:
+-	if (del_timer(&nqsw->stats_get_timer) > 0) {
++	if (timer_delete(&nqsw->stats_get_timer) > 0) {
+ 		/*
+ 		 * The timer was still active (counting down) when it was deleted.
+ 		 * Therefore we are sure that there are no pending stats request

@@ -10,6 +10,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=iproute2
 PKG_VERSION:=7.3.0
 PKG_RELEASE:=1
+PKG_CONFIG_DEPENDS += CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=@KERNEL/linux/utils/net/iproute2
@@ -186,6 +187,7 @@ CONFIGURE_ARGS += \
 	--color=auto
 
 MAKE_FLAGS += \
+	TC_CONFIG_NSS=$(if $(CONFIG_PACKAGE_kmod-qca-nss-drv-qdisc),y,n) \
 	SHARED_LIBS=$(SHARED_LIBS) \
 	IP_CONFIG_TINY=$(IP_CONFIG_TINY) \
 	BUILD_VARIANT=$(BUILD_VARIANT) \

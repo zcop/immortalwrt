@@ -1,0 +1,41 @@
+nss_ifb: arm the synchronous wait before sending
+
+--- a/nss_qdisc/igs/nss_ifb.c
++++ b/nss_qdisc/igs/nss_ifb.c
+@@ -177,7 +177,7 @@
+ static void nss_ifb_wake_up_cb(void *app_data, struct nss_if_msg *nim)
+ {
+ 	msg_response.response = nim->cm.response;
+-	msg_response.cond = 0;
++	smp_store_release(&msg_response.cond, 0);
+ 	wake_up(&msg_response.wq);
+ }
+ 
+@@ -188,7 +188,7 @@
+ static bool nss_ifb_config_msg_fill(struct nss_if_msg *nim_ptr, struct net_device *dev,
+ 		int32_t ifb_num, enum nss_ifb_if_config config, void *cb)
+ {
+-	uint32_t if_src_num;
++	int32_t if_src_num;
+ 
+ 	if (netif_is_ifb_dev(dev)) {
+ 		if_src_num = nss_cmn_get_interface_number_by_dev_and_type(dev, NSS_DYNAMIC_INTERFACE_TYPE_IGS);
+@@ -286,6 +286,7 @@
+ 	}
+ 
+ 	down(&msg_response.sem);
++	WRITE_ONCE(msg_response.cond, 1);
+ 	ret = nss_if_tx_msg(nss_igs_get_context(), &nim);
+ 	if (ret != NSS_TX_SUCCESS) {
+ 		up(&msg_response.sem);
+@@ -293,8 +294,8 @@
+ 		return -1;
+ 	}
+ 
+-	msg_response.cond = 1;
+-	if (!wait_event_timeout(msg_response.wq, msg_response.cond == 0, NSS_IFB_MSG_TIMEOUT)) {
++	if (!wait_event_timeout(msg_response.wq,
++			!smp_load_acquire(&msg_response.cond), NSS_IFB_MSG_TIMEOUT)) {
+ 		nss_igs_error("config for attach interface msg timeout\n");
+ 		up(&msg_response.sem);
+ 		return -1;

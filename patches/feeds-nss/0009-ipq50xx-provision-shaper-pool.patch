@@ -1,0 +1,14 @@
+nss: provision the IPQ50xx shaper pool when building the shaper
+
+Reserve the tested 1 MiB pool at core initialization so QoS can be
+started without reloading the firmware. Keep it out of non-shaper builds.
+
+--- a/qca-nss-drv/Makefile
++++ b/qca-nss-drv/Makefile
+@@ -92,5 +92,6 @@ define KernelPackage/qca-nss-drv
+   TITLE:=Kernel driver for NSS (core driver)
+   FILES:=$(PKG_BUILD_DIR)/qca-nss-drv.ko
+   AUTOLOAD:=$(call AutoLoad,32,qca-nss-drv)
++  MODPARAMS.qca-nss-drv:=$(if $(and $(CONFIG_TARGET_qualcommax_ipq50xx),$(CONFIG_NSS_DRV_SHAPER_ENABLE)),qos_mem_size=1048576)
+ endef
+ 

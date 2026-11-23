@@ -1,0 +1,131 @@
+nss_qdisc: initialize NSS FQ-CoDel flow buckets and quantum
+
+The firmware needs a positive DRR quantum and the real size of the flow
+table. Supply the interface MTU for an omitted quantum. Query the bucket
+size for FQ-CoDel even when the user accepts the default count, and keep
+the full table size when changing an existing queue.
+
+Match the map and unmap directions for firmware-owned flow state. Destroy
+the firmware node if the bucket-size request fails during setup.
+
+--- a/nss_qdisc/nss_codel.c
++++ b/nss_qdisc/nss_codel.c
+@@ -13,6 +13,8 @@
+  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+  **************************************************************************
+  */
++
++#include <linux/overflow.h>
+ 
+ #include "nss_qdisc.h"
+ #include "nss_codel.h"
+@@ -137,7 +139,7 @@
+ 	 */
+ 	if (!dma_mapping_error(nss_shaper_get_dev(), q->dma_mapped_mem)) {
+ 		nss_qdisc_trace("Unmapping flow queue memory\n");
+-		dma_unmap_single(nss_shaper_get_dev(), q->dma_mapped_mem, q->flow_queue_sz * q->flows, DMA_FROM_DEVICE);
++		dma_unmap_single(nss_shaper_get_dev(), q->dma_mapped_mem, q->flow_queue_sz * q->flows, DMA_BIDIRECTIONAL);
+ 	}
+ 
+ 	free_pages(q->flow_queue_mem, get_order(q->flow_queue_sz * q->flows));
+@@ -214,18 +216,10 @@
+  *
+  * The response for this message will invoke the nss_codel_configure_callback() API.
+  */
+-static int nss_codel_mem_sz_get(struct Qdisc *sch, struct tc_nsscodel_qopt *qopt)
++static int nss_codel_mem_sz_get(struct Qdisc *sch)
+ {
+ 	struct nss_if_msg nim;
+ 	struct nss_qdisc *nq = qdisc_priv(sch);
+-
+-	/*
+-	 * No memory allocation needed for codel when operating in single
+-	 * queue mode. This is needed only for flow-queue mode.
+-	 */
+-	if (!qopt->flows) {
+-		return 0;
+-	}
+ 
+ 	nim.msg.shaper_configure.config.msg.shaper_node_config.qos_tag = nq->qos_tag;
+ 	if (nss_qdisc_configure(nq, &nim,
+@@ -253,7 +247,8 @@
+ 	struct tc_nsscodel_qopt *qopt;
+ 	struct nss_if_msg nim;
+ 	struct net_device *dev = qdisc_dev(sch);
+-	uint32_t order, sz = 0;
++	u32 flows = 0, sz = 0;
++	unsigned int order;
+ 	bool is_fq_codel = (sch->ops == &nss_fq_codel_qdisc_ops);
+ 	struct nss_shaper_node_config *config;
+ 	bool free_flow_queue = true;
+@@ -273,12 +268,19 @@
+ 		return -EINVAL;
+ 	}
+ 
++	if (is_fq_codel) {
++		flows = qopt->flows ?: NSS_CODEL_DEFAULT_FQ_COUNT;
++		if (!q->flow_queue_sz ||
++		    check_mul_overflow(q->flow_queue_sz, flows, &sz))
++			return -EINVAL;
++	}
++
+ 	/*
+ 	 * If flow queues have already been allocated, then ensure the user does not
+ 	 * attempt to change the number of flows in a subsequent change command.
+ 	 */
+ 	if (q->flow_queue_mem) {
+-		if (q->flows != qopt->flows) {
++		if (q->flows != flows) {
+ 			nss_qdisc_warning("Change of flow queue count not allowed");
+ 			return -EINVAL;
+ 		}
+@@ -298,8 +300,8 @@
+ 	q->target = qopt->target;
+ 	q->limit = qopt->limit;
+ 	q->interval = qopt->interval;
+-	q->quantum = qopt->quantum;
+-	q->flows = qopt->flows;
++	q->quantum = is_fq_codel ? (qopt->quantum ?: psched_mtu(dev)) : 0;
++	q->flows = flows;
+ 	q->ecn = qopt->ecn;
+ 	q->set_default = qopt->set_default;
+ 
+@@ -316,14 +318,6 @@
+ 	 * has not been allocated previously (i.e. init time).
+ 	 */
+ 	if (is_fq_codel && !q->flow_queue_mem) {
+-		/*
+-		 * Use the default flow queue count if value is not speficied by user.
+-		 */
+-		if (!q->flows) {
+-			q->flows = NSS_CODEL_DEFAULT_FQ_COUNT;
+-		}
+-
+-		sz = q->flow_queue_sz * q->flows;
+ 		order = get_order(sz);
+ 
+ 		nss_qdisc_trace("Allocating %u bytes (%u pages) for flow qeueue\n", sz, 1 << order);
+@@ -337,8 +331,10 @@
+ 			return -ENOMEM;
+ 		}
+ 
+-		q->dma_mapped_mem = dma_map_single(nss_shaper_get_dev(), (void *)q->flow_queue_mem, sz, DMA_TO_DEVICE);
+-		if(unlikely(dma_mapping_error(nss_shaper_get_dev(), q->dma_mapped_mem))) {
++		q->dma_mapped_mem = dma_map_single(nss_shaper_get_dev(),
++						  (void *)q->flow_queue_mem,
++						  sz, DMA_BIDIRECTIONAL);
++		if (dma_mapping_error(nss_shaper_get_dev(), q->dma_mapped_mem)) {
+ 			nss_qdisc_warning("DMA map failed for virtual address = %lu\n", q->flow_queue_mem);
+ 			nss_codel_flow_queues_free(q);
+ 			return -ENOMEM;
+@@ -438,7 +434,9 @@
+ 		return -EINVAL;
+ 	}
+ 
+-	if (nss_codel_mem_sz_get(sch, qopt) < 0) {
++	if (sch->ops == &nss_fq_codel_qdisc_ops &&
++	    nss_codel_mem_sz_get(sch) < 0) {
++		nss_qdisc_destroy(nq);
+ 		return -EINVAL;
+ 	}
+ 

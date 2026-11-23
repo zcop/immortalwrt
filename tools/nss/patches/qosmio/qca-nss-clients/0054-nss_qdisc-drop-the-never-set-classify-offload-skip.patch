@@ -1,0 +1,24 @@
+From: Julius Bairaktaris <julius@bairaktaris.de>
+Subject: [PATCH] nss_qdisc: drop the never-set classify-offload skip
+
+skb_skip_tc_classify_offload() tests an sk_buff bit that only the QSDK
+IFB driver sets. The kernel here never sets it, so the test is always
+false; the bit and its helpers are gone from the kernel.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Julius Bairaktaris <julius@bairaktaris.de>
+---
+--- a/nss_qdisc/nss_qdisc.c
++++ b/nss_qdisc/nss_qdisc.c
+@@ -1311,11 +1311,6 @@
+ 		nss_qdisc_mark_and_schedule(nq->qdisc, skb);
+ 		return NET_XMIT_SUCCESS;
+ 	}
+-#else
+-	if (skb_skip_tc_classify_offload(skb)) {
+-		nss_qdisc_mark_and_schedule(nq->qdisc, skb);
+-		return NET_XMIT_SUCCESS;
+-	}
+ #endif
+ 
+ 	if (!nq->is_virtual) {

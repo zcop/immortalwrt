@@ -1,0 +1,23 @@
+nss_qdisc: initialise the stats hash table lock
+
+nss_qdisc_htable_init() allocates the table that maps a qos_tag to its
+qdisc for the statistics, but never initialised the table's lock; the
+structure around it comes from kzalloc(), so the lock was only ever
+zeroed memory. Every NSS qdisc that is set up takes that lock
+(nss_qdisc_stats_qdisc_attach() -> nss_qdisc_htable_entry_add()), and
+lockdep reports it at the first one ("trying to register non-static
+key", tc creating nssprio when SQM starts on IPQ5018) and turns itself
+off. Initialise it with the rest of the table.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+---
+--- a/nss_qdisc/nss_qdisc_htable.c
++++ b/nss_qdisc/nss_qdisc_htable.c
+@@ -221,6 +221,7 @@ bool nss_qdisc_htable_init(struct nss_qdisc_htable *nqt)
+ 	}
+ 
+ 	nqt->count = 0;
++	spin_lock_init(&nqt->lock);
+ 	nss_qdisc_htable_hlist_init(nqt->htable, NSS_QDISC_LIST_TABLE_INIT_SIZE);
+ 	return true;
+ }
