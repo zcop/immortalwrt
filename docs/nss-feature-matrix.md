@@ -72,7 +72,7 @@ multiple sessions and maximum tagged-PPPoE throughput are not established.
 | NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and UDP on WAN and LAN conduits confirmed in both directions |
 | L2 bridge policy compatibility | Unvalidated | Confirmed on LAN conduit with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated |
 | Routed IPv4 IPTV via NSS | QinQ uses software forwarding. YT9215S replication backend pending. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin with temporary one-way qualification and fast leave. Default-policy offload and automatic multi-port membership remain open. |
-| NSS IGS / shaper / qdiscs | Disabled; no NSS shaping acceptance | Disabled; no NSS shaping acceptance |
+| NSS WAN QoS | NSS shaper unvalidated; the YT9215S switch shaper is separate | Confirmed simultaneous upload and download shaping for native routed IPv4 TCP. NSS FQ-CoDel is opt-in on a dedicated QinQ WAN conduit. |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
 | MAP-T | Disabled, unvalidated | Disabled, unvalidated |
 | NSS MATCH / MIRROR managers | Disabled, unvalidated | Disabled, unvalidated |
@@ -112,6 +112,29 @@ The default ECM reply-wait keeps one-way IPTV in software. Live acceptance
 used `accel_delay_pkts=0` temporarily and bridge fast leave on the single
 receiver port. Each join installed one NSS rule and each leave withdrew it.
 Use an ECM module built against the same kernel configuration as the image.
+
+### AX3000 WAN QoS
+
+The AX3000 NSS profile includes `nss-wan-qos`. It reserves 1 MiB for the
+firmware shaper pool and leaves rate limits disabled by default. The service
+shapes upload at the WAN conduit and download on an NSS IFB. It requires a
+dedicated QinQ conduit and leaves custom queues in place. Stop any other
+shaper on that conduit before enabling it.
+
+Set rates in kbit/s, with zero for an uncapped direction.
+
+```sh
+uci set nss_wan_qos.wan.enabled=1
+uci set nss_wan_qos.wan.upload=100000
+uci set nss_wan_qos.wan.download=300000
+uci commit nss_wan_qos
+/etc/init.d/nss-wan-qos restart
+```
+
+Use `tc -s qdisc show dev eth0` and `tc -s qdisc show dev ifb-nss-wan`
+to inspect shaping on the default WAN conduit. Disable rate limits and
+reload the service to remove its queues. Tagged WAN, PPPoE and CR881x
+shaper operation need separate hardware validation.
 
 ## Switch offload and driver controls
 
