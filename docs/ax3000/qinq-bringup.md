@@ -150,6 +150,18 @@ boundary, PAP on VLAN35 and CHAP-MD5 on VLAN4094 pass; wrong passwords leave
 no live PPP registration. Traffic was paced at 100 Mbps, so this does not
 establish peak tagged-PPPoE throughput.
 
+The PPPoE driver has eight registration slots shared across WAN ports.
+On the native WAN, eight independent sessions carried concurrent routed
+IPv4 TCP. Each flow used its own ECM and NSS interface identity, and captures
+on the WAN wire matched each flow to its session ID in both directions.
+The seven surviving TCP connections completed through a single-session
+reconnect. ECM recreated their acceleration rules during the transition,
+and all eight sessions accelerated again after reconnect. OpenWrt's logical
+PPPoE interface selects its WAN port or VLAN. ECM includes the Linux PPP
+device index in the session lookup so separate devices can reuse a session
+ID and peer MAC. Concurrent sessions across physical WAN ports, concurrent
+IPv6 and concurrent tagged PPPoE remain unvalidated.
+
 Bidirectional UDP echo also passes on native PPPoE and VLAN35/4094 with the
 normal classifier policy `accel_delay_pkts=1`. IPv4 and IPv6 payloads of 64,
 1200 and full-MTU size (1464/1444 bytes respectively) have exact payload and

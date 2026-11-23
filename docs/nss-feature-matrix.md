@@ -1,6 +1,6 @@
 # NSS + DSA features: CR881x and AX3000
 
-Reviewed: 2026-11-22. Hardware evidence covers Xiaomi CR8812DX with YT9215S
+Reviewed: 2026-11-23. Hardware evidence covers Xiaomi CR8812DX with YT9215S
 and Redmi AX3000 with QCA8337. Both use IPQ5018/QCN6122, native Qosmio NSS,
 firmware 12.2, LOW NSS memory and the 256 MiB ath11k allocation profiles.
 
@@ -30,6 +30,8 @@ commit or a long-term reliability qualification.
 | VLAN-aware bridge VLAN uppers | Confirmed | Confirmed; cold boot with this configuration remains open |
 | Customer VLAN uppers on VLAN-unaware bridges | Confirmed | Excluded by the QCA resolver |
 | Single-session PPPoE on native WAN | Confirmed: IPv4 NAT and routed IPv6 | Confirmed: IPv4 NAT and routed IPv6 |
+| Concurrent PPPoE on one native WAN | Unvalidated | Confirmed: eight concurrent IPv4 NAT/TCP sessions. The seven surviving TCP streams completed across one session reconnect, with ECM rule recreation. |
+| Concurrent PPPoE across physical WAN ports | Unvalidated | Unvalidated |
 | PPPoE over one customer VLAN | Confirmed: VLAN35 | Confirmed: VLAN35/4094; tagged TCP checks paced at 100 Mbps |
 | PPPoE PAP/CHAP, wrong-password rejection and reconnect | Confirmed with a controlled access concentrator | Confirmed with a controlled access concentrator |
 | PPPoE IPv4/IPv6 bidirectional UDP | Confirmed | Confirmed on native WAN and VLAN35/4094 under the default classifier policy |
@@ -62,8 +64,8 @@ host forwarding.
 
 UDP qualification depends on the tracker and classifier policy. Sparse or
 one-way traffic staying in software is not sufficient evidence of a dataplane
-failure. PPPoE tests use local access concentrators; ISP interoperability,
-multiple sessions and maximum tagged-PPPoE throughput are not established.
+failure. PPPoE tests use local access concentrators. ISP interoperability,
+concurrent tagged PPPoE and maximum tagged-PPPoE throughput remain unvalidated.
 
 ## Other NSS engines
 

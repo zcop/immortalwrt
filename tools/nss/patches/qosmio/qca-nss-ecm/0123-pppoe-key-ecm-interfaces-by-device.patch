@@ -1,0 +1,60 @@
+Distinguish PPPoE devices that reuse a session ID and peer MAC.
+
+Separate access networks may reuse the same session ID and peer MAC.
+ECM already stores the Linux PPP device index. Match it in both
+lookups so each live device keeps its own NSS interface identity.
+
+--- a/ecm_db/ecm_db_iface.c
++++ b/ecm_db/ecm_db_iface.c
+@@ -1952,7 +1952,8 @@
+  * ecm_db_iface_find_and_ref_pppoe()
+  *	Lookup and return a iface reference if any
+  */
+-struct ecm_db_iface_instance *ecm_db_iface_find_and_ref_pppoe(uint16_t pppoe_session_id, uint8_t *remote_mac)
++struct ecm_db_iface_instance *ecm_db_iface_find_and_ref_pppoe(uint16_t pppoe_session_id, uint8_t *remote_mac,
++								      int32_t interface_identifier)
+ {
+ 	ecm_db_iface_hash_t hash_index;
+ 	struct ecm_db_iface_instance *ii;
+@@ -1971,6 +1972,7 @@
+ 	ii = ecm_db_iface_table[hash_index];
+ 	while (ii) {
+ 		if ((ii->type != ECM_DB_IFACE_TYPE_PPPOE)
++				|| (ii->interface_identifier != interface_identifier)
+ 				|| (ii->type_info.pppoe.pppoe_session_id != pppoe_session_id)
+ 				|| memcmp(ii->type_info.pppoe.remote_mac, remote_mac, ETH_ALEN)) {
+ 			ii = ii->hash_next;
+--- a/ecm_db/ecm_db_iface.h
++++ b/ecm_db/ecm_db_iface.h
+@@ -233,7 +233,8 @@
+ struct ecm_db_iface_instance *ecm_db_iface_find_and_ref_unknown(uint32_t os_specific_ident);
+ 
+ #ifdef ECM_INTERFACE_PPPOE_ENABLE
+-struct ecm_db_iface_instance *ecm_db_iface_find_and_ref_pppoe(uint16_t pppoe_session_id, uint8_t *remote_mac);
++struct ecm_db_iface_instance *ecm_db_iface_find_and_ref_pppoe(uint16_t pppoe_session_id, uint8_t *remote_mac,
++								      int32_t interface_identifier);
+ void ecm_db_iface_add_pppoe(struct ecm_db_iface_instance *ii,
+ 			    uint16_t pppoe_session_id, uint8_t *remote_mac, char *name,
+ 			    int32_t mtu, int32_t interface_identifier, int32_t ae_interface_identifier,
+--- a/ecm_interface.c
++++ b/ecm_interface.c
+@@ -2068,7 +2068,8 @@
+ 	/*
+ 	 * Locate the iface
+ 	 */
+-	ii = ecm_db_iface_find_and_ref_pppoe(type_info->pppoe_session_id, type_info->remote_mac);
++	ii = ecm_db_iface_find_and_ref_pppoe(type_info->pppoe_session_id, type_info->remote_mac,
++					      dev_interface_num);
+ 	if (ii) {
+ 		DEBUG_TRACE("%px: iface established\n", ii);
+ 		return ii;
+@@ -2087,7 +2088,8 @@
+ 	 * Add iface into the database, atomically to avoid races creating the same thing
+ 	 */
+ 	spin_lock_bh(&ecm_interface_lock);
+-	ii = ecm_db_iface_find_and_ref_pppoe(type_info->pppoe_session_id, type_info->remote_mac);
++	ii = ecm_db_iface_find_and_ref_pppoe(type_info->pppoe_session_id, type_info->remote_mac,
++					      dev_interface_num);
+ 	if (ii) {
+ 		spin_unlock_bh(&ecm_interface_lock);
+ 		ecm_db_iface_deref(nii);
