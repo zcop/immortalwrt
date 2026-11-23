@@ -73,7 +73,6 @@ HOST_MAKE_FLAGS += \
 	am__CONFIG_DISTCLEAN_FILES= \
 	DEFAULT_INCLUDES='$$$$(if $$$$(findstring $(lastword $(PKG_SUBDIRS)),$$$$(subdir)),,-I.) -I$$$$(top_builddir) -I$$$$(top_srcdir)/$(PKG_GNULIB_BASE)' \
 	AM_LDFLAGS='$$$$(STACK_USAGE_NO_ERROR)' \
-	LIBS+='$$$$(if $$$$(findstring $(lastword $(PKG_SUBDIRS)),$$$$(subdir)), $$$$($(PKG_GNULIB_BASE)))' \
 	LIBS+='$$$$(wildcard $$$$($(PKG_GNULIB_BASE)_exitfail))' \
 	LIBS+='$$$$(wildcard $$$$($(PKG_GNULIB_BASE)_fallocate-posix))' \
 	LIBS+='$$$$(wildcard $$$$($(PKG_GNULIB_BASE)_mbszero))' \
@@ -86,6 +85,7 @@ HOST_MAKE_FLAGS += \
 	LIBS+='$$$$(wildcard $$$$($(PKG_GNULIB_BASE)_tsearch))' \
 	LIBS+='$$$$(wildcard $$$$($(PKG_GNULIB_BASE)_vasnprintf))' \
 	LIBS+='$$$$(wildcard $$$$($(PKG_GNULIB_BASE)_xsize))' \
+	LIBS+='$$$$($(PKG_GNULIB_BASE))' \
 	REPLACE_FCNTL=0 REPLACE_FREE=0 REPLACE_FSTAT=0 REPLACE_OPEN=0 \
 	REPLACE_OBSTACK=0 REPLACE_OBSTACK_PRINTF=0 \
 	bin_PROGRAMS='$(PKG_PROGRAMS)' EXEEXT=
