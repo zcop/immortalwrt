@@ -71,7 +71,7 @@ multiple sessions and maximum tagged-PPPoE throughput are not established.
 | --- | --- | --- |
 | NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and UDP on WAN and LAN conduits confirmed in both directions |
 | L2 bridge policy compatibility | Unvalidated | Confirmed on LAN conduit with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated |
-| Routed IPv4 IPTV via NSS | QinQ uses software forwarding. YT9215S replication backend pending. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin with temporary one-way qualification and fast leave. Default-policy offload and automatic multi-port membership remain open. |
+| Routed IPv4 IPTV via NSS | QinQ uses software forwarding. YT9215S replication backend pending. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin under the default ECM policy. Automatic multi-port membership remains open. |
 | NSS WAN QoS | NSS shaper unvalidated; the YT9215S switch shaper is separate | Confirmed simultaneous upload and download shaping for native routed IPv4 TCP. NSS FQ-CoDel is opt-in on a dedicated QinQ WAN conduit. |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
 | MAP-T | Disabled, unvalidated | Disabled, unvalidated |
@@ -108,10 +108,12 @@ interfaces. The separate-MAC path awaits device validation. A tagged
 WAN upper on a DSA port, Wi-Fi bridge members and other unsupported
 configurations use software forwarding.
 
-The default ECM reply-wait keeps one-way IPTV in software. Live acceptance
-used `accel_delay_pkts=0` temporarily and bridge fast leave on the single
-receiver port. Each join installed one NSS rule and each leave withdrew it.
-Use an ECM module built against the same kernel configuration as the image.
+With the default ECM setting `accel_delay_pkts=1`, a verified one-way IPv4
+QinQ multicast path can qualify after two software-forwarded packets. With
+bridge fast leave, the last receiver leaving withdrew the NSS rule. With
+fast leave disabled, NSS retained the rule while Linux retained the
+multicast route and withdrew it when Linux removed the route. Use an ECM
+module built against the same kernel configuration as the image.
 
 ### AX3000 WAN QoS
 

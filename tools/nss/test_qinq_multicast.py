@@ -17,7 +17,7 @@ common = (SOURCE / 'frontends/nss/ecm_nss_common.c').read_text()
 
 
 def function(text, name):
-    match = re.search(r'(?:static\s+)?(?:bool|int|void)\s+' + name +
+    match = re.search(r'(?:static\s+)?(?:inline\s+)?(?:bool|int|void)\s+' + name +
                       r'\s*\([^;{}]*\)\s*\{', text)
     assert match, name
     end, depth = match.end(), 1
@@ -334,6 +334,42 @@ source = ingress + '\n'.join(function(ipv4, name) for name in (
 with tempfile.TemporaryDirectory(prefix='nss-multicast-ingress-') as directory:
     tmp = Path(directory)
     (tmp / 'check.c').write_text(source)
+    subprocess.run(['cc', '-std=gnu11', '-O2', '-Wall', '-Werror',
+                    str(tmp / 'check.c'), '-o', str(tmp / 'check')], check=True)
+    subprocess.run([str(tmp / 'check')], check=True)
+
+classifier = (SOURCE / 'ecm_classifier.h').read_text()
+frontend = (SOURCE / 'frontends/cmn/ecm_multicast_ipv4.c').read_text()
+assert re.search(r'if \(is_routed && sender == ECM_TRACKER_SENDER_TYPE_SRC &&\s+'
+                 r'feci->accel_engine == ECM_FRONT_END_ENGINE_NSS &&\s+'
+                 r'READ_ONCE\(ecm_classifier_accel_delay_pkts\) == 1\)\s+'
+                 r'iph->one_way_multicast = ecm_nss_qinq_ipv4_mc_eligible', frontend)
+for name in ('default', 'dscp'):
+    source = (SOURCE / f'ecm_classifier_{name}.c').read_text()
+    assert 'ecm_classifier_packet_accel_delay(ip_hdr->one_way_multicast)' in source
+
+policy_mock = r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#define READ_ONCE(value) (value)
+static int ecm_classifier_accel_delay_pkts;
+'''
+policy_checks = r'''
+int main(void) {
+    for (int configured = 0; configured < 5; configured++) {
+        ecm_classifier_accel_delay_pkts = configured;
+        assert(ecm_classifier_packet_accel_delay(false) == configured);
+        assert(ecm_classifier_packet_accel_delay(true) == (configured == 1 ? 2 : configured));
+        assert(ecm_classifier_accel_delay_pkts == configured);
+    }
+    puts("PASS: qualified one-way multicast gets a finite default delay; other policies are preserved");
+}
+'''
+with tempfile.TemporaryDirectory(prefix='nss-multicast-classifier-') as directory:
+    tmp = Path(directory)
+    (tmp / 'check.c').write_text(policy_mock +
+        function(classifier, 'ecm_classifier_packet_accel_delay') + policy_checks)
     subprocess.run(['cc', '-std=gnu11', '-O2', '-Wall', '-Werror',
                     str(tmp / 'check.c'), '-o', str(tmp / 'check')], check=True)
     subprocess.run([str(tmp / 'check')], check=True)

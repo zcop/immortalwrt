@@ -1,0 +1,199 @@
+Qualify verified one-way IPv4 QinQ multicast with the default ECM policy.
+
+In default reply-wait mode, the two classifiers inspect two slow-path
+packets for a routed IPv4 multicast path accepted by the NSS rule builder.
+Carry the eligibility with the packet. Keep the configured policy for
+all other flows and revalidate the route before submitting an NSS rule.
+
+--- a/ecm_tracker.h
++++ b/ecm_tracker.h
+@@ -154,6 +154,7 @@
+ 	ip_addr_t dest_addr;		/* ECM ip address equivalent */
+ 	int protocol;			/* The upper layer transport protocol */
+ 	bool fragmented;		/* True when fragmented */
++	bool one_way_multicast;		/* Front end verified a routed multicast path */
+ 	uint8_t dscp;			/* DSCP field from the packet */
+ 	uint8_t ds;			/* DS field from packet */
+ 	uint8_t ttl;			/* v4 TTL or v6 hop limit */
+--- a/ecm_classifier.h
++++ b/ecm_classifier.h
+@@ -18,6 +18,18 @@
+  */
+ 
+ extern int ecm_classifier_accel_delay_pkts;	/* Default slow path packets allowed before the acceleration */
++
++static inline int ecm_classifier_packet_accel_delay(bool one_way_multicast)
++{
++	int delay = READ_ONCE(ecm_classifier_accel_delay_pkts);
++
++	/* A verified multicast route has no return stream. Inspect two slow
++	 * path packets in the default reply-wait mode.
++	 */
++	if (delay == 1 && one_way_multicast)
++		return 2;
++	return delay;
++}
+ 
+ struct ecm_classifier_instance;
+ 
+--- a/ecm_classifier_default.c
++++ b/ecm_classifier_default.c
+@@ -212,7 +212,7 @@
+  */
+ static bool ecm_classifier_default_ready_for_accel(
+ 			struct ecm_classifier_default_internal_instance *cdii,
+-			ecm_tracker_sender_type_t sender)
++			ecm_tracker_sender_type_t sender, int delay)
+ {
+ 	uint64_t slow_pkts;
+ 	struct ecm_db_connection_instance *ci;
+@@ -232,7 +232,7 @@
+ 	/*
+ 	 * Delay forever until seeing the reply packet.
+ 	 */
+-	if (ecm_classifier_accel_delay_pkts == 1) {
++	if (delay == 1) {
+ 		DEBUG_INFO("%px: Checking both direction traffic\n", cdii);
+ 
+ 		/*
+@@ -271,9 +271,9 @@
+ 	/*
+ 	 * Check if we have seen slow path packets as the predefined count.
+ 	 */
+-	if (slow_pkts < ecm_classifier_accel_delay_pkts) {
++	if (slow_pkts < delay) {
+ 		DEBUG_TRACE("%px: delay the acceleration: slow packets: %llu default delay packet count: %d\n",
+-			    cdii, slow_pkts, ecm_classifier_accel_delay_pkts);
++			    cdii, slow_pkts, delay);
+ 
+ 		/*
+ 		 * We haven't reached the slow path packet limit.
+@@ -305,6 +305,7 @@
+ 	struct ecm_classifier_default_internal_instance *cdii = (struct ecm_classifier_default_internal_instance *)aci;
+ 	struct nf_conn *ct;
+ 	enum ip_conntrack_info ctinfo;
++	int delay;
+ 
+ 	DEBUG_CHECK_MAGIC(cdii, ECM_CLASSIFIER_DEFAULT_INTERNAL_INSTANCE_MAGIC, "%px: invalid state magic\n", cdii);
+ 
+@@ -413,8 +414,9 @@
+ 	/*
+ 	 * Should we delay the acceleration?
+ 	 */
+-	if (ecm_classifier_accel_delay_pkts) {
+-		if (!ecm_classifier_default_ready_for_accel(cdii, sender)) {
++	delay = ecm_classifier_packet_accel_delay(ip_hdr->one_way_multicast);
++	if (delay) {
++		if (!ecm_classifier_default_ready_for_accel(cdii, sender, delay)) {
+ 			DEBUG_INFO("%px: connection is not ready for accel\n", cdii);
+ 			spin_lock_bh(&ecm_classifier_default_lock);
+ 			goto accel_no;
+--- a/ecm_classifier_dscp.c
++++ b/ecm_classifier_dscp.c
+@@ -281,6 +281,7 @@
+ 	struct nf_ct_dscpremark_ext *dscpcte;
+ 	bool dscp_marked = false;
+ 	uint64_t slow_pkts;
++	int delay;
+ 
+ 	cdscpi = (struct ecm_classifier_dscp_instance *)aci;
+ 	DEBUG_CHECK_MAGIC(cdscpi, ECM_CLASSIFIER_DSCP_INSTANCE_MAGIC, "%px: magic failed\n", cdscpi);
+@@ -455,7 +456,8 @@
+ 		 * Option 2: Wait for seeing N number of packets. If we still don't see reply,
+ 		 * set the uni-directional values.
+ 		 */
+-		if (ecm_classifier_accel_delay_pkts) {
++		delay = ecm_classifier_packet_accel_delay(ip_hdr->one_way_multicast);
++		if (delay) {
+ 			/*
+ 			 * Stop the processing if both side packets are already seen.
+ 			 * Above the process response is already set to allow the
+@@ -481,9 +483,9 @@
+ 			 * For option 1, we wait forever
+ 			 * For option 2, we wait until seeing ecm_classifier_accel_delay_pkts.
+ 			 */
+-			if ((ecm_classifier_accel_delay_pkts == 1) || (slow_pkts < ecm_classifier_accel_delay_pkts)) {
++			if (delay == 1 || slow_pkts < delay) {
+ 				DEBUG_TRACE("%px: accel_delay_pkts: %d slow_pkts: %llu accel is not allowed yet\n",
+-						cdscpi, ecm_classifier_accel_delay_pkts, slow_pkts);
++						cdscpi, delay, slow_pkts);
+ 				cdscpi->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_NO;
+ 				goto dscp_classifier_out;
+ 			}
+--- a/frontends/cmn/ecm_multicast_ipv4.c
++++ b/frontends/cmn/ecm_multicast_ipv4.c
+@@ -1363,6 +1363,12 @@
+ 	spin_lock_bh(&feci->lock);
+ 	feci->stats.slow_path_packets++;
+ 	spin_unlock_bh(&feci->lock);
++#ifdef ECM_FRONT_END_NSS_ENABLE
++	if (is_routed && sender == ECM_TRACKER_SENDER_TYPE_SRC &&
++	    feci->accel_engine == ECM_FRONT_END_ENGINE_NSS &&
++	    READ_ONCE(ecm_classifier_accel_delay_pkts) == 1)
++		iph->one_way_multicast = ecm_nss_qinq_ipv4_mc_eligible(feci, skb, ct);
++#endif
+ 	ecm_front_end_connection_deref(feci);
+ 
+ 	/*
+--- a/frontends/nss/ecm_nss_multicast_ipv4.h
++++ b/frontends/nss/ecm_nss_multicast_ipv4.h
+@@ -22,6 +22,11 @@
+ 								struct ecm_db_connection_instance **nci);
+ extern bool ecm_nss_multicast_ipv4_debugfs_init(struct dentry *dentry);
+ 
++struct nf_conn;
++
++bool ecm_nss_qinq_ipv4_mc_eligible(struct ecm_front_end_connection_instance *feci,
++				  struct sk_buff *skb, struct nf_conn *ct);
++
+ extern int ecm_nss_multicast_ipv4_init(struct dentry *dentry);
+ 
+ extern void ecm_nss_multicast_ipv4_exit(void);
+--- a/frontends/nss/ecm_nss_multicast_ipv4.c
++++ b/frontends/nss/ecm_nss_multicast_ipv4.c
+@@ -926,13 +926,15 @@
+ 	return ecm_nss_qinq_mc_physical_if(lower);
+ }
+ 
+-/* Use one switch replica only for the complete Linux multicast route. */
++/* Validate one switch replica for the complete Linux multicast route.
++ * Classifier checks pass no rule and use only the admission result.
++ */
+ static bool ecm_nss_qinq_ipv4_mc_rule(struct ecm_front_end_connection_instance *feci,
+ 				     struct sk_buff *skb, struct nf_conn *ct,
+ 				     struct nss_ipv4_mc_rule_create_msg *rule)
+ {
+ 	struct ecm_db_connection_instance *ci = feci->ci;
+-	struct nss_ipv4_mc_if_rule *out = &rule->if_rule[0];
++	struct nss_ipv4_mc_if_rule *out;
+ 	struct dsa_qinq_ipv4_mc_path path = {};
+ 	u32 dst[ECM_DB_MULTICAST_IF_MAX], br_index, ingress_vlan[2];
+ 	struct net_device *src, *br;
+@@ -974,6 +976,10 @@
+ 	if (dst_if < 0 || src_if == dst_if)
+ 		goto out_unlock;
+ 
++	ok = true;
++	if (!rule)
++		goto out_unlock;
++	out = &rule->if_rule[0];
+ 	rule->src_interface_num = src_if;
+ 	rule->ingress_vlan_tag[0] = ingress_vlan[0];
+ 	rule->ingress_vlan_tag[1] = ingress_vlan[1];
+@@ -991,10 +997,15 @@
+ 	out->egress_vlan_tag[0] = path.vlan[0];
+ 	out->egress_vlan_tag[1] = path.vlan[1];
+ 	ether_addr_copy((u8 *)out->if_mac, br->dev_addr);
+-	ok = true;
+ out_unlock:
+ 	rcu_read_unlock();
+ 	return ok;
++}
++
++bool ecm_nss_qinq_ipv4_mc_eligible(struct ecm_front_end_connection_instance *feci,
++				  struct sk_buff *skb, struct nf_conn *ct)
++{
++	return ecm_nss_qinq_ipv4_mc_rule(feci, skb, ct, NULL);
+ }
+ 
+ /*
