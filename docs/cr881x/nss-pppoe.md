@@ -6,13 +6,15 @@ The device is CR8812DX/IPQ5018 +
 YT9215S, Linux6.18.60, NSS firmware12.2 and the256MiB allocation profile.
 Automatic DHCPv6-PD and downstream SLAAC also pass the bounded gate below.
 PAP and CHAP-MD5 authentication pass local positive, negative and reconnect tests.
-Acceptance does not cover multiple concurrent sessions, MS-CHAP/EAP, ISP
-interoperability, sustained soak or firmware-destroy error recovery.
+Eight concurrent IPv4 NAT/TCP sessions pass on one native WAN and split
+across WAN and LAN3. Tagged concurrent sessions, MS-CHAP/EAP, ISP
+interoperability, sustained soak and firmware-destroy error recovery remain
+unvalidated.
 
 ## Mapping and lifetime
 
-ECM overlay `0110-qinq-admit-single-pppoe-session.patch` permits a single
-innermost PPPoE interface above the existing exact Ethernet/bridge/VLAN underlay.
+ECM overlay `0110-qinq-admit-single-pppoe-session.patch` permits one innermost
+PPPoE interface per flow above its exact Ethernet/bridge/VLAN underlay.
 The device must be point-to-point `ARPHRD_PPP`, with a live NSS interface number
 matching ECM's cached acceleration-engine identifier. Missing registrations,
 stale identifiers, nested PPP and unsupported hierarchy types are rejected.
@@ -80,6 +82,23 @@ Two fixture setup errors were corrected before accepted runs: setting the
 netifd WAN MTU option reduced the Ethernet lower device as well, yielding PPP
 MTU1484; disabling the default route also required an explicit route to the AC
 peer. Those initial failures are not recorded as firmware regressions.
+
+### Concurrent sessions on native ports
+
+A wired LAN client ran eight paced IPv4 TCP echo streams through one native
+WAN to a local access concentrator. Per-flow ECM rules, separate NSS PPP
+interfaces with increasing RX/TX counters, and the expected wire session IDs
+confirmed simultaneous offload. Seven TCP streams completed during a reconnect
+of the eighth session. ECM recreated their rules, and all eight sessions again
+accelerated afterward. This validates concurrent forwarding and recovery at
+the tested load.
+
+The split-port test used separate access concentrators on WAN and LAN3, with
+LAN3 temporarily detached from `br-lan` and the wired client on LAN1. Four
+sessions per port passed using distinct peer MACs and session IDs. The wire
+observations matched each flow to its expected port and session ID. During one
+LAN3 session reconnect, all seven survivors finished their TCP streams and ECM
+recreated their rules. All eight flows again passed with offload after reconnect.
 
 ## IPv6 and dual-stack acceptance
 

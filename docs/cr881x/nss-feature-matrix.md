@@ -36,7 +36,7 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | Qosmio feature | Upstream table | CR881x device result |
 | --- | --- | --- |
 | TUNIPIP6 | Supported | Disabled; no tunnel data-path validation; QinQ tunnel hierarchy mapping is not implemented |
-| PPPOE | Supported | Confirmed Build46 routed IPv4 NAT/TCP and routed IPv6 TCP/bidirectional UDP with one session on plain WAN and WAN VLAN35. IPv4 reaches about820–849/931Mbps, IPv6 about831–833/918Mbps. MTU1492, IPv6 Packet Too Big, dual-stack session-ID reuse and automatic DHCPv6-PD `/56` to test-LAN `/64` pass. PAP on plain WAN and CHAP-MD5 on WAN35 pass wrong-password rejection, correct login and reconnect with ECM/firmware/wire proof. Multiple sessions and ISP interoperability remain unvalidated; see [PPPoE validation](nss-pppoe.md) |
+| PPPOE | Supported | Confirmed routed IPv4 NAT/TCP and IPv6 TCP/bidirectional UDP with one session on native WAN and WAN VLAN35. MTU1492, DHCPv6-PD, PAP, CHAP-MD5 and reconnect pass. Eight concurrent IPv4 NAT/TCP sessions passed on one WAN and split four each across WAN and LAN3, with TCP continuity across one session reconnect in each layout. See [PPPoE validation](nss-pppoe.md) for performance and scope. |
 | L2TPV2 | Supported | Disabled; no device acceptance; tunnel mapping gap applies |
 | BRIDGE | Supported | NSS L2 bridging is not implemented by the QinQ resolver, which requires routed connections. Ordinary DSA/Linux bridging and YT9215S hardware switching pass their own tests |
 | VLAN | Supported | Confirmed NSS for routed traffic using supported single-customer802.1Q paths: aware/unaware bridge VLAN uppers and direct port uppers, including runtime VID35/4094 checks.64-node NSS capacity; full customer S+C tags use separate standard-DSA host forwarding |
@@ -44,12 +44,12 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | TUN6RD | Supported | Disabled; untested; no6rd acceptance |
 | GRE | Supported | Disabled; untested; tunnel mapping gap applies |
 | PPTP | Supported | Disabled; untested; tunnel mapping gap applies |
-| IGS | Supported | NSS ingress shaping, not IGMP snooping. IGS and NSS shaper/qdisc are disabled; no NSS shaping acceptance. YT9215S policing/shaping tests are a different engine |
+| IGS | Supported | Confirmed opt-in NSS ingress and egress shaping with concurrent accelerated IPv4 TCP on native WAN, WAN VLAN 35, and one PPPoE session on VLAN 35. Native WAN loaded latency improved. |
 | VXLAN | Supported | Disabled; untested; tunnel mapping gap applies |
 | MATCH | Supported | NSS MATCH manager disabled and untested. YT9215S ingress ACL matches pass separately |
 | RMNET | FW11.4 on807x; absent on60xx | Disabled and untested; no IPQ5018 support claim |
 | MIRROR | Supported | NSS MIRROR manager disabled and untested. YT9215S hardware ingress/egress mirroring passes separately, including established NSS traffic |
-| WIFI (AP/STA) | Supported | Partial: QCN6122 5GHz STA routed IPv4 is confirmed NSS, including Build41 cold first association/data and Build42 forwarded TCP/UDP. Build42 internal2.4GHz STA IPv4 also has ECM/wifili proof, but performance acceptance fails at roughly0.5–0.9Mbps TCP in the current fixture. AP mode,2.4GHz cold association and Wi-Fi IPv6 remain unvalidated |
+| WIFI (AP/STA) | Supported | Partial: 5 GHz STA routed IPv4 and bounded simultaneous 2.4/5 GHz AP IPv4 TCP downloads are confirmed with NSS. The 2.4 GHz STA path has ECM and Wi-Fi firmware evidence, with roughly 0.5–0.9 Mbps TCP in the test fixture. Sustained AP load, simultaneous uploads, 2.4 GHz STA cold association and Wi-Fi IPv6 remain unvalidated. |
 | WIFI (WDS) | Requires FW11.4 | Unvalidated with our FW12.2 profile; no WDS acceptance |
 | WIFI (MESH) | Requires FW11.4 | Mesh support/manager disabled; unvalidated with FW12.2 |
 | WIFI (AP VLAN) | ath11k driver warning | Untested on this device; no AP VLAN or Wi-Fi/customer-VLAN-combination acceptance. Preserve upstream warning without assuming it is a reproduced local failure |
@@ -88,10 +88,15 @@ by endpoint buffer errors and measurement intervals. See the2.4GHz section of
 
 ## Queueing and policy boundary
 
-Our defaults retain NSS, normal queue initialization and matched CPU-link PAUSE;
-user shaping/SQM/per-device bandwidth limits remain opt-in. The current build
-has NSS IGS, SHAPER and NSS qdisc packages disabled. Tested YT9215S hardware TBF,
-PCP queue selection and ingress ACL/policer behavior are distinct from NSS QoS.
+The NSS profile includes [wired WAN QoS](../nss-feature-matrix.md#wired-wan-qos)
+for a routed port on a dedicated QinQ conduit. The firmware reserves a 1 MiB
+shaper pool at boot and the service leaves rate limits disabled by default.
+Native wired WAN validation confirmed simultaneous upload and download
+shaping with both TCP flows accelerated while reducing loaded latency.
+Tagged Ethernet and single-session PPPoE passed the same acceleration and
+shaping checks on VLAN 35. PPPoE download used NSS CoDel.
+YT9215S switch TBF, PCP queue selection and ingress policing use separate
+per-port controls.
 Strict-priority/weighted contention acceptance still fails and remains deferred.
 Linux bonding/LAG controls do not certify NSS acceleration over a bond; real
 two-member LACP/load-sharing also lacks a suitable peer.

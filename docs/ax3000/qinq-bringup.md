@@ -151,16 +151,21 @@ no live PPP registration. Traffic was paced at 100 Mbps, so this does not
 establish peak tagged-PPPoE throughput.
 
 The PPPoE driver has eight registration slots shared across WAN ports.
-On the native WAN, eight independent sessions carried concurrent routed
-IPv4 TCP. Each flow used its own ECM and NSS interface identity, and captures
-on the WAN wire matched each flow to its session ID in both directions.
-The seven surviving TCP connections completed through a single-session
-reconnect. ECM recreated their acceleration rules during the transition,
-and all eight sessions accelerated again after reconnect. OpenWrt's logical
-PPPoE interface selects its WAN port or VLAN. ECM includes the Linux PPP
-device index in the session lookup so separate devices can reuse a session
-ID and peer MAC. Concurrent sessions across physical WAN ports, concurrent
-IPv6 and concurrent tagged PPPoE remain unvalidated.
+Eight independent sessions carried concurrent routed IPv4 TCP on the native
+WAN alone and with four sessions each on WAN and LAN3. The two-port test used
+LAN1 for the client and management, with LAN3 temporarily detached from
+`br-lan` and connected to a separate access concentrator. Each flow used its
+own ECM and NSS interface identity. Wire captures matched each flow to its
+expected port and session ID in both directions. In both configurations, the
+seven surviving TCP connections completed through a single-session reconnect.
+ECM recreated their acceleration rules, and all eight accelerated again after
+reconnect.
+
+OpenWrt's logical PPPoE interface selects its WAN port or VLAN. The host
+regression checks ECM lookup when separate PPP devices reuse a session ID and
+peer MAC. The two-port hardware test used distinct peer MACs and session ID
+ranges. Duplicate identities on hardware, concurrent IPv6 and concurrent
+tagged PPPoE remain unvalidated.
 
 Bidirectional UDP echo also passes on native PPPoE and VLAN35/4094 with the
 normal classifier policy `accel_delay_pkts=1`. IPv4 and IPv6 payloads of 64,
@@ -213,10 +218,13 @@ The current 2.4 GHz peer has a weak link with UDP timeouts and inconsistent
 TCP downloads, so that check establishes operation rather than capacity.
 Single-client 5 GHz AP IPv4 NAT/TCP and routed IPv6 TCP pass in both directions
 with an external wired peer, exact ECM mode2 rules and NSS IP/wifili counters.
-The download check is paced and does not measure capacity. AP cold boot,
-2.4 GHz AP, Wi-Fi IPv6 STA, roaming and sustained simultaneous
-dual-radio load remain unvalidated. Check minimum
-memory headroom during traffic as well as the idle value afterward.
+With one client on each band, routed IPv4 TCP sustained paced downloads at
+12 Mbps on 2.4 GHz and 64 Mbps on 5 GHz for 15 minutes, then uploads at
+6 Mbps and 24 Mbps for one minute. Both traffic directions had overlapping
+exact ECM mode2 rules. Both radios recorded NSS TX and RX activity with zero
+new TX/RX descriptor allocation failures. No browser transfer was interrupted.
+Minimum sampled available memory was 28.8 MiB. Peak capacity, AP cold boot,
+larger client counts, Wi-Fi IPv6 STA and roaming remain unvalidated.
 
 ## Native Wi-Fi bridge acceleration
 

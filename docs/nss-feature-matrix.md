@@ -30,8 +30,8 @@ commit or a long-term reliability qualification.
 | VLAN-aware bridge VLAN uppers | Confirmed | Confirmed; cold boot with this configuration remains open |
 | Customer VLAN uppers on VLAN-unaware bridges | Confirmed | Excluded by the QCA resolver |
 | Single-session PPPoE on native WAN | Confirmed: IPv4 NAT and routed IPv6 | Confirmed: IPv4 NAT and routed IPv6 |
-| Concurrent PPPoE on one native WAN | Unvalidated | Confirmed: eight concurrent IPv4 NAT/TCP sessions. The seven surviving TCP streams completed across one session reconnect, with ECM rule recreation. |
-| Concurrent PPPoE across physical WAN ports | Unvalidated | Unvalidated |
+| Concurrent PPPoE on one native WAN | Confirmed: eight concurrent IPv4 NAT/TCP sessions; all seven surviving streams completed across one reconnect and ECM recreated their acceleration rules. | Confirmed: eight concurrent IPv4 NAT/TCP sessions. The seven surviving TCP streams completed across one session reconnect, with ECM rule recreation. |
+| Concurrent PPPoE across physical WAN ports | Confirmed: four IPv4 NAT/TCP sessions on WAN and four on LAN3 with separate peers. All seven surviving streams completed across one LAN3 session reconnect, with ECM rule recreation. | Confirmed: four IPv4 NAT/TCP sessions on WAN and four on LAN3 with separate peers. The seven surviving TCP streams completed across one session reconnect, with ECM rule recreation. |
 | PPPoE over one customer VLAN | Confirmed: VLAN35 | Confirmed: VLAN35/4094; tagged TCP checks paced at 100 Mbps |
 | PPPoE PAP/CHAP, wrong-password rejection and reconnect | Confirmed with a controlled access concentrator | Confirmed with a controlled access concentrator |
 | PPPoE IPv4/IPv6 bidirectional UDP | Confirmed | Confirmed on native WAN and VLAN35/4094 under the default classifier policy |
@@ -39,7 +39,7 @@ commit or a long-term reliability qualification.
 | MTU boundaries and IPv6 Packet Too Big | Confirmed | Confirmed |
 | 5 GHz Wi-Fi STA/client routed IPv4 | Confirmed, including cold first association/data and live traffic. Peak throughput and sustained-load reliability unqualified | Confirmed, including cold first association/data; peak capacity unvalidated |
 | 2.4 GHz Wi-Fi STA/client routed IPv4 | Partial: offload demonstrated; severe throughput limits in the test fixture | Partial: TCP/UDP offload demonstrated; weak-link performance remains unresolved |
-| Wi-Fi AP client traffic | Confirmed: bounded 2.4 GHz single-client routed IPv4 TCP with DNAT. 5 GHz and sustained or multi-client AP load remain open. | Confirmed: 5 GHz AP client routed IPv4 NAT/TCP and IPv6 TCP in both directions; bounded single-client checks |
+| Wi-Fi AP client traffic | Confirmed: bounded simultaneous routed IPv4 TCP downloads on 2.4 GHz and 5 GHz with one client per band. Sustained dual-radio load and simultaneous uploads remain open. | Confirmed: simultaneous routed IPv4 TCP on 2.4 GHz and 5 GHz with one client per band. Routed IPv6 TCP confirmed with one 5 GHz client. |
 | Wi-Fi IPv6 | Unvalidated | Confirmed: 5 GHz AP routed TCP; STA, 2.4 GHz and UDP coverage remain open |
 | Wi-Fi WDS | Unvalidated with firmware 12.2 | Unvalidated with firmware 12.2 |
 | Wi-Fi mesh / roaming | Unvalidated; mesh manager disabled | Unvalidated |
@@ -50,11 +50,12 @@ IPv4 and wifili RX/TX counters during ordinary traffic. Peak throughput and
 sustained-load reliability require controlled testing. FCS/REO reception errors
 were observed, and their cause remains unisolated.
 
-AX3000 AP checks use a separate Wi-Fi subnet and an external wired peer.
-Completed payload transfers, exact ECM rules in accelerated mode and increasing
-NSS IPv4/IPv6/wifili counters establish routed offload. These paced transfers
-do not measure peak throughput or qualify AP cold boot, multiple clients or
-long-term reliability. Bridged AP traffic is covered separately below.
+AX3000 routed AP checks use test Wi-Fi subnets and an external wired peer.
+The dual-radio IPv4 run sustained 12 and 64 Mbps of paced download for
+15 minutes, followed by a minute at 6 and 24 Mbps upload for the 2.4 GHz and
+5 GHz clients, respectively. The exact TCP flows were simultaneously
+accelerated in both phases. Wi-Fi NSS counters increased on both radios and
+available memory stayed above 28 MiB. See [AX3000 Wi-Fi NSS](ax3000/qinq-bringup.md#wi-fi-nss).
 
 The CR881x 2.4 GHz AP check used a separate Wi-Fi subnet with one WPA2
 station. A paced TCP echo crossed the wired LAN and AP via a scoped
@@ -71,7 +72,8 @@ host forwarding.
 UDP qualification depends on the tracker and classifier policy. Sparse or
 one-way traffic staying in software is not sufficient evidence of a dataplane
 failure. PPPoE tests use local access concentrators. ISP interoperability,
-concurrent tagged PPPoE and maximum tagged-PPPoE throughput remain unvalidated.
+concurrent tagged PPPoE, duplicate session ID and peer MAC across physical
+ports, and maximum tagged-PPPoE throughput remain unvalidated on hardware.
 
 ## Other NSS engines
 
@@ -80,7 +82,7 @@ concurrent tagged PPPoE and maximum tagged-PPPoE throughput remain unvalidated.
 | NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and UDP on WAN and LAN conduits confirmed in both directions |
 | L2 bridge policy compatibility | Unvalidated | Confirmed on LAN conduit with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated |
 | Routed IPv4 IPTV via NSS | QinQ uses software forwarding. YT9215S replication backend pending. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin under the default ECM policy. Automatic multi-port membership remains open. |
-| NSS WAN QoS | NSS shaper unvalidated; the YT9215S switch shaper is separate | Confirmed simultaneous upload and download shaping for IPv4 TCP on native WAN, WAN VLAN 35, and single-session PPPoE over VLAN 35. Untagged PPPoE download also passed with NSS CoDel. |
+| NSS WAN QoS | Confirmed simultaneous upload and download shaping for accelerated IPv4 TCP on native WAN, WAN VLAN 35, and single-session PPPoE over VLAN 35. Native WAN loaded latency improved. | Confirmed simultaneous upload and download shaping for IPv4 TCP on native WAN, WAN VLAN 35, and single-session PPPoE over VLAN 35. Untagged PPPoE download also passed with NSS CoDel. |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
 | MAP-T | Disabled, unvalidated | Disabled, unvalidated |
 | NSS MATCH / MIRROR managers | Disabled, unvalidated | Disabled, unvalidated |
@@ -125,13 +127,14 @@ module built against the same kernel configuration as the image.
 
 ### Wired WAN QoS
 
-The AX3000 NSS profile includes `nss-wan-qos`. Shaper builds
+The AX3000 and CR881x NSS profiles include `nss-wan-qos`. Shaper builds
 reserve 1 MiB for the firmware pool at boot. Rate limits are disabled by
 default. The service shapes upload at the WAN conduit and download on an NSS
 IFB. The service uses NSS FQ-CoDel for upload and for downloads on non-PPPoE
 WANs. When `network.wan.proto` is `pppoe`, download uses NSS CoDel. It
 requires a routed wired WAN on a dedicated QinQ conduit and rejects existing
-custom queues on the conduit.
+custom queues on the conduit. The YT9215S switch shaper has separate per-port
+controls.
 
 Set rates in kbit/s, with zero for an uncapped direction.
 
@@ -149,13 +152,32 @@ reload the service to remove its queues. AX3000 WAN VLAN 35 kept both
 IPv4 TCP flows accelerated under simultaneous caps and returned to uncapped
 rates after the queues were removed.
 
+On AX3000, two alternating on/off comparisons used a lab WAN bottleneck of
+100 Mbps in each direction. Under simultaneous accelerated IPv4 TCP upload
+and download, 80 Mbps NSS FQ-CoDel caps reduced p95 UDP round-trip latency
+from about 113 ms to 3–4 ms. Idle p95 was about 3 ms. This check used the
+native WAN with a fixed upstream queue and a small forwarded UDP echo flow.
+
+On CR881x, the same test used an 80 Mbps lab WAN bottleneck and 64 Mbps
+NSS FQ-CoDel caps, with a 100 Mbps LAN client link. Across two runs, p95 UDP
+round-trip latency fell from 76–112 ms to about 4.7 ms. Simultaneous shaped
+TCP upload and download sustained about 60 Mbps each, with ECM acceleration
+and activity on both NSS queues.
+
+On CR881x with a gigabit LAN client, tagged WAN VLAN 35 yielded 92 Mbps
+upload and 189 Mbps download at 100/200 Mbps caps using FQ-CoDel. One PPPoE
+session over VLAN 35 yielded 83/256 Mbps at 100/300 Mbps caps, with FQ-CoDel
+on upload and CoDel on download. Both TCP flows were accelerated together,
+both queues carried traffic, and uncapped rates returned after removal.
+
 On AX3000 with firmware 12.2, NSS FQ-CoDel on the download IFB counted
 roughly twice the packets reported by the NSS IGS node for accelerated
 PPPoE. At a 300 Mbps cap, routed IPv4 TCP download reached about 142 Mbps
 with FQ-CoDel and 284 Mbps with CoDel on untagged PPPoE. The service selected
 CoDel for PPPoE on VLAN 35, where simultaneous 100 Mbps upload and 300 Mbps
 download caps yielded 90 and 257 Mbps with both flows still accelerated.
-Concurrent PPPoE sessions under shaping remain unvalidated.
+Concurrent PPPoE sessions under shaping and untagged PPPoE shaping on CR881x
+remain unvalidated.
 
 ## Switch offload and driver controls
 
@@ -177,8 +199,8 @@ captures alone cannot measure all offloaded traffic.
 
 ## Remaining qualification and references
 
-Sustained AP/multiple-client traffic, simultaneous dual-radio load, roaming,
-repeated boot cycles and long-duration memory testing remain open. QCA
+Sustained dual-radio AP load on CR881x, larger client counts on AX3000,
+roaming, repeated boot cycles and long-duration memory testing remain open. QCA
 bridge-domain checks cover bounded packet/routing cases; cold-boot and
 endurance qualification remain incomplete. A common feature table does not imply identical
 peak rates, advanced switch controls or complete recovery coverage.
