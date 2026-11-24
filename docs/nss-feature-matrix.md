@@ -41,8 +41,9 @@ commit or a long-term reliability qualification.
 | 2.4 GHz Wi-Fi STA/client routed IPv4 | Partial: offload demonstrated; severe throughput limits in the test fixture | Partial: TCP/UDP offload demonstrated; weak-link performance remains unresolved |
 | Wi-Fi AP client traffic | Confirmed: bounded simultaneous routed IPv4 TCP downloads on 2.4 GHz and 5 GHz with one client per band. Sustained dual-radio load and simultaneous uploads remain open. | Confirmed: simultaneous routed IPv4 TCP on 2.4 GHz and 5 GHz with one client per band. Routed IPv6 TCP confirmed with one 5 GHz client. |
 | Wi-Fi IPv6 | Unvalidated | Confirmed: 5 GHz AP routed TCP; STA, 2.4 GHz and UDP coverage remain open |
-| Wi-Fi WDS | Unvalidated with firmware 12.2 | Unvalidated with firmware 12.2 |
-| Wi-Fi mesh / roaming | Unvalidated; mesh manager disabled | Unvalidated |
+| Wi-Fi WDS | Four-address peer interface registered. Forwarding acceleration remains unvalidated. | The shared 5 GHz AP and WDS station triggered a Wi-Fi firmware fault. Station-only WDS association passed. |
+| 5 GHz Wi-Fi mesh (802.11s) | Partial. WPA3-SAE peering, rejoin and routed IPv4 TCP NSS offload with a 5 GHz AP on the same channel | Partial. WPA3-SAE peering and rejoin with a 5 GHz AP on the same channel. The routed flow from AX3000 was accelerated by CR881x. |
+| Wi-Fi fast roaming (802.11r) | FT-PSK AP setup verified; client handoff unvalidated | FT-PSK AP setup verified; client handoff unvalidated |
 | Wi-Fi AP VLAN | Unvalidated | Unvalidated |
 
 Live CR881x 5 GHz STA confirmation uses active ECM rules and increasing NSS
@@ -74,6 +75,40 @@ one-way traffic staying in software is not sufficient evidence of a dataplane
 failure. PPPoE tests use local access concentrators. ISP interoperability,
 concurrent tagged PPPoE, duplicate session ID and peer MAC across physical
 ports, and maximum tagged-PPPoE throughput remain unvalidated on hardware.
+
+### 5 GHz mesh
+
+The CR881x and AX3000 NSS profiles select `CONFIG_ATH11K_NSS_MESH_SUPPORT`
+and include a mesh-capable wpad. The option selects the NSS mesh manager
+and kernel mesh support on IPQ50xx with NSS firmware 12.2 or 12.5. Keep
+`nss_offload=1` on ath11k and configure SAE mesh with the same channel
+configuration on both nodes.
+An AP sharing the radio with mesh needs a distinct interface MAC.
+
+The 12.2 check used channel 149 at 20 MHz. Both QCN6122 radios kept their APs
+active and registered mesh encapsulation and decapsulation interfaces with
+NSS. Both mesh peers authorized, exchanged IPv4 packets and rejoined after
+teardown. TCP streams from AX3000 over routed and bridged mesh backhaul to an
+external wired peer reached ECM acceleration mode 2 on CR881x. The bridged
+run also increased NSS encapsulation counters on CR881x and decapsulation
+counters on AX3000. Satellite Wi-Fi client load, wider channels,
+firmware-restart recovery and a live 802.11r handoff remain unvalidated.
+
+To use host forwarding for 802.11s on QCN6122, add
+`nss_offload_qcn6122=0` to the existing `ath11k` line in
+`/etc/modules.d/ath11k` and reboot:
+
+```text
+ath11k nss_offload=1 frame_mode=2 nss_offload_qcn6122=0
+```
+
+The option selects the host datapath for every interface on QCN6122. The
+IPQ5018 2.4 GHz radio and Ethernet keep their NSS settings. Use a mesh-capable
+wpad package such as `wpad-mesh-mbedtls` or `wpad-openssl` for SAE.
+
+The host datapath also passed SAE peering, rejoin, and routed and bridged
+mesh backhaul checks at 20 MHz. A concurrent wired IPv4 NAT flow on CR881x
+remained NSS-accelerated.
 
 ## Other NSS engines
 

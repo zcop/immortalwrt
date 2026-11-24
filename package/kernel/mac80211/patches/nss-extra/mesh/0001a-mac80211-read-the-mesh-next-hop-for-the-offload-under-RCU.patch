@@ -1,0 +1,77 @@
+From: Stanislaw Pal <kuncy7@gmail.com>
+Subject: mac80211: read the mesh next hop for the offload under RCU
+
+The NSS mesh offload (0001) reads mpath->next_hop with rcu_dereference()
+where no RCU read-side lock is held: __mesh_path_del() runs under the
+table walk_lock only, and mesh_nss_offld_path_update() is also reached
+from mesh_gate_del() and mesh_path_fix_nexthop() under state_lock. With
+lockdep, deleting a mesh path (iw ... mpath del, or a path that expires)
+reports suspicious RCU usage at mesh_pathtbl.c. mesh_path_fix_nexthop()
+also hands the old next hop's address to the offload after it has
+dropped state_lock, when nothing keeps that station around any more.
+
+Read the next hop under rcu_read_lock() where the caller may not hold
+it, use rcu_dereference_protected() under state_lock, and copy the old
+next hop's address while state_lock is still held.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+--- a/net/mac80211/mesh_pathtbl.c
++++ b/net/mac80211/mesh_pathtbl.c
+@@ -149,9 +149,11 @@ void mesh_nss_offld_path_update(struct m
+ 		ether_addr_copy(path.da, mpath->dst);
+ 	}
+ 
++	rcu_read_lock();
+ 	next_hop = rcu_dereference(mpath->next_hop);
+ 	if (next_hop)
+ 		ether_addr_copy(path.next_hop, next_hop->addr);
++	rcu_read_unlock();
+ 
+ 	if (old_next_hop_addr)
+ 		ether_addr_copy(path.old_next_hop, old_next_hop_addr);
+@@ -448,7 +450,8 @@ static void mesh_gate_del(struct mesh_ta
+ 	if (!mpath->is_gate)
+ 		return;
+ 
+-	next_hop = rcu_dereference(mpath->next_hop);
++	next_hop = rcu_dereference_protected(mpath->next_hop,
++					     lockdep_is_held(&mpath->state_lock));
+ 	mpath->is_gate = false;
+ 	spin_lock_bh(&tbl->gates_lock);
+ 	hlist_del_rcu(&mpath->gate_list);
+@@ -939,9 +942,11 @@ static void __mesh_path_del(struct mesh_
+ 		ether_addr_copy(path.da, mpath->dst);
+ 	}
+ 
++	rcu_read_lock();
+ 	next_hop = rcu_dereference(mpath->next_hop);
+ 	if (next_hop)
+ 		ether_addr_copy(path.next_hop, next_hop->addr);
++	rcu_read_unlock();
+ 
+ 	hlist_del_rcu(&mpath->walk_list);
+ 	rhashtable_remove_fast(&tbl->rhead, &mpath->rhash, mesh_rht_params);
+@@ -1185,9 +1190,13 @@ void mesh_path_flush_pending(struct mesh
+ void mesh_path_fix_nexthop(struct mesh_path *mpath, struct sta_info *next_hop)
+ {
+ 	struct sta_info *old_next_hop;
++	u8 old_next_hop_addr[ETH_ALEN];
+ 
+ 	spin_lock_bh(&mpath->state_lock);
+-	old_next_hop = rcu_dereference(mpath->next_hop);
++	old_next_hop = rcu_dereference_protected(mpath->next_hop,
++						 lockdep_is_held(&mpath->state_lock));
++	if (old_next_hop)
++		ether_addr_copy(old_next_hop_addr, old_next_hop->addr);
+ 	mesh_path_assign_nexthop(mpath, next_hop);
+ 	mpath->sn = 0xffff;
+ 	mpath->metric = 0;
+@@ -1202,7 +1211,7 @@ void mesh_path_fix_nexthop(struct mesh_p
+ 	ewma_mesh_fail_avg_add(&next_hop->mesh->fail_avg, 1);
+ 	mesh_path_tx_pending(mpath);
+ 
+-	mesh_nss_offld_path_update(mpath, true, old_next_hop ? old_next_hop->addr : NULL);
++	mesh_nss_offld_path_update(mpath, true, old_next_hop ? old_next_hop_addr : NULL);
+ }
+ 
+ void mesh_pathtbl_init(struct ieee80211_sub_if_data *sdata)

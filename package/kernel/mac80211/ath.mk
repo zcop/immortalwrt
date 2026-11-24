@@ -15,6 +15,7 @@ PKG_CONFIG_DEPENDS += \
 	CONFIG_ATH11K_THERMAL \
 	CONFIG_ATH11K_SMALLBUFFERS \
 	CONFIG_ATH11K_NSS_SUPPORT \
+	CONFIG_ATH11K_NSS_MESH_SUPPORT \
 	CONFIG_ATH11K_MEM_PROFILE_512M \
 	CONFIG_ATH11K_MEM_PROFILE_256M \
 	CONFIG_ATH11K_NSS_MEM_PROFILE_256M \
@@ -66,6 +67,7 @@ config-$(CONFIG_ATH10K_LEDS) += ATH10K_LEDS
 config-$(CONFIG_ATH10K_THERMAL) += ATH10K_THERMAL
 config-$(CONFIG_ATH11K_THERMAL) += ATH11K_THERMAL
 config-$(CONFIG_ATH11K_NSS_SUPPORT) += ATH11K_NSS_SUPPORT
+config-$(CONFIG_ATH11K_NSS_MESH_SUPPORT) += ATH11K_NSS_MESH_SUPPORT
 config-$(CONFIG_ATH11K_MEM_PROFILE_512M) += ATH11K_MEM_PROFILE_512M
 # The 256 MiB allocation profile retains the existing firmware mode1 ABI.
 config-$(CONFIG_ATH11K_MEM_PROFILE_256M) += ATH11K_MEM_PROFILE_512M ATH11K_MEM_PROFILE_256M
@@ -401,6 +403,18 @@ define KernelPackage/ath11k/config
                help
                  Skip unused host TX arrays, reduce NSS descriptor and CE
                  pools, and isolate RX fragment caches on IPQ5018/QCN6122.
+
+       config ATH11K_NSS_MESH_SUPPORT
+               bool "Enable NSS 802.11s mesh offload"
+               depends on ATH11K_NSS_SUPPORT && TARGET_qualcommax_ipq50xx
+               depends on NSS_FIRMWARE_VERSION_12_2 || NSS_FIRMWARE_VERSION_12_5
+               select PACKAGE_kmod-qca-nss-drv-wifi-meshmgr
+               select NSS_DRV_WIFI_MESH_ENABLE
+               select PACKAGE_MAC80211_MESH
+               default n
+               help
+                 Offload 802.11s mesh frames and path tables to the NSS
+                 firmware through the Wi-Fi mesh manager.
 
        config ATH11K_SMALLBUFFERS
                bool "Use smaller ath11k buffers on low-RAM devices"

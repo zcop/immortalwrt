@@ -1,0 +1,116 @@
+From: Stanislaw Pal <kuncy7@gmail.com>
+Subject: [PATCH] mesh: close the link of a peer the driver removed
+
+A driver removes a mesh peer on its own when it cannot keep the link,
+for example after a restart of its firmware that lost the peer's keys
+and counters (mac80211 then reports NL80211_CMD_DEL_STATION, as it
+does for an IBSS peer). The MPM ignored that: the peer stayed in its
+table as established, the kernel had no station for it, and the next
+beacon of the peer did not start a new peering because
+mesh_mpm_add_peer() found the old entry. The link came back only when
+the inactivity timer noticed the missing driver entry minutes later.
+
+Handle the event on a mesh interface: send the peer a CLOSE, so that
+it does not keep a link we no longer have (with AMPE the CLOSE is
+still protected, the keys are ours), and free the entry. The peer's
+next beacon then starts a new peering with new keys.
+
+The event also follows the removals the MPM asks for itself, and can
+arrive after a new entry for the same peer was added: act only when
+the driver has no station for the entry.
+
+Signed-off-by: Stanislaw Pal <kuncy7@gmail.com>
+
+--- a/src/drivers/driver_nl80211_event.c
++++ b/src/drivers/driver_nl80211_event.c
+@@ -2552,9 +2552,11 @@ static void nl80211_del_station_event(st
+ 		return;
+ 	}
+ 
+-	if (drv->nlmode != NL80211_IFTYPE_ADHOC)
++	/* An IBSS or mesh peer the driver no longer has */
++	if (drv->nlmode != NL80211_IFTYPE_ADHOC &&
++	    drv->nlmode != NL80211_IFTYPE_MESH_POINT)
+ 		return;
+ 
+ 	os_memset(&data, 0, sizeof(data));
+ 	os_memcpy(data.ibss_peer_lost.peer, addr, ETH_ALEN);
+ 	wpa_supplicant_event(bss->ctx, EVENT_IBSS_PEER_LOST, &data);
+--- a/wpa_supplicant/events.c
++++ b/wpa_supplicant/events.c
+@@ -7599,6 +7599,12 @@
+ #endif /* CONFIG_TDLS */
+ 		break;
+ 	case EVENT_IBSS_PEER_LOST:
++#ifdef CONFIG_MESH
++		if (wpa_s->ifmsh) {
++			mesh_mpm_peer_lost(wpa_s, data->ibss_peer_lost.peer);
++			break;
++		}
++#endif /* CONFIG_MESH */
+ #ifdef CONFIG_IBSS_RSN
+ 		ibss_rsn_stop(wpa_s->ibss_rsn, data->ibss_peer_lost.peer);
+ #endif /* CONFIG_IBSS_RSN */
+--- a/wpa_supplicant/mesh_mpm.c
++++ b/wpa_supplicant/mesh_mpm.c
+@@ -17,6 +17,7 @@
+ #include "ap/sta_info.h"
+ #include "ap/ieee802_11.h"
+ #include "ap/beacon.h"
++#include "ap/ap_drv_ops.h"
+ #include "ap/wpa_auth.h"
+ #include "wpa_supplicant_i.h"
+ #include "driver_i.h"
+@@ -602,6 +603,42 @@
+ }
+ 
+ 
++/* The driver removed the peer on its own (e.g. after a restart of its
++ * firmware, which lost the peer's keys and counters). Its link is gone with
++ * it: tell the peer, so that it does not keep a link we no longer have, and
++ * forget it, so that its next beacon starts a new peering.
++ */
++void mesh_mpm_peer_lost(struct wpa_supplicant *wpa_s, const u8 *addr)
++{
++	struct hostapd_data *hapd = wpa_s->ifmsh->bss[0];
++	struct hostap_sta_driver_data data;
++	struct sta_info *sta;
++
++	sta = ap_get_sta(hapd, addr);
++	if (!sta)
++		return; /* removed on our request */
++
++	/* The event also follows our own removals, and may arrive after a new
++	 * entry for the same peer was added. Act only if the driver has no
++	 * station for the entry we have.
++	 */
++	os_memset(&data, 0, sizeof(data));
++	if (hostapd_drv_read_sta_data(hapd, &data, addr) != -ENOENT)
++		return;
++
++	wpa_msg(wpa_s, MSG_INFO, "mesh peer " MACSTR
++		" removed by the driver in state %s - closing the link",
++		MAC2STR(addr), mplstate[sta->plink_state]);
++
++	if (sta->plink_state >= PLINK_OPN_SNT &&
++	    sta->plink_state <= PLINK_ESTAB)
++		mesh_mpm_send_plink_action(wpa_s, sta, PLINK_CLOSE,
++					   WLAN_REASON_MESH_PEERING_CANCELLED);
++
++	ap_free_sta(hapd, sta);
++}
++
++
+ static void peer_add_timer(void *eloop_ctx, void *user_data)
+ {
+ 	struct wpa_supplicant *wpa_s = eloop_ctx;
+--- a/wpa_supplicant/mesh_mpm.h
++++ b/wpa_supplicant/mesh_mpm.h
+@@ -19,6 +19,7 @@
+ 			      struct sta_info *sta,
+ 			      enum mesh_plink_state state);
+ int mesh_mpm_close_peer(struct wpa_supplicant *wpa_s, const u8 *addr);
++void mesh_mpm_peer_lost(struct wpa_supplicant *wpa_s, const u8 *addr);
+ int mesh_mpm_connect_peer(struct wpa_supplicant *wpa_s, const u8 *addr,
+ 			  int duration);
+ 

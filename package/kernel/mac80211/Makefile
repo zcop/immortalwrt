@@ -48,7 +48,7 @@ SCAN_DEPS = *.mk
 
 # NSS changes which patches are applied, so configuration alone cannot
 # safely reuse a source tree prepared for the other dataplane profile.
-PKG_PREPARED_DEPENDS += CONFIG_ATH11K_NSS_SUPPORT
+PKG_PREPARED_DEPENDS += CONFIG_ATH11K_NSS_SUPPORT CONFIG_ATH11K_NSS_MESH_SUPPORT
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -144,7 +144,8 @@ define KernelPackage/mac80211
   TITLE:=Linux 802.11 Wireless Networking Stack
   # +kmod-crypto-cmac is a runtime only dependency of net/mac80211/aes_cmac.c
   DEPENDS+= +kmod-cfg80211 +kmod-crypto-cmac +kmod-crypto-ccm +kmod-crypto-gcm +hostapd-common \
-	+ATH11K_NSS_SUPPORT:kmod-qca-nss-drv
+	+ATH11K_NSS_SUPPORT:kmod-qca-nss-drv \
+	+ATH11K_NSS_MESH_SUPPORT:kmod-qca-nss-drv-wifi-meshmgr
   FILES:= $(PKG_BUILD_DIR)/net/mac80211/mac80211.ko
   ABI_VERSION:=$(PKG_VERSION)-$(PKG_RELEASE)
   MENU:=1
@@ -313,7 +314,7 @@ MAKE_OPTS:= \
 ifdef CONFIG_ATH11K_NSS_SUPPORT
   # Backports passes CFLAGS through NOSTDINC_FLAGS on Linux 6.18. Match the
   # NSS driver's firmware-dependent public message layouts in every consumer.
-  MAKE_OPTS += CFLAGS="-I$(STAGING_DIR)/usr/include/qca-nss-drv$(if $(CONFIG_NSS_FIRMWARE_VERSION_12_2), -DNSS_FIRMWARE_VERSION_12_2)$(if $(CONFIG_NSS_FIRMWARE_VERSION_12_5), -DNSS_FIRMWARE_VERSION_12_5)"
+  MAKE_OPTS += CFLAGS="-I$(STAGING_DIR)/usr/include/qca-nss-drv$(if $(CONFIG_ATH11K_NSS_MESH_SUPPORT), -I$(STAGING_DIR)/usr/include/qca-nss-clients)$(if $(CONFIG_NSS_FIRMWARE_VERSION_12_2), -DNSS_FIRMWARE_VERSION_12_2)$(if $(CONFIG_NSS_FIRMWARE_VERSION_12_5), -DNSS_FIRMWARE_VERSION_12_5)"
 endif
 
 define ConfigVars
@@ -386,6 +387,9 @@ ifdef CONFIG_ATH11K_NSS_SUPPORT
 	$(foreach driver,$(NSS_EXTRA_PATCH),
 		$(call PatchDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss-extra/$(driver),nss-extra/$(driver)/)
 	)
+ifdef CONFIG_ATH11K_NSS_MESH_SUPPORT
+	$(call PatchDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss-extra/mesh,nss-extra/mesh/)
+endif
 endif
 	$(if $(QUILT),touch $(PKG_BUILD_DIR)/.quilt_used)
 endef
@@ -411,6 +415,9 @@ ifdef CONFIG_ATH11K_NSS_SUPPORT
 	$(foreach driver,$(NSS_EXTRA_PATCH),
 		$(call Quilt/RefreshDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss-extra/$(driver),nss-extra/$(driver)/)
 	)
+ifdef CONFIG_ATH11K_NSS_MESH_SUPPORT
+	$(call Quilt/RefreshDir,$(PKG_BUILD_DIR),$(PATCH_DIR)/nss-extra/mesh,nss-extra/mesh/)
+endif
 endif
 endef
 

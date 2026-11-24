@@ -1,0 +1,66 @@
+wifi: ath11k: allow the host datapath on QCN6122
+
+The NSS WIFILI vdev setup supports AP and station interfaces. A mesh
+interface needs the host datapath, including host ring interrupts that
+are set up at probe. Allow selecting the host datapath for QCN6122
+without changing NSS offload for other devices.
+
+Remember the selected mode so firmware recovery restores the original
+ring ownership. Leave the default selection unchanged.
+
+diff --git a/drivers/net/wireless/ath/ath11k/core.c b/drivers/net/wireless/ath/ath11k/core.c
+--- a/drivers/net/wireless/ath/ath11k/core.c
++++ b/drivers/net/wireless/ath/ath11k/core.c
+@@ -20,9 +20,13 @@
+ #include "fw.h"
+ 
+ unsigned int nss_offload;
++static bool nss_offload_qcn6122 = true;
+ #ifdef CPTCFG_ATH11K_NSS_SUPPORT
+ module_param_named(nss_offload, nss_offload, uint, 0644);
+ MODULE_PARM_DESC(nss_offload, "Enable NSS Offload support");
++module_param(nss_offload_qcn6122, bool, 0444);
++MODULE_PARM_DESC(nss_offload_qcn6122,
++		 "Allow NSS offload on QCN6122 (disable for host 802.11s)");
+ #endif
+ 
+ unsigned int ath11k_debug_mask;
+@@ -2525,10 +2529,8 @@
+ 
+ 	clear_bit(ATH11K_FLAG_CRASH_FLUSH, &ab->dev_flags);
+ 
+-	/* We have disabled NSS Offload support in the starting.
+-	 * Re-enabling it if it was originally enabled in the MODULE_PARM_DESC.
+-	 */
+-	ab->nss.enabled = nss_offload;
++	/* Keep the datapath mode selected before IRQ setup at probe. */
++	ab->nss.enabled = ab->nss.enabled_at_probe;
+ 
+ 	ret = ath11k_core_qmi_firmware_ready(ab);
+ 	if (ret)
+@@ -2889,10 +2891,10 @@
+ 		ath11k_err(ab, "failed to pre init firmware: %d", ret);
+ 		return ret;
+ 	}
+-	ab->nss.enabled = nss_offload;
+-
+-	if (nss_offload)
+-		ab->nss.stats_enabled = 1;
++	ab->nss.enabled_at_probe = nss_offload &&
++		(ab->hw_rev != ATH11K_HW_QCN6122_HW10 || nss_offload_qcn6122);
++	ab->nss.enabled = ab->nss.enabled_at_probe;
++	ab->nss.stats_enabled = ab->nss.enabled;
+ 
+ 	return 0;
+ }
+diff --git a/drivers/net/wireless/ath/ath11k/nss.h b/drivers/net/wireless/ath/ath11k/nss.h
+--- a/drivers/net/wireless/ath/ath11k/nss.h
++++ b/drivers/net/wireless/ath/ath11k/nss.h
+@@ -225,6 +225,7 @@
+ struct ath11k_soc_nss {
+ 	/* turn on/off nss offload support in ath11k */
+ 	bool enabled;
++	bool enabled_at_probe;
+ 	/* turn on/off nss stats support in ath11k */
+ 	bool stats_enabled;
+ 	/* soc nss ctx */
