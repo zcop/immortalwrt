@@ -274,3 +274,20 @@ Binary package repositories default to ImmortalWrt snapshots. Custom kernel
 modules require the repository produced for the matching firmware build;
 `CONFIG_VERSION_REPO` selects a self-hosted build repository. Optional extra
 URLs belong in `/etc/apk/repositories.d/customfeeds.list`.
+
+For release builds, refresh the dashboard/theme feed after selecting the
+profile and before compiling. This also regenerates dependencies and cleans
+the two UI packages. The record pins their source revision and versions for
+the release. A reused build tree needs this step for each new release.
+
+```sh
+python3 scripts/release-apps.py prepare --record tmp/release-apps.json &&
+make &&
+python3 scripts/release-apps.py check --record tmp/release-apps.json \
+  --manifest bin/targets/qualcommax/ipq50xx/*.manifest
+```
+
+For both profiles in one release, retain the same app record and verify each
+profile's manifest with its corresponding `.config`. The check rejects stale
+or missing selected packages and feed changes after preparation. Commit-pinned
+feeds continue to follow their configured revisions.
