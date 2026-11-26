@@ -1,7 +1,8 @@
 # Qosmio NSS features confirmed on CR881x
 
-Device checks updated: 2026-11-11. Device: CR8812DX/IPQ5018 + QCN6122 +
-YT9215S, native Qosmio/QinQ profile. Installed test image: Build46 in slot1,
+Device: CR8812DX/IPQ5018 + QCN6122 + YT9215S, native Qosmio/QinQ profile.
+Current coverage is summarized in the [shared matrix](../nss-feature-matrix.md).
+Historical baseline: Build46 in slot1,
 Linux6.18.60, NSS firmware12.2, LOW memory and the corrected256MiB Wi-Fi
 allocation profile. Build42 is the preserved slot0 fallback. Source remains
 under development. The upstream table comparison below dates from2026-11-10.
@@ -36,22 +37,22 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 | Qosmio feature | Upstream table | CR881x device result |
 | --- | --- | --- |
 | TUNIPIP6 | Supported | Disabled; no tunnel data-path validation; QinQ tunnel hierarchy mapping is not implemented |
-| PPPOE | Supported | Confirmed routed IPv4 NAT/TCP and IPv6 TCP/bidirectional UDP with one session on native WAN and WAN VLAN35. MTU1492, DHCPv6-PD, PAP, CHAP-MD5 and reconnect pass. Eight concurrent IPv4 NAT/TCP sessions passed on one WAN and split four each across WAN and LAN3, with TCP continuity across one session reconnect in each layout. See [PPPoE validation](nss-pppoe.md) for performance and scope. |
+| PPPOE | Supported | Confirmed routed IPv4 NAT/TCP and IPv6 TCP/bidirectional UDP with one session on native WAN and WAN VLAN35; one VLAN4094 session also passes IPv4 NAT/TCP in both directions. MTU1492, DHCPv6-PD, PAP, CHAP-MD5 and reconnect pass on the recorded native/VLAN35 paths. Eight concurrent IPv4 NAT/TCP sessions passed on one WAN and split four each across WAN and LAN3, with TCP continuity across one session reconnect in each layout. See [PPPoE validation](nss-pppoe.md) for performance and scope. |
 | L2TPV2 | Supported | Disabled; no device acceptance; tunnel mapping gap applies |
-| BRIDGE | Supported | NSS L2 bridging is not implemented by the QinQ resolver, which requires routed connections. Ordinary DSA/Linux bridging and YT9215S hardware switching pass their own tests |
+| BRIDGE | Supported | Partial: one open 5 GHz AP client and a native QinQ WAN or LAN3 port in the same VLAN-unaware bridge demonstrate IPv4/IPv6 TCP and paced WebRTC UDP acceleration in both directions. WAN UDP payload and MAC-header evidence spans separate trials; LAN3 checks pass together. TCP/ICMP isolation and VLAN/PVID checks confirm host fallback, blocking and native NSS recovery on both conduits. Ordinary YT9215S hardware switching is a separate path |
 | VLAN | Supported | Confirmed NSS for routed traffic using supported single-customer802.1Q paths: aware/unaware bridge VLAN uppers and direct port uppers, including runtime VID35/4094 checks.64-node NSS capacity; full customer S+C tags use separate standard-DSA host forwarding |
 | MAP_T | Supported | Disabled; untested; no MAP-T acceptance |
 | TUN6RD | Supported | Disabled; untested; no6rd acceptance |
 | GRE | Supported | Disabled; untested; tunnel mapping gap applies |
 | PPTP | Supported | Disabled; untested; tunnel mapping gap applies |
-| IGS | Supported | Confirmed opt-in NSS ingress and egress shaping with concurrent accelerated IPv4 TCP on native WAN, WAN VLAN 35, and one PPPoE session on VLAN 35. Native WAN loaded latency improved. |
+| IGS | Supported | Confirmed opt-in NSS ingress and egress shaping with concurrent accelerated IPv4 TCP on native WAN, WAN VLAN35, and one PPPoE session untagged or on VLAN35/4094. Native WAN loaded latency improved. |
 | VXLAN | Supported | Disabled; untested; tunnel mapping gap applies |
 | MATCH | Supported | NSS MATCH manager disabled and untested. YT9215S ingress ACL matches pass separately |
 | RMNET | FW11.4 on807x; absent on60xx | Disabled and untested; no IPQ5018 support claim |
 | MIRROR | Supported | NSS MIRROR manager disabled and untested. YT9215S hardware ingress/egress mirroring passes separately, including established NSS traffic |
-| WIFI (AP/STA) | Supported | Partial: 5 GHz STA routed IPv4 and bounded simultaneous 2.4/5 GHz AP IPv4 TCP downloads are confirmed with NSS. The 2.4 GHz STA path has ECM and Wi-Fi firmware evidence, with roughly 0.5–0.9 Mbps TCP in the test fixture. Sustained AP load, simultaneous uploads, 2.4 GHz STA cold association and Wi-Fi IPv6 remain unvalidated. |
-| WIFI (WDS) | Requires FW11.4 | Unvalidated with our FW12.2 profile; no WDS acceptance |
-| WIFI (MESH) | Requires FW11.4 | Mesh support/manager disabled; unvalidated with FW12.2 |
+| WIFI (AP/STA) | Supported | Partial: 5 GHz STA routed IPv4, simultaneous open 2.4/5 GHz AP IPv4 TCP downloads for 15 minutes and uploads for one minute, and single-client 5 GHz AP routed IPv6 TCP in both directions are confirmed with NSS. The 2.4 GHz STA path has ECM and Wi-Fi firmware evidence, with roughly 0.5–0.9 Mbps TCP in the test fixture. Peak AP capacity, larger client counts, 2.4 GHz STA cold association and other Wi-Fi IPv6 cases remain unvalidated. |
+| WIFI (WDS) | Requires FW11.4 | Four-address peer interface registered on FW12.2. Forwarding acceleration remains unvalidated. |
+| WIFI (MESH) | Requires FW11.4 | Partial on `master`. FW12.2 passed 5 GHz WPA3-SAE peering, rejoin and routed IPv4 TCP NSS offload with a same-channel AP. See the [mesh checks](../nss-feature-matrix.md#5-ghz-mesh). |
 | WIFI (AP VLAN) | ath11k driver warning | Untested on this device; no AP VLAN or Wi-Fi/customer-VLAN-combination acceptance. Preserve upstream warning without assuming it is a reproduced local failure |
 | IPSEC | Marked unavailable in FW11.4–12.5 | No NSS IPsec acceptance; crypto/IPsec support disabled in this profile |
 | PVXLAN | Marked unavailable in FW11.4–12.5 | Disabled; no device acceptance |
@@ -62,12 +63,13 @@ The upstream column summarizes Qosmio's IPQ807x/IPQ60xx table, not this device.
 
 The important boundary is the current QinQ ECM resolver: its allowed interface
 hierarchies are Ethernet, bridge and VLAN, optionally ending in one registered
-PPPoE interface. It rejects non-routed flows. The custom mapping is wired into
+PPPoE interface. A known-unicast Wi-Fi/QinQ pair in one VLAN-unaware bridge
+is also admitted; other non-routed QinQ combinations remain excluded. The custom mapping is wired into
 the ported IPv4/IPv6 frontends. PPPoE hardware acceptance covers IPv4 NAT/TCP
 and routed IPv6 TCP/bidirectional UDP. The later DHCPv6-PD gate obtains a real
 lease from the controlled AC and advertises its assigned `/64` only on test
 VLAN46; the management LAN retains its original ULA and RA policy. Tunnels,
-L2 bridging and NSS multicast forwarding must not be inferred from those results.
+broader L2 bridging and NSS multicast forwarding must not be inferred from those results.
 YT9215S MDB/snooping/discovery tests remain valid switch results.
 
 Both radio firmware instances initialize NSS. Separate traffic/counter tests
@@ -93,8 +95,9 @@ for a routed port on a dedicated QinQ conduit. The firmware reserves a 1 MiB
 shaper pool at boot and the service leaves rate limits disabled by default.
 Native wired WAN validation confirmed simultaneous upload and download
 shaping with both TCP flows accelerated while reducing loaded latency.
-Tagged Ethernet and single-session PPPoE passed the same acceleration and
-shaping checks on VLAN 35. PPPoE download used NSS CoDel.
+Tagged Ethernet and single-session PPPoE pass acceleration and shaping on
+VLAN35; single-session PPPoE also passes untagged and on VLAN4094. PPPoE
+download uses NSS CoDel. VLAN4094 coverage is IPv4 only.
 YT9215S switch TBF, PCP queue selection and ingress policing use separate
 per-port controls.
 Strict-priority/weighted contention acceptance still fails and remains deferred.

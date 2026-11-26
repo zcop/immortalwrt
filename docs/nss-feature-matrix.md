@@ -1,8 +1,12 @@
 # NSS + DSA features: CR881x and AX3000
 
-Reviewed: 2026-11-23. Hardware evidence covers Xiaomi CR8812DX with YT9215S
+Reviewed: 2026-11-25. Hardware evidence covers Xiaomi CR8812DX with YT9215S
 and Redmi AX3000 with QCA8337. Both use IPQ5018/QCN6122, native Qosmio NSS,
 firmware 12.2, LOW NSS memory and the 256 MiB ath11k allocation profiles.
+
+The daily-use NSS baseline is **DONE** for the tested CR881x and AX3000
+home-router profiles. Normal development and release builds use `master`.
+Future NSS experiments use `nss-experiment`.
 
 This table describes this tree's implementation and recorded device tests.
 Results span several images; they are not a complete retest of the latest
@@ -32,15 +36,15 @@ commit or a long-term reliability qualification.
 | Single-session PPPoE on native WAN | Confirmed: IPv4 NAT and routed IPv6 | Confirmed: IPv4 NAT and routed IPv6 |
 | Concurrent PPPoE on one native WAN | Confirmed: eight concurrent IPv4 NAT/TCP sessions; all seven surviving streams completed across one reconnect and ECM recreated their acceleration rules. | Confirmed: eight concurrent IPv4 NAT/TCP sessions. The seven surviving TCP streams completed across one session reconnect, with ECM rule recreation. |
 | Concurrent PPPoE across physical WAN ports | Confirmed: four IPv4 NAT/TCP sessions on WAN and four on LAN3 with separate peers. All seven surviving streams completed across one LAN3 session reconnect, with ECM rule recreation. | Confirmed: four IPv4 NAT/TCP sessions on WAN and four on LAN3 with separate peers. The seven surviving TCP streams completed across one session reconnect, with ECM rule recreation. |
-| PPPoE over one customer VLAN | Confirmed: VLAN35 | Confirmed: VLAN35/4094; tagged TCP checks paced at 100 Mbps |
+| PPPoE over one customer VLAN | Confirmed: VLAN35; one VLAN4094 session with IPv4 NAT/TCP in both directions. VLAN4094 IPv6 remains open. | Confirmed: VLAN35/4094; tagged TCP checks paced at 100 Mbps |
 | PPPoE PAP/CHAP, wrong-password rejection and reconnect | Confirmed with a controlled access concentrator | Confirmed with a controlled access concentrator |
 | PPPoE IPv4/IPv6 bidirectional UDP | Confirmed | Confirmed on native WAN and VLAN35/4094 under the default classifier policy |
 | PPPoE DHCPv6-PD, renewal and renumbering | Confirmed | Confirmed, including installed-image traffic checks |
 | MTU boundaries and IPv6 Packet Too Big | Confirmed | Confirmed |
 | 5 GHz Wi-Fi STA/client routed IPv4 | Confirmed, including cold first association/data and live traffic. Peak throughput and sustained-load reliability unqualified | Confirmed, including cold first association/data; peak capacity unvalidated |
 | 2.4 GHz Wi-Fi STA/client routed IPv4 | Partial: offload demonstrated; severe throughput limits in the test fixture | Partial: TCP/UDP offload demonstrated; weak-link performance remains unresolved |
-| Wi-Fi AP client traffic | Confirmed: bounded simultaneous routed IPv4 TCP downloads on 2.4 GHz and 5 GHz with one client per band. Sustained dual-radio load and simultaneous uploads remain open. | Confirmed: simultaneous routed IPv4 TCP on 2.4 GHz and 5 GHz with one client per band. Routed IPv6 TCP confirmed with one 5 GHz client. |
-| Wi-Fi IPv6 | Unvalidated | Confirmed: 5 GHz AP routed TCP; STA, 2.4 GHz and UDP coverage remain open |
+| Wi-Fi AP client traffic | Confirmed with one open AP client per band. Simultaneous routed IPv4 TCP downloads ran for 15 minutes and uploads for one minute. Routed IPv6 TCP passed with one 5 GHz client. | Confirmed: simultaneous routed IPv4 TCP on 2.4 GHz and 5 GHz with one client per band. Routed IPv6 TCP confirmed with one 5 GHz client. |
+| Wi-Fi IPv6 | Routed TCP confirmed in both directions with one open 5 GHz AP client. Encrypted AP, STA, 2.4 GHz and UDP coverage remain open. | Confirmed: 5 GHz AP routed TCP; STA, 2.4 GHz and UDP coverage remain open |
 | Wi-Fi WDS | Four-address peer interface registered. Forwarding acceleration remains unvalidated. | The shared 5 GHz AP and WDS station triggered a Wi-Fi firmware fault. Station-only WDS association passed. |
 | 5 GHz Wi-Fi mesh (802.11s) | Partial. WPA3-SAE peering, rejoin and routed IPv4 TCP NSS offload with a 5 GHz AP on the same channel | Partial. WPA3-SAE peering and rejoin with a 5 GHz AP on the same channel. The routed flow from AX3000 was accelerated by CR881x. |
 | Wi-Fi fast roaming (802.11r) | FT-PSK AP setup verified; client handoff unvalidated | FT-PSK AP setup verified; client handoff unvalidated |
@@ -63,6 +67,19 @@ station. A paced TCP echo crossed the wired LAN and AP via a scoped
 destination NAT rule. The exact ECM rule and IPv4/internal-radio counters
 confirmed offload with the existing 5 GHz STA uplink active.
 See [CR881x Wi-Fi validation](cr881x/nss-qosmio-wifi.md#24-ghz-ap-routed-traffic).
+
+CR881x 5 GHz AP IPv6 acceptance uses a separate routed Wi-Fi subnet and an
+external wired peer. Both TCP directions pass byte checks, with exact
+`nss_v6` ECM rules and increasing NSS IPv6 and QCN6122 counters. This bounded
+open-AP check does not establish encrypted-AP coverage or peak throughput.
+
+The CR881x dual-radio check completed 15-minute paced downloads at 6 and
+48 Mbps, followed by one minute of uploads at about 2.9 and 11.3 Mbps.
+Both exact data flows were accelerated in every matched sample. Payloads
+passed byte checks, both radios' NSS counters increased, and software-forwarded
+bytes were negligible. Minimum available memory was about 25.9 MiB, with no
+new descriptor allocation failures or radio queue drops. Clients must remain
+awake with their test pages visible; client sleep interrupts this browser fixture.
 
 The private outer S-tag identifies the physical DSA port. The inner tag carries
 the native forwarding domain or one customer VLAN. Customer S+C QinQ would
@@ -114,10 +131,10 @@ remained NSS-accelerated.
 
 | Feature | CR881x / YT9215S | AX3000 / QCA8337 |
 | --- | --- | --- |
-| NSS L2 bridge acceleration | Unvalidated: native Wi-Fi/QinQ pair mapping implemented; no device acceptance | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and UDP on WAN and LAN conduits confirmed in both directions |
-| L2 bridge policy compatibility | Unvalidated | Confirmed on LAN conduit with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated |
-| Routed IPv4 IPTV via NSS | QinQ uses software forwarding. YT9215S replication backend pending. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin under the default ECM policy. Automatic multi-port membership remains open. |
-| NSS WAN QoS | Confirmed simultaneous upload and download shaping for accelerated IPv4 TCP on native WAN, WAN VLAN 35, and single-session PPPoE over VLAN 35. Native WAN loaded latency improved. | Confirmed simultaneous upload and download shaping for IPv4 TCP on native WAN, WAN VLAN 35, and single-session PPPoE over VLAN 35. Untagged PPPoE download also passed with NSS CoDel. |
+| NSS L2 bridge acceleration | Partial: one open 5 GHz AP client ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and paced WebRTC UDP confirmed in both directions on WAN and LAN3 conduits. WAN UDP payload and MAC-header checks span separate trials; LAN3 checks pass together. | Partial: 5 GHz AP ↔ native QinQ port in one VLAN-unaware bridge; IPv4/IPv6 TCP and UDP on WAN and LAN conduits confirmed in both directions |
+| L2 bridge policy compatibility | Confirmed on WAN and LAN3 conduits with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated. | Confirmed on LAN conduit with IPv4/IPv6 TCP and ICMP: isolation, VLAN/PVID restrictions, host fallback and native NSS recovery; UDP fallback unvalidated |
+| Routed IPv4 IPTV via NSS | Experimental on `nss-experiment`. One stream over native WAN reached two wired receivers. Leave, rejoin and final NSS rule withdrawal passed. Routed IPTV on `master` uses Linux forwarding. | Partial. One wired receiver passed `igmpproxy` join, leave and rejoin under the default ECM policy. Automatic multi-port membership remains open. |
+| NSS WAN QoS | Confirmed simultaneous upload and download shaping for accelerated IPv4 TCP on native WAN, WAN VLAN35, and single-session PPPoE untagged or over VLAN35/4094. Native WAN loaded latency improved. | Confirmed simultaneous upload and download shaping for IPv4 TCP on native WAN, WAN VLAN 35, and single-session PPPoE over VLAN 35. Untagged PPPoE download also passed with NSS CoDel. |
 | TUNIPIP6 / TUN6RD / GRE / L2TPv2 / PPTP / VXLAN | Excluded by current hierarchy mapping; no device acceptance | Excluded by current hierarchy mapping; no device acceptance |
 | MAP-T | Disabled, unvalidated | Disabled, unvalidated |
 | NSS MATCH / MIRROR managers | Disabled, unvalidated | Disabled, unvalidated |
@@ -145,6 +162,23 @@ path. Configure the IPTV upstream and downstream in the multicast routing
 daemon. The downstream is one VLAN-unaware wired bridge with IGMPv2
 snooping and a local querier. Linux supplies the receiver set and the
 switch driver supplies the QinQ tags for one NSS output.
+
+On `nss-experiment`, CR881x builds with `CONFIG_DSA_YT921X_QINQ_MULTICAST=y`
+pass `qinq_multicast=1` when the driver loads. This reserves ACL block 46 for
+up to two IPv4 groups and leaves the ordinary QinQ steering rules in block 47.
+Each rule matches CPU8, private S-VID 4000, the native bridge C-VID and the
+full IPv4 group address. The driver verifies the destination bitmap and
+publishes the path only for the complete receiver set. Membership or policy
+changes invalidate the path and trigger reconciliation. Extra groups use Linux
+forwarding.
+The default profile leaves the experimental backend disabled.
+
+The CR881x check used `igmpproxy` and the default ECM policy. Exact ECM
+rules and NSS TX counts confirmed one firmware packet per source packet.
+LAN1 and LAN3 both received the numbered payloads when subscribed, and a
+LAN3 wire capture confirmed untagged delivery. Leaving stopped LAN3 traffic
+while LAN1 continued. The last leave withdrew the firmware rule. Concurrent
+streams and startup behavior still need qualification.
 
 ECM resolves the upstream independently. It can use a native QinQ WAN
 port or a separate, registered NSS Ethernet MAC, either untagged or with
@@ -211,8 +245,11 @@ PPPoE. At a 300 Mbps cap, routed IPv4 TCP download reached about 142 Mbps
 with FQ-CoDel and 284 Mbps with CoDel on untagged PPPoE. The service selected
 CoDel for PPPoE on VLAN 35, where simultaneous 100 Mbps upload and 300 Mbps
 download caps yielded 90 and 257 Mbps with both flows still accelerated.
-Concurrent PPPoE sessions under shaping and untagged PPPoE shaping on CR881x
-remain unvalidated.
+CR881x also passes simultaneous accelerated upload and download on untagged
+PPPoE and PPPoE over VLAN4094. With 100/200 Mbps caps, both paths reach about
+86/172 Mbps with active FQ-CoDel upload and CoDel download queues. Removing
+the queues restores uncapped rates. VLAN4094 coverage is one IPv4 session;
+concurrent PPPoE sessions under shaping remain unvalidated.
 
 ## Switch offload and driver controls
 
@@ -222,7 +259,7 @@ remain unvalidated.
 | Customer VLAN membership, PVID and tagged/untagged egress | Confirmed in the tested matrix | Confirmed, including withdrawal/re-add and filtering transitions |
 | FDB/MDB forwarding domains | Confirmed in the tested matrix | Confirmed after the bridge-database isolation fix, including two separate bridges |
 | Same-switch bridged IPTV from WAN to TV ports | Unvalidated | Unvalidated |
-| Switch replication of CPU-injected QinQ multicast | Unvalidated | An exact ACL bitmap replicated QinQ frames from both host injection and NSS. Changing the bitmap changed the receivers under the same NSS rule. Ordinary MDB lookup did not forward the tested CPU frames. |
+| Switch replication of CPU-injected QinQ multicast | Confirmed on `nss-experiment` for one accelerated IPv4 stream to LAN1 and LAN3. The switch delivered one untagged copy per subscribed port during steady forwarding. | An exact ACL bitmap replicated QinQ frames from both host injection and NSS. Changing the bitmap changed the receivers under the same NSS rule. Ordinary MDB lookup did not forward the tested CPU frames. |
 | STP/MST under the QinQ profile | Confirmed in the tested matrix | Unvalidated |
 | Hardware ingress ACL/policing, mirroring and TBF shaping | Selected paths confirmed | Comparable QinQ control coverage unvalidated; transport ACLs alone do not establish it |
 | Strict-priority / weighted contention | Acceptance incomplete | Unvalidated |
@@ -234,8 +271,8 @@ captures alone cannot measure all offloaded traffic.
 
 ## Remaining qualification and references
 
-Sustained dual-radio AP load on CR881x, larger client counts on AX3000,
-roaming, repeated boot cycles and long-duration memory testing remain open. QCA
+Dual-radio peak capacity, larger client counts on both devices, roaming,
+repeated boot cycles and long-duration memory testing remain open. QCA
 bridge-domain checks cover bounded packet/routing cases; cold-boot and
 endurance qualification remain incomplete. A common feature table does not imply identical
 peak rates, advanced switch controls or complete recovery coverage.

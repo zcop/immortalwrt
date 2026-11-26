@@ -11,6 +11,16 @@ across WAN and LAN3. Tagged concurrent sessions, MS-CHAP/EAP, ISP
 interoperability, sustained soak and firmware-destroy error recovery remain
 unvalidated.
 
+Single-session VLAN4094 also passes simultaneous IPv4 NAT/TCP in both
+directions through a controlled access concentrator, with exact accelerated
+ECM hierarchies naming `wan.4094` and the PPP interface. One customer
+802.1Q tag is observed on concentrator transmissions. This does not extend
+VLAN35's IPv6, DHCPv6-PD or authentication coverage to VLAN4094.
+
+Concurrent IPv4 TCP upload/download shaping passes on native PPPoE and
+VLAN4094 with NSS FQ-CoDel on upload and NSS CoDel on download. Both queues
+carry accelerated traffic, and removing them restores uncapped rates.
+
 ## Mapping and lifetime
 
 ECM overlay `0110-qinq-admit-single-pppoe-session.patch` permits one innermost

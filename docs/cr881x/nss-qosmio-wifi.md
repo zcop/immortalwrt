@@ -1,6 +1,6 @@
-# Experimental Qosmio Wi-Fi NSS on CR881x
+# Qosmio Wi-Fi NSS on CR881x
 
-Status:2026-11-10. Build42 is installed in slot0, with Build41 retained in
+Historical STA status:2026-11-10. Build42 was tested in slot0, with Build41 retained in
 slot1. Build42 retains the corrected256MiB allocation profile and enables
 matched PAUSE on GMAC1/switch CPU8. Build41 warm and confirmed cold
 startup, first5GHz association and forwarded data pass. Build40 results
@@ -12,7 +12,55 @@ acceleration but fails performance acceptance at roughly0.5–0.9Mbps TCP in
 the current fixture. A same-image Wi-Fi-NSS-disabled control is also poor at
 0.13–0.49Mbps; interference is not independently established. A later bounded
 [2.4 GHz AP check](#24-ghz-ap-routed-traffic) confirms routed IPv4 TCP offload.
-5 GHz AP traffic, Wi-Fi IPv6 and broader reliability remain open.
+Current AP coverage is recorded in the [shared feature matrix](../nss-feature-matrix.md).
+
+## Routed AP IPv6
+
+One open 5 GHz AP client and an external wired peer pass routed IPv6 TCP
+downloads and uploads with byte verification. Exact `nss_v6` ECM rules name
+the AP and native WAN, and NSS IPv6 and QCN6122 RX/TX counters increase during
+both transfers. Check the actual forwarded tuple; router-generated traffic
+does not establish this acceleration. Encrypted APs, 2.4 GHz, STA IPv6,
+UDP and sustained IPv6 load remain unvalidated.
+
+## Sustained dual-band AP traffic
+
+One open AP client per band passes 15 minutes of simultaneous routed IPv4
+TCP downloads at paced 6/48 Mbps and one minute of uploads at about
+2.9/11.3 Mbps. External endpoints verify every payload byte. Match each
+server-observed NAT port to the corresponding AP's accelerated ECM rule,
+and check NSS IPv4 and both radios' counters while both transfers overlap.
+Scoped software-forwarding counters distinguish bulk offload from control
+packets. The check recorded no payload errors, descriptor allocation failures
+or radio queue drops, with at least 25.9 MiB available memory.
+
+Keep both client screens awake, browsers visible and VPNs paused during this
+fixture. These paced checks establish sustained operation at the stated loads;
+they do not qualify peak rates, encrypted dual-band operation, larger client
+counts or long-duration reliability.
+
+## Native Wi-Fi bridge traffic
+
+One open 5 GHz AP client and a wired peer on a native QinQ WAN or LAN3 port pass
+bounded IPv4/IPv6 TCP downloads and uploads in one VLAN-unaware bridge.
+Exact ECM tuples report `is_routed=0`, name the AP and physical DSA port,
+and accelerate while NSS IPv4/IPv6 hash-hit and Wi-Fi counters increase.
+Peer captures preserve both endpoints' MAC addresses. This is distinct from
+same-switch LAN forwarding. On both wired/AP pairs, IPv4/IPv6 TCP and ICMP checks
+also confirm software forwarding with one isolated port, blocking with both
+ports isolated, software fallback with bridge VLAN filtering, blocking with
+mismatched PVIDs, and native NSS recovery after restoring policy. Check delivery
+before and after each blocked phase. Regeneration can reverse ECM's tuple
+orientation, so match both endpoint directions when checking the restored rule.
+
+Paced, unreliable WebRTC UDP also demonstrates IPv4/IPv6 acceleration in both
+directions using 128- and 1000-byte messages. Exact ICE port tuples map to
+bridged NSS rules, with increasing firmware counters. On LAN3, all 18,400
+messages and endpoint MAC-header checks pass in the same trial. WAN functional
+acceptance combines zero-loss payload checks with header evidence from a separate
+trial that lost one small message. This does not establish error-free wireless
+delivery. Full-MTU UDP, capacity, UDP policy fallback and sustained UDP
+reliability remain open.
 
 ## Source and integration
 
@@ -393,9 +441,10 @@ kernel warning is detected. WAN remains1Gbps with DHCP pending as before the
 test; a new wired throughput pass is not claimed.
 Evidence: `logs/cr8812dx-wifi24-control-20261110/REPORT.md`.
 
-AP mode, internal2.4GHz performance/cold recovery, Wi-Fi IPv6, multiple
-clients, customer-VLAN/bridge combinations, recovery/churn and sustained load
-remain unvalidated. Mesh is not enabled in the profile. Existing wired DSA/QinQ
+The historical STA checks do not cover AP mode, internal2.4GHz
+performance/cold recovery, STA IPv6, multiple clients, customer-VLAN/bridge
+combinations, recovery/churn or sustained load. Mesh is not enabled in this
+branch's profile. Existing wired DSA/QinQ
 acceptance stays distinct from this new Wi-Fi matrix.
 
 Evidence: `logs/cr8812dx-wifi-nss-20261110/`, including build39/40 manifests,

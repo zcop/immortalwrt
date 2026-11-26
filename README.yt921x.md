@@ -13,9 +13,9 @@ The enhanced driver is built as `yt921x_driver.ko`, using
 is `tag_yt921x_enhanced.ko`. The upstream YT921x/YT922x backports remain
 separate; the enhanced module parameters and on-wire formats are unchanged.
 
-CR881x NSS/QinQ status, updated 2026-11-09: the native Qosmio profile starts
-automatically on Linux6.18.60 and retains DSA port identity. Development uses
-`nss-experiment`; `master` is the release/build branch. See
+The native Qosmio NSS/QinQ profile starts automatically on Linux 6.18.60 and
+retains DSA port identity. Normal development and release builds use `master`.
+Future NSS experiments use `nss-experiment`. See
 [current acceptance status](docs/cr881x/nss-qosmio-dsa-slices.md#current-acceptance-status)
 and the [daily packet-delivery matrix](docs/cr881x/nss-qinq-daily-traffic.md).
 The DONE baseline below is preserved; it does not imply every native-QinQ
