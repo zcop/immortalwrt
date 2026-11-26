@@ -121,7 +121,8 @@ Board-specific validation note:
   - hardware FDB learning/aging path and fast-age operations
   - MDB hardware multicast replication path
 - ACL offload:
-  - ingress/egress `tc flower` offload with hardware actions
+  - ingress `tc flower` offload with hardware actions
+  - egress port mirroring uses a separate hardware path
   - UDF-backed TTL/hop-limit matching path
 - QoS bandwidth offload:
   - queue bandwidth shaping via `tc tbf` offload path
@@ -192,6 +193,14 @@ for the source checks, measured limits and preserved validated fallback.
 - Parser behavior is intentionally strict:
   - unsupported shapes are rejected (`-EOPNOTSUPP`/`-EINVAL`)
   - resource exhaustion returns clean `-ENOSPC` (no silent wrap/corruption)
+
+CR881x native QinQ supports the tested flow and port mirrors, including WAN
+egress mirroring with an NSS-accelerated flow. Redirect delivered frames within
+`br-lan`; redirect to standalone WAN installed in hardware and delivered zero
+frames in that fixture. QinQ `tc flower` traps steer to the ingress port's
+assigned CPU conduit without a blackhole meter. Linux receives the trapped
+frame on the ingress netdev.
+Generic forward-and-copy to the CPU has no `tc flower` mapping in this driver.
 
 ### ACL UDF Surfaces
 - UDF-backed `ip_ttl` / IPv6 hop-limit match path

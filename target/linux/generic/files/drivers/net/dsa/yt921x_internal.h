@@ -355,6 +355,7 @@ int yt921x_8021q_bridge_vlan(struct yt921x_priv *priv, int port,
 int yt921x_tag_8021q_vlan_add(struct dsa_switch *ds, int port, u16 vid, u16 flags);
 int yt921x_tag_8021q_vlan_del(struct dsa_switch *ds, int port, u16 vid);
 /* Experimental QinQ port-ID transport. Register helpers require reg_lock. */
+int yt921x_qinq_expected_cpu(const struct yt921x_priv *priv, int user_port);
 int yt921x_qinq_setup(struct yt921x_priv *priv);
 int yt921x_qinq_acl_setup(struct yt921x_priv *priv);
 int yt921x_qinq_acl_teardown(struct yt921x_priv *priv);

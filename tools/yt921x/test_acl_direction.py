@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Behavioral test for the YT921x ACL direction safety guard.
+"""Behavioral tests for the YT921x ACL direction guard and trap action.
 
-The real yt921x_dsa_cls_flower_add() is extracted from the native driver source
-and compiled against minimal stubs.  The default source path is the native
-driver relative to this repository.  Run after applying egress-safety.patch.
+The flower add callback and the drop and trap action cases are extracted
+from the driver source and compiled against minimal stubs.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE = (REPO_ROOT /
                   "target/linux/generic/files/drivers/net/dsa/yt921x_acl.c")
+QINQ_SOURCE = DEFAULT_SOURCE.with_name("yt921x_qinq_acl.c")
 EGRESS_MSG = ("Hardware egress ACL is unsupported; "
               "rule inversion is not an egress selector")
 
@@ -118,7 +118,15 @@ typedef uint64_t u64;
 #define YT921X_UDF_NUM 8
 #define YT921X_ACL_FLOW_STATS_ID_INVALID UINT8_MAX
 #define YT921X_ACL_METER_ID_INVALID UINT8_MAX
+#define YT921X_ACL_METER_ID_BLACKHOLE 63
+#define YT921X_ACL_ACTa_METER_EN (1u << 14)
 #define YT921X_ACL_ACTa_METER_ID_M (0x3fu << 15)
+#define YT921X_ACL_ACTc_REDIR_EN (1u << 9)
+#define YT921X_ACL_ACTc_REDIR_DPORTS_M (0x7ffu << 10)
+#define YT921X_ACL_ACTc_REDIR_DPORTn(port) (1u << (10 + (port)))
+#define YT921X_ACL_ACTc_REDIR_M (3u << 21)
+#define YT921X_ACL_ACTc_REDIR_STEER (2u << 21)
+#define YT921X_ACL_ACTc_REDIR_TRAP (3u << 21)
 #define YT921X_ACL_ACTa_FLOW_STATS_EN (1u << 12)
 #define YT921X_ACL_ACTa_FLOW_STATS_PTR (0x3fu << 6)
 #define FIELD_PREP(mask, val) \
@@ -135,6 +143,11 @@ struct dsa_switch {
 
 struct yt921x_priv {
 	int reg_lock;
+	bool qinq;
+	int primary_cpu_port;
+	int secondary_cpu_port;
+	u16 dt_secondary_conduit_user_mask;
+	bool dt_secondary_conduit_user_mask_valid;
 };
 
 struct yt921x_acl_entry {
@@ -170,6 +183,8 @@ struct flow_cls_offload {
 
 enum {
 	FLOW_ACTION_POLICE = 1,
+	FLOW_ACTION_DROP,
+	FLOW_ACTION_TRAP,
 };
 
 #define flow_action_for_each(i, act, action) \
@@ -396,6 +411,25 @@ yt921x_acl_flow_stats_free(struct yt921x_priv *priv, u32 flow_stats_id)
 }
 
 @FUNCTION@
+@QINQ_CPU@
+
+static int encode_terminal_action(struct yt921x_priv *priv,
+				  struct yt921x_acl_entry *group, int port, int id)
+{
+	struct netlink_ext_ack error = {0}, *extack = &error;
+	bool police_seen = false;
+	bool trap_seen = false;
+	u32 *action = group[0].action;
+
+	(void)priv;
+	(void)port;
+	switch (id) {
+@TERMINAL_CASES@
+	default:
+		return -EINVAL;
+	}
+	return trap_seen;
+}
 
 #define CHECK(cond) do { \
 	if (!(cond)) { \
@@ -598,6 +632,50 @@ static int test_add_failure_cleanup(void)
 	return 0;
 }
 
+static int test_trap_and_drop_encoding(void)
+{
+	const u32 blackhole = YT921X_ACL_ACTa_METER_EN |
+		FIELD_PREP(YT921X_ACL_ACTa_METER_ID_M,
+			   YT921X_ACL_METER_ID_BLACKHOLE);
+	const u32 trap = YT921X_ACL_ACTc_REDIR_EN | YT921X_ACL_ACTc_REDIR_TRAP;
+	const u32 steer = YT921X_ACL_ACTc_REDIR_EN | YT921X_ACL_ACTc_REDIR_STEER;
+	struct yt921x_priv priv = {
+		.qinq = true,
+		.primary_cpu_port = 8,
+		.secondary_cpu_port = 4,
+		.dt_secondary_conduit_user_mask = BIT(3),
+		.dt_secondary_conduit_user_mask_valid = true,
+	};
+	struct yt921x_acl_entry entry;
+	int port;
+
+	for (port = 0; port < 4; port++) {
+		int cpu = port == 3 ? 4 : 8;
+
+		entry = (struct yt921x_acl_entry){
+			.meter_id = YT921X_ACL_METER_ID_INVALID,
+		};
+		CHECK(encode_terminal_action(&priv, &entry, port, FLOW_ACTION_TRAP) == 1);
+		CHECK(entry.action[0] == 0);
+		CHECK(entry.action[2] == (steer | YT921X_ACL_ACTc_REDIR_DPORTn(cpu)));
+		CHECK(entry.meter_id == YT921X_ACL_METER_ID_INVALID);
+	}
+
+	entry = (struct yt921x_acl_entry){ .meter_id = YT921X_ACL_METER_ID_INVALID };
+	CHECK(encode_terminal_action(&priv, &entry, 0, FLOW_ACTION_DROP) == 0);
+	CHECK(entry.action[0] == blackhole);
+	CHECK(entry.action[2] == 0);
+	CHECK(entry.meter_id == YT921X_ACL_METER_ID_BLACKHOLE);
+
+	priv.qinq = false;
+	entry = (struct yt921x_acl_entry){ .meter_id = YT921X_ACL_METER_ID_INVALID };
+	CHECK(encode_terminal_action(&priv, &entry, 0, FLOW_ACTION_TRAP) == 1);
+	CHECK(entry.action[0] == blackhole);
+	CHECK(entry.action[2] == trap);
+	CHECK(entry.meter_id == YT921X_ACL_METER_ID_BLACKHOLE);
+	return 0;
+}
+
 int main(void)
 {
 	if (test_egress_rejected_before_work() ||
@@ -606,9 +684,11 @@ int main(void)
 	    test_ingress_proceeds_to_parse_and_add() ||
 	    test_flow_stats_alloc_failure() ||
 	    test_meter_alloc_failure_cleanup() ||
-	    test_add_failure_cleanup())
+	    test_add_failure_cleanup() ||
+	    test_trap_and_drop_encoding())
 		return 1;
 	puts("PASS: egress rejected before parse/lock/alloc/hw; ingress still reaches parse/add");
+	puts("PASS: QinQ trap uses its pinned CPU port without the blackhole meter; drop and legacy trap retain it");
 	return 0;
 }
 '''
@@ -628,6 +708,15 @@ def main() -> int:
     source = args.source.read_text()
     function = extract_function(source, "yt921x_dsa_cls_flower_add")
     parse_key = extract_function(source, "yt921x_acl_parse_key")
+    parse_action = extract_function(source, "yt921x_acl_parse_action")
+    qinq_cpu = extract_function(QINQ_SOURCE.read_text(), "yt921x_qinq_expected_cpu")
+    terminal_cases = []
+    for action in ("DROP", "TRAP"):
+        match = re.search(rf"^\t\tcase FLOW_ACTION_{action}:.*?(?=^\t\t(?:case |default:))",
+                          parse_action, re.MULTILINE | re.DOTALL)
+        if match is None:
+            raise ValueError(f"FLOW_ACTION_{action} case not found")
+        terminal_cases.append(match.group())
     if "YT921X_ACL_KEYb_REVERSE" in parse_key:
         print("FAIL: KEYb_REVERSE is still used by yt921x_acl_parse_key",
               file=sys.stderr)
@@ -637,6 +726,8 @@ def main() -> int:
               if function.lstrip().startswith("yt921x_dsa_cls_flower_add")
               else "")
     harness = C_HARNESS.replace("@FUNCTION@", prefix + function)
+    harness = harness.replace("@QINQ_CPU@", qinq_cpu)
+    harness = harness.replace("@TERMINAL_CASES@", "".join(terminal_cases))
     with tempfile.TemporaryDirectory(prefix="yt921x-acl-direction-") as tmp:
         c_path = Path(tmp) / "harness.c"
         exe_path = Path(tmp) / "harness"

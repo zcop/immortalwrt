@@ -1298,7 +1298,7 @@ yt921x_acl_parse_mangle_dscp(const struct flow_rule *rule,
 static int
 yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			struct yt921x_priv *priv,
-			struct dsa_switch *ds,
+			struct dsa_switch *ds, int port,
 			struct flow_cls_offload *cls)
 {
 	const struct flow_rule *rule = flow_cls_offload_flow_rule(cls);
@@ -1361,9 +1361,7 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 						   "Trap cannot be combined with police");
 				return -EOPNOTSUPP;
 			}
-			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
-			    (action[2] & YT921X_ACL_ACTc_REDIR_M) !=
-				    YT921X_ACL_ACTc_REDIR_TRAP) {
+			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) && !trap_seen) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Trap cannot be combined with redirect");
 				return -EOPNOTSUPP;
@@ -1371,24 +1369,30 @@ yt921x_acl_parse_action(struct yt921x_acl_entry *group,
 			action[2] &= ~(YT921X_ACL_ACTc_REDIR_M |
 				       YT921X_ACL_ACTc_REDIR_DPORTS_M);
 			action[2] |= YT921X_ACL_ACTc_REDIR_EN;
-			action[2] |= YT921X_ACL_ACTc_REDIR_TRAP;
-			/* YT9215 trap is copy-to-CPU; pair with blackhole meter for
-			 * strict trap consume semantics expected by tc trap.
-			 */
-			action[0] |= YT921X_ACL_ACTa_METER_EN;
-			action[0] &= ~YT921X_ACL_ACTa_METER_ID_M;
-			action[0] |= FIELD_PREP(YT921X_ACL_ACTa_METER_ID_M,
-						YT921X_ACL_METER_ID_BLACKHOLE);
-			group[0].meter_id = YT921X_ACL_METER_ID_BLACKHOLE;
+			if (priv->qinq) {
+				int cpu = yt921x_qinq_expected_cpu(priv, port);
+
+				/* The trap opcode targets the primary CPU.
+				 * QinQ needs the ingress port's pinned conduit
+				 * and a blackhole meter suppresses CPU delivery.
+				 */
+				action[2] |= YT921X_ACL_ACTc_REDIR_STEER |
+					     YT921X_ACL_ACTc_REDIR_DPORTn(cpu);
+			} else {
+				action[2] |= YT921X_ACL_ACTc_REDIR_TRAP;
+				action[0] |= YT921X_ACL_ACTa_METER_EN;
+				action[0] &= ~YT921X_ACL_ACTa_METER_ID_M;
+				action[0] |= FIELD_PREP(YT921X_ACL_ACTa_METER_ID_M,
+							YT921X_ACL_METER_ID_BLACKHOLE);
+				group[0].meter_id = YT921X_ACL_METER_ID_BLACKHOLE;
+			}
 			trap_seen = true;
 			break;
 		case FLOW_ACTION_REDIRECT:
 #ifdef FLOW_ACTION_REDIRECT_INGRESS
 		case FLOW_ACTION_REDIRECT_INGRESS:
 #endif
-			if ((action[2] & YT921X_ACL_ACTc_REDIR_EN) &&
-			    (action[2] & YT921X_ACL_ACTc_REDIR_M) !=
-				    YT921X_ACL_ACTc_REDIR_STEER) {
+			if (trap_seen) {
 				NL_SET_ERR_MSG_MOD(extack,
 						   "Redirect cannot be combined with trap");
 				return -EOPNOTSUPP;
@@ -1696,7 +1700,7 @@ yt921x_acl_parse(struct yt921x_acl_entry *group, u16 ports_mask,
 		return 0;
 	}
 
-	res = yt921x_acl_parse_action(group, priv, ds, cls);
+	res = yt921x_acl_parse_action(group, priv, ds, port, cls);
 	if (res) {
 		YT921X_RECORD_ERR(priv, acl_parse_errors,
 				  YT921X_TELEM_STAGE_ACL_PARSE, res,

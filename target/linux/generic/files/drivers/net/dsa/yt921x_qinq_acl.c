@@ -21,14 +21,13 @@ struct yt921x_qinq_rule {
 
 static const u32 yt921x_qinq_zero_action[3];
 
-static int
-yt921x_qinq_expected_cpu(struct yt921x_priv *priv, int user_port)
+int yt921x_qinq_expected_cpu(const struct yt921x_priv *priv, int user_port)
 {
 	if (priv->dt_secondary_conduit_user_mask_valid &&
 	    (priv->dt_secondary_conduit_user_mask & BIT(user_port)))
-		return 4;
+		return priv->secondary_cpu_port;
 
-	return 8;
+	return priv->primary_cpu_port;
 }
 
 static int
