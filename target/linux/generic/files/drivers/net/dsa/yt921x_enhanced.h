@@ -998,7 +998,6 @@ enum yt921x_app_selector {
 #define YT921X_STPn(n)			(0x18038c + 4 * (n))
 #define  YT921X_STP_PORTn_M(port)		GENMASK(2 * (port) + 1, 2 * (port))
 #define   YT921X_STP_PORTn(port, x)			((x) << (2 * (port)))
-#define   YT921X_STP_PORTn_DISABLED(port)		YT921X_STP_PORTn(port, 0)
 #define   YT921X_STP_PORTn_LEARNING(port)		YT921X_STP_PORTn(port, 1)
 #define   YT921X_STP_PORTn_BLOCKING(port)		YT921X_STP_PORTn(port, 2)
 #define   YT921X_STP_PORTn_FORWARD(port)		YT921X_STP_PORTn(port, 3)

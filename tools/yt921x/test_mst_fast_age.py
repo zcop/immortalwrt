@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Exercise the real yt921x per-VLAN fast-age C path against mocked hardware.
+"""Exercise yt921x STP state encoding and per-VLAN fast age.
 
-The driver functions are extracted from yt921x_l2.c and compiled unchanged.
+The driver functions are extracted and compiled unchanged.
 The mocks implement the register command semantics needed by the FDB flush
 path: IN1 carries the FID, IN2 the egress-port mask, and the FDB_OP write
 starts a port+VID flush.  The FDB model then applies the command so the
@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DSA_DIR = ROOT / "target/linux/generic/files/drivers/net/dsa"
 L2_C = DSA_DIR / "yt921x_l2.c"
+PORT_C = DSA_DIR / "yt921x_port.c"
 MAIN_C = DSA_DIR / "yt921x_enhanced.c"
 INTERNAL_H = DSA_DIR / "yt921x_internal.h"
 SWITCH_H = DSA_DIR / "yt921x_enhanced.h"
@@ -37,6 +38,11 @@ EXTRACTED = [
 ]
 
 HEADER_MACROS = [
+    "YT921X_PORT_NUM",
+    "YT921X_STP_PORTn",
+    "YT921X_STP_PORTn_LEARNING",
+    "YT921X_STP_PORTn_BLOCKING",
+    "YT921X_STP_PORTn_FORWARD",
     "YT921X_VID_UNAWARE",
     "YT921X_FDB_IN1",
     "YT921X_FDB_IN2",
@@ -270,6 +276,11 @@ struct yt921x_priv {
 $header_macros
 #define YT921X_VLAN_FID_MODE_IVL 0
 #define YT921X_VLAN_FID_MODE_SVL $svl_value
+#define BR_STATE_DISABLED 0
+#define BR_STATE_LISTENING 1
+#define BR_STATE_LEARNING 2
+#define BR_STATE_FORWARDING 3
+#define BR_STATE_BLOCKING 4
 
 static int mock_dev_warn(struct device *dev, const char *fmt, ...)
 {
@@ -293,7 +304,7 @@ int yt921x_reg_wait(struct yt921x_priv *priv, u32 reg, u32 mask, u32 *valp);
 static void mutex_lock(struct mutex *m);
 static void mutex_unlock(struct mutex *m);
 
-/* Real driver functions extracted from yt921x_l2.c. */
+/* Real driver functions extracted from yt921x_l2.c and yt921x_port.c. */
 $functions
 
 #define FDB_MAX 32
@@ -657,6 +668,32 @@ static void test_wait_failure(struct yt921x_priv *priv, int failures_left)
 	check_locked_balanced(priv);
 }
 
+static void test_stp_state_encoding(void)
+{
+	static const u32 expected[] = {
+		[BR_STATE_DISABLED] = 2,
+		[BR_STATE_LISTENING] = 2,
+		[BR_STATE_LEARNING] = 1,
+		[BR_STATE_FORWARDING] = 3,
+		[BR_STATE_BLOCKING] = 2,
+	};
+	int port;
+	size_t state;
+	u32 ctrl;
+
+	for (port = 0; port < YT921X_PORT_NUM; port++) {
+		for (state = 0; state < sizeof(expected) / sizeof(expected[0]); state++) {
+			ctrl = UINT32_MAX;
+			CHECK(yt921x_stp_encode_state(port, state, &ctrl) == 0);
+			CHECK(ctrl == (expected[state] << (2 * port)));
+		}
+	}
+
+	ctrl = UINT32_MAX;
+	CHECK(yt921x_stp_encode_state(3, 5, &ctrl) == -EINVAL);
+	CHECK(ctrl == UINT32_MAX);
+}
+
 int main(void)
 {
 	struct yt921x_priv priv;
@@ -666,6 +703,7 @@ int main(void)
 	priv.ds.dev = &dev;
 	priv.ds.num_ports = 11;
 
+	test_stp_state_encoding();
 	test_invalid_inputs(&priv);
 	test_valid_boundaries(&priv);
 	test_ivl(&priv);
@@ -682,7 +720,7 @@ int main(void)
 		return 1;
 	}
 
-	printf("MST fast-age harness: all checks passed\n");
+	printf("STP state and MST fast-age harness: all checks passed\n");
 	return 0;
 }
 """
@@ -696,6 +734,7 @@ def main() -> int:
     switch_header = SWITCH_H.read_text()
 
     functions = "\n\n".join(extract_function(l2_source, name) for name in EXTRACTED)
+    functions += "\n\n" + extract_function(PORT_C.read_text(), "yt921x_stp_encode_state")
     callback_body = extract_function(l2_source, CALLBACK)
     check_source_contract(internal_source, main_source, callback_body)
 

@@ -87,10 +87,11 @@ yt921x_port_ctrl_apply_dt(struct yt921x_priv *priv, int port, bool allow_managed
 int
 yt921x_stp_encode_state(int port, u8 state, u32 *ctrl)
 {
+	/* Hardware state 0 bypasses STP filtering. Linux disabled ports
+	 * need discarding even when their physical link is up.
+	 */
 	switch (state) {
 	case BR_STATE_DISABLED:
-		*ctrl = YT921X_STP_PORTn_DISABLED(port);
-		break;
 	case BR_STATE_BLOCKING:
 	case BR_STATE_LISTENING:
 		*ctrl = YT921X_STP_PORTn_BLOCKING(port);

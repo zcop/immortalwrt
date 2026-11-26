@@ -262,6 +262,35 @@ Design intent:
 - Per-port unknown-unicast flood semantics do not map 1:1 to hardware in all cases; unsupported bridge flag semantics are rejected instead of partially emulated.
 - Active queue management (WRED/RED) is not available on this target. Buffer/admission defaults have documented addresses, but tail-drop threshold tuning and full field semantics remain unfinished; the mapped `0x34xxxx` scheduler/shaper blocks must not be treated as unidentified BMU controls.
 
+## Native QinQ compatibility on CR881x
+
+The CPU transport uses an outer S-tag for port identity and one inner C-tag
+for the bridge or customer VLAN. PHY negotiation and the switch's physical
+port and queue counts use the same hardware as standard DSA.
+
+- Bridge VLANs share the switch table with private transport VIDs. Customer
+  membership, PVID, tag stripping and PCP preservation work on admitted VIDs.
+  Native QinQ carries one customer C-tag. The LAN and WAN CPU paths support
+  IP MTU 1500. For customer S+C through the CPU, use the
+  [standard DSA profile](docs/cr881x/standard-dsa-qinq-fallback.md).
+- VLAN-unaware bridges use private SVID lookup with a shared bridge FID.
+  Learning, port isolation, known multicast replication, IGMP/MLD fast leave
+  and router-port forwarding work in that configuration.
+- CIST blocking and per-VLAN MST blocking stop switched traffic. The driver
+  also maps the Linux `disabled` state to hardware discard so a live link
+  stops forwarding. Older builds that program hardware state 0 bypass this
+  check.
+- CPU-bound control frames can use a different conduit from data. WAN EAPOL
+  reaches the WAN netdev through CPU8. This verifies control-frame delivery.
+  Bridged 802.1X authentication, guest VLAN assignment and per-action RMA
+  forwarding remain open in native QinQ.
+- Ingress ACLs, mirrors, policing and the tested port and queue shapers can
+  coexist with the reserved QinQ steering rules. Strict and weighted scheduler
+  behavior under contention still needs packet validation.
+- QinQ rejects joining a LAG when the port has direct customer VLAN uppers.
+  Two-link LACP, end-to-end jumbo traffic and vendor-specific MVR and VLAN
+  translation combinations require their own validation.
+
 ## Useful References
 
 - Live reverse-engineering notes: `docs/yt921x/live/`
