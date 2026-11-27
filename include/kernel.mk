@@ -100,8 +100,13 @@ endif
 
 KERNEL_MAKE = $(MAKE) $(KERNEL_MAKEOPTS)
 
+# A profile switch can change private kernel layouts while leaving individual
+# kbuild prerequisites unchanged. Put the package ABI in the compile command
+# so kbuild rebuilds external objects when the kernel configuration changes.
+KERNEL_MODULE_ABI_CFLAG = $(if $(and $(__package_mk),$(filter-out unknown,$(LINUX_VERMAGIC))),-DOPENWRT_KMOD_CONFIG_HASH=$(LINUX_VERMAGIC))
+
 KERNEL_MAKE_FLAGS = \
-	KCFLAGS="$(call iremap,$(BUILD_DIR),$(notdir $(BUILD_DIR))) $(IREMAP_STAGING_DIR) $(IREMAP_TOOLCHAIN_DIR) $(filter-out -fno-plt,$(call qstrip,$(CONFIG_EXTRA_OPTIMIZATION))) $(call qstrip,$(CONFIG_KERNEL_CFLAGS))" \
+	KCFLAGS="$(call iremap,$(BUILD_DIR),$(notdir $(BUILD_DIR))) $(IREMAP_STAGING_DIR) $(IREMAP_TOOLCHAIN_DIR) $(filter-out -fno-plt,$(call qstrip,$(CONFIG_EXTRA_OPTIMIZATION))) $(call qstrip,$(CONFIG_KERNEL_CFLAGS)) $(KERNEL_MODULE_ABI_CFLAG)" \
 	KAFLAGS="$(call iremap,$(BUILD_DIR),$(notdir $(BUILD_DIR))) $(IREMAP_STAGING_DIR) $(IREMAP_TOOLCHAIN_DIR)" \
 	HOSTCFLAGS="$(HOST_CFLAGS) -Wall -Wmissing-prototypes -Wstrict-prototypes" \
 	CROSS_COMPILE="$(KERNEL_CROSS)" \
@@ -203,7 +208,7 @@ ifeq ($(DUMP)$(TARGET_BUILD),)
 endif
 
 define KernelPackage/depends
-  $(STAMP_BUILT): $(LINUX_DIR)/.config
+  $(STAMP_BUILT): $(LINUX_DIR)/.config $(wildcard $(LINUX_DIR)/.vermagic)
   define KernelPackage/depends
   endef
 endef
